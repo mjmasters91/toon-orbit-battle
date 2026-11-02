@@ -872,6 +872,8 @@
           <select data-field="card" aria-label="Card for ${p.username}">${cardOpts}</select>
           <label class="goldlab"><input type="checkbox" data-field="gold"> Gold</label>
           <button type="button" class="btn" data-act="card">Grant card</button>
+          <button type="button" class="btn" data-act="all">Give all cards</button>
+          <button type="button" class="btn" data-act="allgold">Give all gold cards</button>
           <button type="button" class="btn" data-act="role">${p.role === 'admin' ? 'Demote' : 'Make admin'}</button>
         </div>
       </div>`;
@@ -906,6 +908,7 @@
     const profile = window.TOB_AUTH.listProfiles().find(p => String(p.username || '').toLowerCase() === username);
     if (!profile) { toast('That player is not on this device'); return; }
     const act = btn.dataset.act;
+    let customToast = '';
     if (act === 'coins') profile.coins = clampInt(row.querySelector('[data-field="coins"]').value, profile.coins | 0);
     else if (act === 'packs') {
       profile.packs = clampInt(row.querySelector('[data-field="packs"]').value, profile.packs | 0);
@@ -916,6 +919,15 @@
       const gold = !!row.querySelector('[data-field="gold"]').checked;
       const copy = COPIES.makeCopy(id, {gold});
       profile.collection = (profile.collection || []).concat([{id: copy.id, gold: !!copy.gold, uid: copy.uid}]);
+    } else if (act === 'all' || act === 'allgold') {
+      const gold = act === 'allgold';
+      const n = CARD_LIST.length;
+      const what = gold ? n + ' gold cards' : n + ' cards';
+      if (!window.confirm('Give ' + what + ' to ' + profile.username + '?')) return;
+      const made = CARD_LIST.map(c => COPIES.makeCopy(c.id, {gold: false})).filter(Boolean);
+      if (gold) COPIES.stampGold(made, made.length);
+      profile.collection = (profile.collection || []).concat(made.map(c => ({id: c.id, gold: !!c.gold, uid: c.uid})));
+      customToast = 'Gave ' + what + ' to ' + profile.username;
     } else if (act === 'role') {
       if (String(profile.username || '').toLowerCase() === 'guest') { toast('Guest stays a player'); return; }
       profile.role = profile.role === 'admin' ? 'player' : 'admin';
@@ -925,7 +937,7 @@
     const me = window.TOB_AUTH.currentUser();
     if (me && String(me.username || '').toLowerCase() === username) rememberPacks(saved.profile);
     const labels = {coins: 'Updated coins for ', packs: 'Updated packs for ', card: 'Granted a card to ', role: 'Updated role for '};
-    toast((labels[act] || 'Saved ') + profile.username);
+    toast(customToast || ((labels[act] || 'Saved ') + profile.username));
     showAdmin();
   }
   async function openPack() {
