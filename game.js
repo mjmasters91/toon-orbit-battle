@@ -103,7 +103,8 @@
       <div class="tv-meta"><span class="gem" style="background:${COLORS[card.color]}"></span>${cap(card.color)} · ${card.pts} pts</div>
       <div class="tv-group">${card.archetype ? card.archetype + ' · ' : ''}${card.group}</div>
       <div class="tv-feat">${card.features.join(' · ')}</div>
-      <div class="tv-power">${card.power}</div>
+      ${card.power && card.power !== 'No Power' ? `<div class="tv-power">${card.power}</div>` : ''}
+      ${(window.TOB_COMBOS ? window.TOB_COMBOS.blurbs(card) : []).map(line => `<div class="tv-combo">${line}</div>`).join('')}
       ${info ? `<div class="tv-live">In play: <b>${info.knocked ? 0 : info.value}</b> pts${notes.length ? '<br>' + notes.join('<br>') : ''}</div>` : ''}
     </div>`;
     box.innerHTML = html;
@@ -131,7 +132,7 @@
       boards: {p: Array(7).fill(null), o: Array(7).fill(null)},
       shown: {p: Array(7).fill(false), o: Array(7).fill(false)},
       penalty: {p: 0, o: 0}, silver: {p: null, o: null}, selected: -1, discardSel: new Set(),
-      swapMode: false, round: 1, log: [], result: null,
+      swapMode: false, round: 1,       log: [], result: null, seenCombos: new Set(),
     };
     s.goals = [s.goalCards.p.color, s.goalCards.o.color];
     s.targets = E.targetColors(s.goals);
@@ -146,6 +147,7 @@
     const card = G.boards[side][i];
     const isActive = side === 'p' && activeSlots().includes(i);
     const hidden = G.round < 2 && i >= 4;
+    const glowing = ev && ev.combos && ev.combos.some(c => c.side === side && c.slots.includes(i));
     let inner = '';
     if (card) {
       if (G.shown[side][i]) inner = cardHTML(card, ev.cells[side][i], true);
@@ -155,7 +157,7 @@
       }
       else inner = backHTML();
     } else inner = `<div class="slotnum">${i + 1}</div>`;
-    return `<div class="slot ${isActive && !card ? 'open' : ''} ${hidden ? 'locked' : ''} ${G.swapMode && side === 'p' && i === 6 ? 'swaptarget' : ''}" data-side="${side}" data-slot="${i}">${inner}</div>`;
+    return `<div class="slot ${isActive && !card ? 'open' : ''} ${hidden ? 'locked' : ''} ${glowing ? 'comboglow' : ''} ${G.swapMode && side === 'p' && i === 6 ? 'swaptarget' : ''}" data-side="${side}" data-slot="${i}">${inner}</div>`;
   }
   function render() {
     if (!G) return;
@@ -203,14 +205,15 @@
     const rows = tg.map(c => `<tr><td><span class="gem" style="background:${COLORS[c]}"></span>${cap(c)}</td><td>${ev.counts.p[c] || 0}</td><td>${ev.counts.o[c] || 0}</td></tr>`).join('');
     const pen = s => G.penalty[s] ? `<div class="pen">−${G.penalty[s]} swap</div>` : '';
     const bon = s => ev.bonus === s ? `<div class="bon">+${E.COLOR_BONUS} color</div>` : '';
+    const crew = s => (ev.combos || []).filter(c => c.side === s).map(c => `${c.name} +${c.bonus}`).join(' · ');
     const prev = G.prevScore;
     $('#scoreboard').innerHTML = `
       <div class="sb-title">Score</div>
       <div class="sb-goal">${goalTxt}</div>
       <div class="sb-scores">
-        <div class="sb-side me"><div class="sb-name">YOU</div><div class="sb-num" id="sb-p">${ev.score.p}</div>${bon('p')}${pen('p')}</div>
+        <div class="sb-side me"><div class="sb-name">YOU</div><div class="sb-num" id="sb-p">${ev.score.p}</div>${bon('p')}${pen('p')}${crew('p') ? `<div class="bon crew">${crew('p')}</div>` : ''}</div>
         <div class="sb-vs">VS</div>
-        <div class="sb-side opp"><div class="sb-name">${G.oName.toUpperCase()}</div><div class="sb-num" id="sb-o">${ev.score.o}</div>${bon('o')}${pen('o')}</div>
+        <div class="sb-side opp"><div class="sb-name">${G.oName.toUpperCase()}</div><div class="sb-num" id="sb-o">${ev.score.o}</div>${bon('o')}${pen('o')}${crew('o') ? `<div class="bon crew">${crew('o')}</div>` : ''}</div>
       </div>
       ${tg.length ? `<table class="sb-colors"><tr><th>Color</th><th>You</th><th>Opp</th></tr>${rows}</table>` : ''}
       ${ev.colorLead ? `<div class="sb-lead">${ev.colorLead === 'p' ? 'You lead' : G.oName + ' leads'} in BOTH colors!</div>` : ''}
@@ -242,6 +245,20 @@
     const t = $('#timer'); t.textContent = ''; t.style.removeProperty('--p'); t.removeAttribute('aria-label');
   }
   const wait = ms => new Promise(r => setTimeout(r, ms));
+  function announceCombos() {
+    const ev = G && G.lastEv;
+    if (!ev || !ev.combos) return;
+    const fresh = ev.combos.filter(c => !G.seenCombos.has(c.side + ':' + c.id));
+    fresh.forEach(c => G.seenCombos.add(c.side + ':' + c.id));
+    if (!fresh.length) return;
+    const top = fresh.slice().sort((a, b) => b.bonus - a.bonus)[0];
+    let el = document.getElementById('comboCall');
+    if (!el) { el = document.createElement('div'); el.id = 'comboCall'; document.body.appendChild(el); }
+    el.innerHTML = `<b>${top.name}!</b> <span>+${top.bonus}</span>`;
+    el.classList.remove('show');
+    void el.offsetWidth;
+    el.classList.add('show');
+  }
   function aiState() { return {boards: G.boards, shown: G.shown, goals: G.goals, penalty: G.penalty, silver: G.silver}; }
 
   async function flipSeq(list) {
@@ -249,6 +266,7 @@
       if (!G.boards[side][slot]) continue;
       G.shown[side][slot] = true; blip(side === 'p' ? 520 : 440, 0.07);
       render();
+      announceCombos();
       const cell = document.querySelector(`.slot[data-side="${side}"][data-slot="${slot}"] .card`);
       if (cell) cell.classList.add('flipin');
       await wait(T.flip);
@@ -630,6 +648,7 @@
   }
   let mineFilter = 'all';
   let archFilter = '';
+  let comboOnly = false;
   function archOptions() {
     const names = [...new Set(CARD_LIST.map(c => c.archetype).filter(Boolean))].sort();
     return `<select id="archPick" class="archpick" aria-label="Archetype"><option value="">All archetypes</option>${names.map(a => `<option value="${a}"${archFilter === a ? ' selected' : ''}>${a}</option>`).join('')}</select>`;
@@ -1223,17 +1242,22 @@
     hidePreview();
     const ov = $('#overlay'); ov.classList.remove('hidden');
     const draw = () => {
-      const cards = CARD_LIST.filter(c => !archFilter || c.archetype === archFilter).map(c => COPIES.makeCopy(c.id, {gold: collectionGold}));
+      const cards = CARD_LIST.filter(c => (!archFilter || c.archetype === archFilter) && (!comboOnly || (window.TOB_COMBOS && window.TOB_COMBOS.cardInCombo(c)))).map(c => COPIES.makeCopy(c.id, {gold: collectionGold}));
+      const crewList = comboOnly && window.TOB_COMBOS ? window.TOB_COMBOS.sets.map(s => `<div class="combochip"><b>${s.name}</b> +${s.bonus} · ${s.ids.map(id => CARDS[id] ? CARDS[id].name : id).join(', ')}</div>`).join('') : '';
       ov.innerHTML = `<div class="panel collection">
         <div class="sb-title">Card Gallery</div>
         <div class="tag">${CARD_LIST.length} toons. Gold copies are cosmetic. Every toon can have one, and they play the same.</div>
         <label class="goldtoggle"><input type="checkbox" id="goldView" ${collectionGold ? 'checked' : ''}> View gold copies</label>
         ${archOptions()}
+        <button type="button" class="btn filter${comboOnly ? ' on' : ''}" id="comboOnly">Has combo</button>
+        ${crewList ? `<div class="combolist">${crewList}</div>` : ''}
         <div class="cgrid">${cards.map(c => `<div class="ccard" data-cid="${c.id}">${cardHTML(c)}</div>`).join('')}</div>
         <div class="go-btns"><button class="btn" id="btnBack">BACK</button></div></div>`;
       $('#goldView').onchange = () => { collectionGold = $('#goldView').checked; draw(); };
       const archPick = $('#archPick');
       if (archPick) archPick.onchange = () => { archFilter = archPick.value; draw(); };
+      const comboBtn = $('#comboOnly');
+      if (comboBtn) comboBtn.onclick = () => { comboOnly = !comboOnly; draw(); };
       $('#btnBack').onclick = showHome;
       ov.querySelectorAll('.ccard').forEach(node => {
         node.onclick = (ev) => { ev.stopPropagation(); inspect(COPIES.makeCopy(node.dataset.cid, {gold: collectionGold})); };
@@ -1257,9 +1281,23 @@
     };
     draw();
   }
-  function showRules() {
+  function showRules(tab) {
     const ov = $('#overlay'); ov.classList.remove('hidden');
-    ov.innerHTML = `<div class="panel rules"><div class="sb-title">HOW TO PLAY</div><ol>
+    const combosOn = tab === 'combos';
+    const book = window.TOB_COMBOS || {pairs: [], sets: []};
+    const comboBody = `<div class="tag">Combos score when the pieces are face-up on your side. Color goals are unchanged.</div>
+      <ul class="combolist">
+        <li><b>Archetype pair +3.</b> Field both types. ${book.pairs.map(p => `${p.name} (${p.a} + ${p.b})`).join('; ')}.</li>
+        <li><b>Named crew.</b> Every listed toon, face-up on your side. Duos +6, trios +8.</li>
+        <li><b>Diverse team.</b> Mayor Bigsby scores +1 for each different archetype you have, up to +4.</li>
+        <li><b>All-in.</b> Captain Shieldwall scores +5 if every face-up card on your side shares one archetype.</li>
+        <li><b>Rivalry.</b> A few toons score +4 when the card across from them is a rival archetype.</li>
+        <li><b>Enablers.</b> Glorbina counts as any archetype. Madame Moonquill, Bud Buddy, and Bleep-O make neighbors count as their ally type.</li>
+      </ul>
+      <div class="combolist">${book.sets.map(s => `<div class="combochip"><b>${s.name}</b> +${s.bonus} · ${s.ids.map(id => CARDS[id] ? CARDS[id].name : id).join(', ')}</div>`).join('')}</div>`;
+    ov.innerHTML = `<div class="panel rules"><div class="sb-title">HOW TO PLAY</div>
+      <div class="auth-tabs"><button type="button" class="btn${combosOn ? '' : ' go'}" id="btnRulesTab">Rules</button><button type="button" class="btn${combosOn ? ' go' : ''}" id="btnCombosTab">Combos</button></div>
+      ${combosOn ? comboBody : `<ol>
       <li><b>Decks:</b> 12 different cards each. Every card has a color, points, a power (or none) and features. Both decks are shuffled and each deck's <b>bottom card</b> is shown: its color is a <b>goal color</b>. Black and Silver are not goal colors; if both bottom cards share a color there is just one goal color.</li>
       <li><b>Round 1:</b> You draw 6. Put 4 cards in the 4 inner slots and press READY. Cards flip one by one and are scored.</li>
       <li><b>Cancel-outs:</b> If the same character is in play twice (either board, even your own), the lower-value version survives and the others are cancelled. The exact same card on both boards cancels both.</li>
@@ -1269,7 +1307,8 @@
       <li><b>Swap:</b> You may trade your face-down card for one in your hand for −10 points.</li>
       <li><b>Silver:</b> If you have Silver cards in play, choose one color they all count as.</li>
       <li><b>Winning:</b> With 2 goal colors, having more cards of <b>both</b> colors wins outright. With 1 goal color, whoever has more of it gets +15. Then the higher score wins. Equal scores = tie.</li>
-      <li>Every phase has a ${PHASE_SECONDS}-second countdown. If it hits zero, the game finishes the phase for you: empty slots get filled with the best cards from your hand, and you discard nothing.</li></ol>
+      <li><b>Combos</b> are on the Combos tab: archetype pairs, named crews, all-in, rivalry, and enablers. They add points on top of color goals.</li>
+      <li>Every phase has a ${PHASE_SECONDS}-second countdown. If it hits zero, the game finishes the phase for you: empty slots get filled with the best cards from your hand, and you discard nothing.</li></ol>`}
       <div class="go-btns"><button class="btn go" id="btnClose">GOT IT!</button></div></div>`;
   }
 
@@ -1300,7 +1339,8 @@
     if (t.id === 'btnBoard') { $('#overlay').classList.add('hidden'); return; }
     if (t.id === 'btnBuild') return showBuilder();
     if (t.id === 'btnCollection') return showCollection();
-    if (t.id === 'btnRules' || t.id === 'btnRules2') return showRules();
+    if (t.id === 'btnRules' || t.id === 'btnRules2' || t.id === 'btnRulesTab') return showRules('rules');
+    if (t.id === 'btnCombosTab') return showRules('combos');
     if (t.id === 'btnClose') {
       if (G && G.phase !== 'OVER') $('#overlay').classList.add('hidden');
       else if (!window.TOB_AUTH.currentUser()) showAuth('signup');
@@ -1432,4 +1472,23 @@
       showHome();
     } else showAuth('signup');
   }
+
+  function demoCombo() {
+    const deck = ['redbeard', 'polly', 'zoomer', 'hank', 'nell', 'fritz', 'pip', 'daisy', 'ember', 'glimmer', 'bleep', 'boltz'];
+    const opp = ['bonesy', 'gloop', 'wisp', 'manor', 'fangly', 'bertha', 'timid', 'pumpkin', 'mayor', 'mel', 'blaze', 'dj'];
+    startGame(deck, opp, 'Baron Boo');
+    G.phase = 'REVEAL';
+    G.round = 1;
+    G.boards.p = [CARDS.redbeard, CARDS.polly, CARDS.zoomer, CARDS.hank, null, null, null];
+    G.boards.o = [CARDS.gloop, CARDS.wisp, null, null, null, null, null];
+    G.shown = {p: [true, true, true, true, false, false, false], o: [true, true, false, false, false, false, false]};
+    G.pHand = [];
+    G.goals = ['black', 'black'];
+    G.targets = [];
+    G.seenCombos = new Set();
+    setMsg('Cards flip. Crews call out when they connect.');
+    render();
+    announceCombos();
+  }
+  window.TOB_GAME = {demoCombo, showRules};
 })();

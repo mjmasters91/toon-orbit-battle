@@ -31,12 +31,20 @@
   function chooseDiscards(hand, goals, board) {
     const targets = E.targetColors(goals);
     const pool = hand.concat((board || []).filter(Boolean));
-    const combo = c => c.powers.some(pw => {
-      const f = (pw.cond && pw.cond.filter) || (pw.each && pw.each.filter) || pw.filter;
-      return !f || pool.some(o => o !== c && E.matches(o, o.color, f));
-    });
+    const book = root.TOB_COMBOS;
+    const ids = new Set(pool.map(o => o.id));
+    const arches = new Set(pool.map(o => o.archetype).filter(Boolean));
+    const combo = c => {
+      if (c.powers.some(pw => {
+        const f = (pw.cond && pw.cond.filter) || (pw.each && pw.each.filter) || pw.filter;
+        return !f || pool.some(o => o !== c && E.matches(o, o.color, f));
+      })) return true;
+      if (!book) return false;
+      if (book.sets.some(s => s.ids.includes(c.id) && s.ids.some(id => id !== c.id && ids.has(id)))) return true;
+      return book.pairs.some(p => (c.archetype === p.a && arches.has(p.b)) || (c.archetype === p.b && arches.has(p.a)));
+    };
     const dupChar = c => (board || []).some(o => o && o.char === c.char);
-    const keepScore = c => c.pts + (targets.includes(c.color) ? 8 : 0) + (combo(c) ? 6 : 0) - (dupChar(c) ? 12 : 0);
+    const keepScore = c => c.pts + (targets.includes(c.color) ? 8 : 0) + (combo(c) ? 9 : 0) - (dupChar(c) ? 12 : 0);
     return hand.slice().sort((a, b) => keepScore(a) - keepScore(b)).filter(c => keepScore(c) < 7).slice(0, 2);
   }
   // Returns hand card to swap into the last slot, or null.
