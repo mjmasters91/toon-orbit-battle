@@ -49,7 +49,7 @@ ECONOMY = {winCoins: 100, lossCoins: 25, packPrice: 300}
 
 A win pays `winCoins`. A loss or a tie pays `lossCoins`. The Packs screen sells one pack for `packPrice`. The header shows the balance. An admin can change the three numbers; the override is stored in `localStorage` under `tob_economy` and replaces the defaults on this device.
 
-The local account `mjmasters91` (any capitalization) is an admin when it is created. Admins see an Admin item in the header menu. From there they can list every profile on this device, set coins, set packs, grant a normal or gold copy of a card, promote or demote another player, and save the economy. Each of those actions shows a confirmation. This panel is device-only and client-side: the data sits in `localStorage`, so it is not a security boundary. Do not treat it as one.
+The usernames in `ADMIN_USERNAMES` inside `auth.js` (`mjmasters91` and `Sender`, any capitalization) become admins when that account is created. No password is stored for them; each person signs up with their own. Admins see an Admin item in the header menu. From there they can list every profile on this device, set coins, set packs, grant a normal or gold copy of a card, promote or demote another player, and save the economy. Each of those actions shows a confirmation. This panel is device-only and client-side: the data sits in `localStorage`, so it is not a security boundary. Do not treat it as one.
 
 The header shows the player's initial and username. The menu opens **My Collection** (owned copies, duplicate counts, gold holos, and locked silhouettes for the rest of the 42-card set) and **Log out**. Card Gallery is still the full catalog.
 

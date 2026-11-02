@@ -43,6 +43,8 @@
     });
     return out;
   }
+  /* Usernames that become admin when the account is first created. No passwords live here. */
+  const ADMIN_USERNAMES = ['mjmasters91', 'sender'];
   function packProfile(profile, username) {
     profile = profile || {};
     const granted = profile.welcomeGranted === true;
@@ -51,7 +53,7 @@
     const name = username || profile.username || '';
     const lower = name.toLowerCase();
     let role = profile.role === 'admin' || profile.role === 'player' ? profile.role : '';
-    if (!role) role = lower === 'mjmasters91' ? 'admin' : 'player';
+    if (!role) role = ADMIN_USERNAMES.indexOf(lower) !== -1 ? 'admin' : 'player';
     if (lower === 'guest') role = 'player';
     return {
       username: name,

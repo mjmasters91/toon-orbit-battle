@@ -86,14 +86,14 @@
   function backHTML() { return `<div class="card back"><div class="backlogo"><span>TOON</span><b>ORBIT</b></div></div>`; }
 
   const narrow = () => matchMedia('(max-width: 1099px)').matches;
-  function inspect(card, info) {
+  function inspect(card, info, force) {
     const box = $('#inspector');
     const pop = $('#preview'), body = $('#previewBody');
     if (!card) {
       const idle = '<div class="tv-idle">Tap a card to preview it.</div>';
       box.innerHTML = idle;
       if (body) body.innerHTML = idle;
-      if (pop) pop.classList.add('hidden');
+      if (pop) { pop.classList.add('hidden'); pop.classList.remove('force'); }
       return;
     }
     const notes = info ? (info.knocked ? [info.knocked] : info.notes) : [];
@@ -108,7 +108,11 @@
     </div>`;
     box.innerHTML = html;
     if (body) body.innerHTML = html;
-    if (pop) pop.classList.toggle('hidden', !narrow());
+    if (pop) {
+      const show = !!(narrow() || force);
+      pop.classList.toggle('hidden', !show);
+      pop.classList.toggle('force', !!force);
+    }
   }
 
   /* ---------- game state ---------- */
@@ -253,7 +257,7 @@
 
   /* ---------- flow ---------- */
   function hidePreview() {
-    const p = $('#preview'); if (p) p.classList.add('hidden');
+    const p = $('#preview'); if (p) { p.classList.add('hidden'); p.classList.remove('force'); }
     hideReward();
   }
   function hideReward() {
@@ -575,7 +579,7 @@
       if (!res.ok) { $('#authError').textContent = res.error; return; }
       renderUser();
       await liveProfile();
-      showDeckSelect();
+      showHome();
     };
     $('#btnAuthSubmit').onclick = async () => {
       const btn = $('#btnAuthSubmit');
@@ -618,7 +622,7 @@
         }
         renderUser();
         await liveProfile();
-        showDeckSelect();
+        showHome();
       } finally {
         if (btn.isConnected) { btn.disabled = false; btn.textContent = prev; }
       }
@@ -675,7 +679,7 @@
       ov.querySelectorAll('[data-filter]').forEach(btn => { btn.onclick = () => { mineFilter = btn.dataset.filter; draw(); }; });
       $('#btnMineBack').onclick = () => {
         if (G && G.phase !== 'OVER' && G.phase !== 'INTRO') $('#overlay').classList.add('hidden');
-        else showDeckSelect();
+        else showHome();
       };
       ov.querySelectorAll('.ccard').forEach(node => {
         node.onclick = (ev) => {
@@ -803,7 +807,7 @@
           <button type="button" class="btn" id="btnPackBack">BACK</button>
         </div>
       </div>`;
-      $('#btnPackBack').onclick = () => showDeckSelect();
+      $('#btnPackBack').onclick = () => showHome();
     };
     draw();
   }
@@ -846,7 +850,7 @@
     return n;
   }
   function showAdmin() {
-    if (packState.role !== 'admin') return showDeckSelect();
+    if (packState.role !== 'admin') return showHome();
     closeUserMenu();
     hidePreview();
     stopTimer();
@@ -884,7 +888,7 @@
       <div class="adminlist">${rows}</div>
       <div class="go-btns"><button type="button" class="btn" id="btnAdminBack">BACK</button></div>
     </div>`;
-    $('#btnAdminBack').onclick = () => showDeckSelect();
+    $('#btnAdminBack').onclick = () => showHome();
     $('#btnSaveEcon').onclick = () => {
       saveEconomy({
         winCoins: clampInt($('#ecoWin').value, ECONOMY.winCoins),
@@ -941,76 +945,93 @@
       currentPulls = annotated;
       flipped = annotated.map(() => false);
       packSummaryShown = false;
-      await playPull(annotated);
+      await playPull();
     } finally {
       packBusy = false;
     }
   }
-  async function playPull(pulls) {
+  function pullTagHTML(pull) {
+    const bits = [];
+    if (pull.isNew) bits.push('<span class="newtag">NEW!</span>');
+    if (pull.dup > 1) bits.push(`<span class="duptag">x${pull.dup}</span>`);
+    if (pull.gold) bits.push('<span class="goldpill">GOLD</span>');
+    return `<div class="pulltags">${bits.join('')}</div>`;
+  }
+  function stageCard(pull, i) {
+    const copy = COPIES.makeCopy(pull.id, {gold: pull.gold, uid: pull.uid});
+    return `<button type="button" class="stagecard pullcard${pull.gold ? ' is-gold' : ''}" data-i="${i}">
+      ${pullTagHTML(pull)}
+      <span class="pull-inner">
+        <span class="pull-back">${backHTML()}</span>
+        <span class="pull-front">${cardHTML(copy, null, true)}</span>
+      </span>
+    </button>`;
+  }
+  function thumbHTML(pull) {
+    const copy = COPIES.makeCopy(pull.id, {gold: pull.gold, uid: pull.uid});
+    return `<div class="thumb">${cardHTML(copy, null, true)}</div>`;
+  }
+  async function playPull() {
     const ov = $('#overlay');
     ov.classList.remove('hidden');
     const reduce = reduceMotion();
-    ov.innerHTML = `<div class="panel packopen"><div class="foilpack${reduce ? ' tear' : ' shake'}" id="foilPack">${foilMarkup()}</div></div>`;
+    ov.innerHTML = `<div class="packtake"><div class="foilpack${reduce ? ' tear' : ' shake'}" id="foilPack">${foilMarkup()}</div></div>`;
     packSound('shake');
     if (!reduce) await wait(700);
     const pack = $('#foilPack');
     if (pack) pack.classList.add('tear');
     packSound('tear');
     if (!reduce) await wait(420);
-    renderFan(pulls);
+    renderStage();
   }
-  function renderFan(pulls) {
-    const ov = $('#overlay');
-    const cards = pulls.map((pull, i) => {
-      const copy = COPIES.makeCopy(pull.id, {gold: pull.gold, uid: pull.uid});
-      const mark = pull.isNew ? '<div class="newtag">NEW!</div>' : (pull.dup > 1 ? `<div class="duptag">x${pull.dup}</div>` : '');
-      return `<button type="button" class="pullcard${pull.gold ? ' is-gold' : ''}" data-i="${i}">
-        <span class="pull-inner">
-          <span class="pull-back">${backHTML()}</span>
-          <span class="pull-front">${cardHTML(copy, null, true)}${mark}</span>
-        </span>
-      </button>`;
-    }).join('');
-    ov.innerHTML = `<div class="panel packopen">
-      <div class="sb-title">Tap to flip</div>
-      <div class="pullrow">${cards}</div>
-      <div class="go-btns"><button type="button" class="btn go" id="btnRevealAll">Reveal all</button></div>
+  function renderStage() {
+    const i = flipped.findIndex(v => !v);
+    if (i < 0) { showPackSummary(); return; }
+    const done = currentPulls.map((pull, idx) => flipped[idx] ? thumbHTML(pull) : '').join('');
+    $('#overlay').innerHTML = `<div class="packtake">
+      <div class="stagehint">Tap to flip</div>
+      <div class="stagewrap">${stageCard(currentPulls[i], i)}</div>
+      <button type="button" class="btn go" id="btnRevealAll">Reveal all</button>
+      <div class="dock">${done}</div>
     </div>`;
   }
   function flipPull(i) {
     if (!currentPulls || flipped[i] || packSummaryShown) return;
-    const pull = currentPulls[i];
-    if (!pull) return;
-    flipped[i] = true;
-    const node = document.querySelector(`.pullcard[data-i="${i}"]`);
-    if (node) node.classList.add('flipped');
+    const node = document.querySelector('.stagecard');
+    if (!node || node.classList.contains('flipped') || +node.dataset.i !== i) return;
+    node.classList.add('flipped');
     packSound('flip');
-    if (pull.gold) goldBurst();
-    if (flipped.length === currentPulls.length && flipped.every(Boolean)) showPackSummary();
+    if (currentPulls[i].gold) goldBurst();
+    const token = ++stageToken;
+    const hold = reduceMotion() ? 0 : 1000;
+    setTimeout(() => {
+      if (token !== stageToken || packSummaryShown) return;
+      flipped[i] = true;
+      if (flipped.every(Boolean)) showPackSummary();
+      else renderStage();
+    }, hold);
   }
-  async function revealAll() {
-    if (!currentPulls) return;
-    const reduce = reduceMotion();
-    for (let i = 0; i < currentPulls.length; i++) {
-      if (!flipped[i]) {
-        flipPull(i);
-        if (!reduce) await wait(120);
-      }
-    }
+  function revealAll() {
+    if (!currentPulls || packSummaryShown) return;
+    stageToken++;
+    const unseenGold = currentPulls.some((pull, i) => pull.gold && !flipped[i]);
+    currentPulls.forEach((_, i) => { flipped[i] = true; });
+    if (unseenGold) goldBurst();
+    showPackSummary();
   }
   function showPackSummary() {
     if (packSummaryShown || !currentPulls) return;
     packSummaryShown = true;
+    stageToken++;
     const fresh = currentPulls.filter(p => p.isNew).length;
     const golds = currentPulls.filter(p => p.gold).length;
-    const ov = $('#overlay');
-    ov.innerHTML = `<div class="panel packopen">
+    const slots = currentPulls.map(pull => {
+      const copy = COPIES.makeCopy(pull.id, {gold: pull.gold, uid: pull.uid});
+      return `<div class="pullslot">${pullTagHTML(pull)}<div class="pullshown">${cardHTML(copy, null, true)}</div></div>`;
+    }).join('');
+    $('#overlay').innerHTML = `<div class="packtake summarytake">
       <div class="reward-title pack-summary" id="packSummary">${fresh} new, ${golds} gold</div>
-      <div class="pullrow summary">${currentPulls.map(pull => {
-        const copy = COPIES.makeCopy(pull.id, {gold: pull.gold, uid: pull.uid});
-        const mark = pull.isNew ? '<div class="newtag">NEW!</div>' : (pull.dup > 1 ? `<div class="duptag">x${pull.dup}</div>` : '');
-        return `<div class="pullcard flipped${pull.gold ? ' is-gold' : ''}"><span class="pull-inner"><span class="pull-front">${cardHTML(copy, null, true)}${mark}</span></span></div>`;
-      }).join('')}</div>
+      <div class="pullgrid">${slots}</div>
       <div class="go-btns">
         <button type="button" class="btn go" id="btnOpenAnother" ${packState.packs > 0 ? '' : 'disabled'}>Open another</button>
         <button type="button" class="btn" id="btnViewPackCollection">View collection</button>
@@ -1030,20 +1051,69 @@
     const ok = others[Math.floor(Math.random() * others.length)];
     startGame(pIds, DECKS[ok].cards, OPP_NAMES[ok]);
   }
+  function deckBlock(key, name, ids, playable) {
+    let pts = 0;
+    const colors = {};
+    ids.forEach(id => {
+      const c = CARDS[id];
+      if (!c) return;
+      pts += c.pts;
+      colors[c.color] = (colors[c.color] || 0) + 1;
+    });
+    const dots = Object.entries(colors).map(([c, n]) => `<span class="cdot"><span class="gem" style="background:${COLORS[c]}"></span>${n} ${cap(c)}</span>`).join('');
+    const cards = ids.map(id => {
+      const c = CARDS[id];
+      if (!c) return '';
+      return `<button type="button" class="deckcard" data-cid="${c.id}"><img src="assets/cards/${encodeURIComponent(c.id)}.webp" alt="" data-id="${c.id}"><span class="dinfo"><b>${c.name}</b><span class="dmeta"><span class="gem" style="background:${COLORS[c.color]}"></span>${c.pts} pts · ${cap(c.color)}</span><span class="dpower">${c.power}</span></span></button>`;
+    }).join('');
+    const play = playable
+      ? `<button type="button" class="btn go deckplay" data-deck="${key}">Play</button>`
+      : `<button type="button" class="btn" id="btnBuild">Build it</button>`;
+    return `<section class="deckblock"><div class="deckhead"><div><div class="dname">${name}</div><div class="dsum">${pts} base pts</div><div class="dcolors">${dots}</div></div>${play}</div><div class="deckgrid">${cards}</div></section>`;
+  }
+  function showHome() {
+    stopTimer();
+    hidePreview();
+    closeUserMenu();
+    const user = window.TOB_AUTH.currentUser();
+    if (!user) return showAuth('signup');
+    const ov = $('#overlay');
+    ov.classList.remove('hidden');
+    const admin = packState.role === 'admin';
+    ov.innerHTML = `<div class="panel home" id="homeScreen">
+      <div class="big-logo"><span class="ring"></span>TOON ORBIT <b>BATTLE</b></div>
+      <div class="homewho">${user.username || 'Player'}</div>
+      <div class="homestats"><span class="coinicon" aria-hidden="true"></span> ${packState.coins | 0} <span class="homepacks">${packState.packs | 0} packs</span></div>
+      <div class="homebtns">
+        <button type="button" class="btn go" id="btnPlay">PLAY</button>
+        <button type="button" class="btn" id="btnPacks">PACKS <span class="packbadge${packState.packs ? ' on' : ''}" data-packbadge>${packState.packs || ''}</span></button>
+        <button type="button" class="btn" id="btnHomeCollection">MY COLLECTION</button>
+        <button type="button" class="btn" id="btnCollection">CARD GALLERY</button>
+        <button type="button" class="btn" id="btnRules2">HOW TO PLAY</button>
+        ${admin ? '<button type="button" class="btn" id="btnHomeAdmin">ADMIN</button>' : ''}
+      </div>
+      <div class="homecorner">
+        <button type="button" class="btn small" id="btnHomeSound">Sound: ${soundOn ? 'On' : 'Off'}</button>
+        <button type="button" class="btn small" id="btnHomeOut">Log out</button>
+      </div>
+    </div>`;
+  }
   function showDeckSelect() {
     stopTimer();
     hidePreview();
     const ov = $('#overlay'); ov.classList.remove('hidden');
     const cd = customDeck();
-    ov.innerHTML = `<div class="panel select">
-      <div class="big-logo"><span class="ring"></span>TOON ORBIT <b>BATTLE</b></div>
-      <div class="tag">Pick a 12-card deck, match the goal colors, and out-score your rival!</div>
-      <div class="decklist">${Object.entries(DECKS).map(([k, d]) => `<div class="deckpick" data-deck="${k}">
-        <div class="fan">${d.cards.slice(0, 3).map(id => cardHTML(CARDS[id])).join('')}</div>
-        <div class="dname">${d.name}</div><div class="dcolors">${[...new Set(d.cards.map(id => CARDS[id].color))].map(c => `<span class="gem" style="background:${COLORS[c]}"></span>`).join('')}</div></div>`).join('')}
-        <div class="deckpick ${cd.length === 12 ? '' : 'dim'}" data-deck="custom"><div class="fan">${cd.slice(0, 3).map(id => cardHTML(CARDS[id])).join('') || '<div class="card back"><div class="backlogo"><span>MY</span><b>DECK</b></div></div>'}</div>
-        <div class="dname">My Deck</div><div class="dcolors">${cd.length}/12 cards</div></div></div>
-      <div class="go-btns"><button class="btn" id="btnPacks">PACKS <span class="packbadge${packState.packs ? ' on' : ''}" data-packbadge>${packState.packs || ''}</span></button><button class="btn" id="btnCollection">CARD GALLERY</button><button class="btn" id="btnBuild">DECK BUILDER</button><button class="btn" id="btnRules2">HOW TO PLAY</button></div></div>`;
+    const blocks = Object.entries(DECKS).map(([k, d]) => deckBlock(k, d.name, d.cards, true)).join('');
+    const custom = cd.length === 12 ? deckBlock('custom', 'My Deck', cd, true) : `<section class="deckblock"><div class="deckhead"><div><div class="dname">My Deck</div><div class="dsum">${cd.length}/12 cards</div></div><button type="button" class="btn" id="btnBuild">Build it</button></div></section>`;
+    ov.innerHTML = `<div class="panel select deckscreen">
+      <div class="sb-title">Choose a deck</div>
+      <div class="tag">Every card is listed in full. Tap one for the complete preview.</div>
+      ${blocks}${custom}
+      <div class="go-btns"><button class="btn" id="btnDeckHome">HOME</button></div>
+    </div>`;
+    ov.querySelectorAll('.deckcard').forEach(btn => {
+      btn.onclick = (ev) => { ev.stopPropagation(); inspect(CARDS[btn.dataset.cid], null, true); };
+    });
   }
   let collectionGold = false;
   function showCollection() {
@@ -1059,7 +1129,7 @@
         <div class="cgrid">${cards.map(c => `<div class="ccard" data-cid="${c.id}">${cardHTML(c, null, true)}</div>`).join('')}</div>
         <div class="go-btns"><button class="btn" id="btnBack">BACK</button></div></div>`;
       $('#goldView').onchange = () => { collectionGold = $('#goldView').checked; draw(); };
-      $('#btnBack').onclick = showDeckSelect;
+      $('#btnBack').onclick = showHome;
       ov.querySelectorAll('.ccard').forEach(node => {
         node.onclick = (ev) => { ev.stopPropagation(); inspect(COPIES.makeCopy(node.dataset.cid, {gold: collectionGold})); };
       });
@@ -1102,8 +1172,8 @@
   document.addEventListener('click', e => {
     if (!e.target.closest('.usermenu')) closeUserMenu();
     const pop = $('#preview');
-    const keep = e.target.closest('.preview-sheet, .handcard, .ccard, .card, .goalcard');
-    if (pop && !pop.classList.contains('hidden') && !keep) pop.classList.add('hidden');
+    const keep = e.target.closest('.preview-sheet, .handcard, .ccard, .card, .goalcard, .deckcard');
+    if (pop && !pop.classList.contains('hidden') && !keep) { pop.classList.add('hidden'); pop.classList.remove('force'); }
     const t = e.target.closest('button, .handcard, .slot, .deckpick, .goalcard');
     if (!t) return;
     if (t.id === 'btnReady') return finishPlay(false);
@@ -1113,6 +1183,11 @@
     if (t.id === 'btnSwapNo') return afterSwap(null);
     if (t.classList.contains('colorbtn')) return finishSilver(t.dataset.color, G.pendingSilver);
     if (t.id === 'btnAgain' || t.id === 'btnAgain2') return quickStart();
+    if (t.id === 'btnHome' || t.id === 'btnDeckHome') {
+      if (!window.TOB_AUTH.currentUser()) return showAuth('signup');
+      return showHome();
+    }
+    if (t.id === 'btnPlay') return showDeckSelect();
     if (t.id === 'btnPick' || t.id === 'btnNew') {
       if (!window.TOB_AUTH.currentUser()) return showAuth('signup');
       return showDeckSelect();
@@ -1124,7 +1199,7 @@
     if (t.id === 'btnClose') {
       if (G && G.phase !== 'OVER') $('#overlay').classList.add('hidden');
       else if (!window.TOB_AUTH.currentUser()) showAuth('signup');
-      else showDeckSelect();
+      else showHome();
       return;
     }
     if (t.id === 'btnUser') {
@@ -1134,7 +1209,9 @@
       return;
     }
     if (t.id === 'btnPacks' || t.id === 'btnPacksMenu') return showPacks();
-    if (t.id === 'btnAdmin') return showAdmin();
+    if (t.id === 'btnHomeCollection') return showMyCollection();
+    if (t.id === 'btnAdmin' || t.id === 'btnHomeAdmin') return showAdmin();
+    if (t.id === 'btnHomeOut') { doLogOut(); return; }
     if (t.id === 'btnBuyPack') return buyPack();
     if (t.id === 'btnOpenPack' || t.id === 'btnOpenAnother') return openPack();
     if (t.id === 'btnDaily') return claimDaily();
@@ -1144,11 +1221,19 @@
     if (t.id === 'btnMyCollection') return showMyCollection();
     if (t.id === 'btnLogOut') { doLogOut(); return; }
     if (t.id === 'btnRewardOk') return hideReward();
-    if (t.id === 'btnSound') {
+    if (t.id === 'btnSound' || t.id === 'btnHomeSound') {
       soundOn = !soundOn;
       const on = soundOn ? 'On' : 'Off';
-      t.innerHTML = `<span class="lbl-full">Sound: ${on}</span><span class="lbl-short">${on}</span>`;
+      const soundBtn = $('#btnSound');
+      if (soundBtn) soundBtn.innerHTML = `<span class="lbl-full">Sound: ${on}</span><span class="lbl-short">${on}</span>`;
+      const homeSound = $('#btnHomeSound');
+      if (homeSound) homeSound.textContent = 'Sound: ' + on;
       return;
+    }
+    if (t.classList.contains('deckplay')) {
+      const k = t.dataset.deck;
+      if (k === 'custom' && customDeck().length !== 12) return showBuilder();
+      return quickStart(k);
     }
     if (t.classList.contains('deckpick')) { const k = t.dataset.deck; if (k === 'custom' && customDeck().length !== 12) return showBuilder(); return quickStart(k); }
     if (!G) return;
@@ -1239,7 +1324,7 @@
       quickStart(qs.get('deck') || null);
     } else if (window.TOB_AUTH.currentUser()) {
       await liveProfile();
-      showDeckSelect();
+      showHome();
     } else showAuth('signup');
   }
 })();
