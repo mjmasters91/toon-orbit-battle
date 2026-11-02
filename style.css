@@ -56,15 +56,14 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
 .gem { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; box-shadow: 0 0 0 1px rgba(0,0,0,.35); }
 .tv { min-height: 330px; } #inspector { background: rgba(0,0,0,.22); border: 1px solid rgba(255,255,255,.08); border-radius: 16px; min-height: 290px; padding: 10px; }
 .tv-idle { color: #9eb0d8; font-size: 14px; font-weight: 500; text-align: center; margin: 90px 16px; }
-.tv-card { border: 1px solid color-mix(in srgb, var(--cc) 55%, transparent); border-radius: 18px; background: rgba(255,255,255,.94); color: #1b2030; padding: 10px; text-align: center; }
-.tv-art { width: 128px; height: 128px; margin: 4px auto; border-radius: 50%; border: 6px solid transparent;
-  background: linear-gradient(#fff, #fff) padding-box, linear-gradient(160deg, color-mix(in srgb, var(--cc) 40%, #fff), var(--cc), color-mix(in srgb, var(--cc) 55%, #111)) border-box;
-  box-shadow: inset 0 0 14px rgba(0,0,0,.16), 0 8px 18px rgba(0,0,0,.12); overflow: hidden; }
+.tv-card { border: 1px solid rgba(255,255,255,.12); border-radius: 18px; background: #141824; color: #eef2ff; padding: 14px; text-align: center; overflow: hidden; }
+.tv-art { width: min(180px, 100%); aspect-ratio: 1; height: auto; margin: 0 auto 8px; border-radius: 50%; border: 3px solid color-mix(in srgb, var(--cc) 75%, #fff); box-sizing: border-box;
+  background: #10131c; box-shadow: 0 0 0 4px rgba(0,0,0,.4); overflow: hidden; }
 .tv-art svg { width: 100%; height: 100%; display: block; }
-.tv-name { font: 700 16px/1.2 "Outfit", system-ui, sans-serif; margin-top: 8px; } .tv-meta { font-size: 12px; font-weight: 600; }
-.tv-group { font-size: 12px; color: #5c657a; } .tv-feat { font-size: 12px; color: #6a7388; }
-.tv-power { font-size: 12px; margin-top: 6px; background: #fff7df; border-radius: 10px; padding: 6px; }
-.tv-live { font-size: 12px; margin-top: 6px; background: #eef4ff; border-radius: 10px; padding: 6px; }
+.tv-name { font: 700 16px/1.2 "Outfit", system-ui, sans-serif; margin-top: 8px; color: #fff; } .tv-meta { font-size: 12px; font-weight: 600; color: #d5def5; }
+.tv-group { font-size: 12px; color: #b7c4de; } .tv-feat { font-size: 12px; color: #b7c4de; }
+.tv-power { font-size: 12px; margin-top: 6px; background: rgba(255,255,255,.08); color: #eef2ff; border-radius: 10px; padding: 6px; }
+.tv-live { font-size: 12px; margin-top: 6px; background: rgba(255,255,255,.08); color: #eef2ff; border-radius: 10px; padding: 6px; }
 .arena { background: radial-gradient(ellipse at 50% 42%, rgba(90, 130, 255, .16), transparent 62%), rgba(8, 14, 32, .4);
   border: 1px solid rgba(255,255,255,.1); border-radius: 28px; box-shadow: inset 0 0 80px rgba(80, 130, 255, .08), 0 16px 40px rgba(0,0,0,.2); padding: 12px; position: relative;
   display: flex; flex-direction: column; justify-content: center; }
@@ -104,11 +103,17 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
   background: rgba(5, 8, 18, .92); border: 0; border-radius: 8px; padding: 2px 5px; white-space: normal;
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 .cname.long { font-size: 9px; letter-spacing: -.01em; }
-.cart { position: absolute; inset: 10%; height: auto; border-radius: 50%; overflow: hidden; background: #fff; box-shadow: inset 0 0 12px rgba(0,0,0,.22); }
+.cart { position: absolute; inset: 10%; height: auto; border-radius: 50%; overflow: hidden;
+  background: linear-gradient(110deg, transparent 32%, rgba(255,255,255,.16) 50%, transparent 68%), radial-gradient(circle at 40% 35%, color-mix(in srgb, var(--cc, #6aa0ff) 62%, #12151f), #10131c);
+  background-size: 220% 100%, 100% 100%; animation: loadshimmer 1.15s ease-in-out infinite; }
+.cart.ready { animation: none; background: #10131c; }
+@keyframes loadshimmer { from { background-position: 120% 0, 0 0; } to { background-position: -120% 0, 0 0; } }
 .cart svg { width: 100%; height: 100%; display: block; }
-.cpts { position: absolute; z-index: 4; top: 20%; right: 18%; bottom: auto; width: 24px; height: 24px; border-radius: 50%; background: #fff; border: 0; color: #141821; }
-  box-shadow: 0 1px 4px rgba(0,0,0,.35), 0 0 0 2px var(--cc, #6aa0ff); font: 800 12px/24px "Outfit", system-ui, sans-serif; letter-spacing: -.04em; display: flex; align-items: center; justify-content: center; padding: 0; }
-.cpts.up { background: #d9ffc8; } .cpts.down { background: #ffd0c8; } .cpts.ko { background: #2a2a2a; color: #ff6b6b; }
+.cpts { position: absolute; z-index: 4; top: auto; bottom: 22%; right: 12%; width: auto; min-width: 14px; height: auto; padding: 2px 5px; border-radius: 999px; background: #141821; color: #fff; border: 0; }
+  box-shadow: 0 0 0 2px var(--cc, #6aa0ff); font: 800 10px/1 "Outfit", system-ui, sans-serif; letter-spacing: 0; display: flex; align-items: center; justify-content: center; }
+.cpts.up { background: #141821; color: #fff; box-shadow: 0 0 0 2px #7dff6b; }
+.cpts.down { background: #141821; color: #fff; box-shadow: 0 0 0 2px #ff8b7b; }
+.cpts.ko { background: #141821; color: #ffb4a8; box-shadow: 0 0 0 2px #ff4d4d; }
 .pstar { position: absolute; z-index: 4; left: 14%; top: 14%; width: 16px; height: 16px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
   background: rgba(10, 12, 20, .9); color: #f0c14a; font-size: 10px; line-height: 1; box-shadow: 0 1px 4px rgba(0,0,0,.35); }
 .recolor { position: absolute; z-index: 3; left: 8%; top: 34%; width: 16%; height: 16%; border-radius: 50%; box-shadow: 0 0 0 1px rgba(0,0,0,.4); }
@@ -143,7 +148,7 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
   box-shadow: inset 0 0 0 1px rgba(255,255,255,.25), 0 6px 12px rgba(0,0,0,.25); display: flex; align-items: center; justify-content: center; font: 700 15px/1 "Outfit", system-ui, sans-serif; }
 .stack.empty { background: rgba(255,255,255,.08); box-shadow: none; }
 .goalcard { position: relative; width: 74px; flex: none; } .goalcard .card { width: 74px; height: 74px; } .goalcard .cname { display: none; }
-.goalcard .cpts, .fan .cpts { width: 18px; height: 18px; font-size: 10px; line-height: 18px; }
+.goalcard .cpts, .fan .cpts { height: 13px; min-width: 13px; font-size: 8px; line-height: 13px; padding: 0 3px; }
 .goalcard.drawn { opacity: .5; }
 .goaltag { position: absolute; top: -7px; left: 0; right: 0; background: rgba(240, 193, 74, .95); color: #1c1404; font: 700 8px/1.2 "Outfit", system-ui, sans-serif; letter-spacing: .04em; text-align: center; border-radius: 999px; z-index: 4; padding: 1px 0; }
 .handbar { display: flex; align-items: center; gap: 12px; margin: 0 14px 14px; padding: 10px 14px; min-height: 124px;
@@ -206,7 +211,7 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
   .btn.small { padding: 6px 7px; font-size: 11px; margin: 0 1px; }
   .cname { font-size: 9px; }
   .cname.long { font-size: 8px; }
-  .cpts { width: 22px; height: 22px; font-size: 11px; line-height: 22px; }
+  .cpts { width: auto; height: auto; min-width: 12px; font-size: 9px; line-height: 1; padding: 2px 4px; bottom: 20%; right: 10%; }
   .btn, .deckpick, .bcard, .handcard, .slot, .goalcard { touch-action: manipulation; }
   .btn { min-height: 44px; min-width: 44px; }
   .btn.small { min-height: 44px; }
@@ -254,18 +259,18 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
   .bgrid { grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); }
   .go-num { font-size: 32px; }
   #preview:not(.hidden) {
-    display: block; position: fixed; inset: 0; z-index: 40; pointer-events: none;
+    display: block; position: fixed; inset: 0; z-index: 60; pointer-events: none;
     max-height: none; padding: 0; overflow: visible; background: transparent; border: 0; box-shadow: none; border-radius: 0;
   }
   .preview-backdrop { position: absolute; left: 0; right: 0; bottom: 0; top: 22%; background: rgba(4, 6, 16, .45); border: 0; margin: 0; padding: 0; min-height: 0; min-width: 0; border-radius: 0; pointer-events: none; }
   .preview-sheet {
     position: absolute; z-index: 1; left: 10px; right: 10px; bottom: calc(8px + env(safe-area-inset-bottom));
-    max-height: 168px; overflow: auto; padding: 12px; border-radius: 20px; pointer-events: auto;
+    max-height: 78vh; overflow: auto; padding: 16px; border-radius: 20px; pointer-events: auto;
     background: rgba(16, 20, 40, .98); border: 1px solid rgba(255,255,255,.14); box-shadow: 0 16px 40px rgba(0,0,0,.45);
   }
   .preview-close { min-height: 44px; min-width: 44px; float: right; }
-  #preview .tv-card { display: grid; grid-template-columns: 72px 1fr; gap: 8px; text-align: left; align-items: start; background: #fff; }
-  #preview .tv-art { grid-row: 1 / span 6; width: 72px; height: 72px; margin: 0; }
+  #preview .tv-card { display: block; background: transparent; border: 0; padding: 0 4px 4px; text-align: center; overflow: hidden; }
+  #preview .tv-art, #preview .tv-card.gold .tv-art { width: min(176px, 52vw); height: auto; aspect-ratio: 1; margin: 0 auto 8px; grid-row: auto; }
 }
 @media (max-width: 1099px) and (orientation: landscape) {
   .logo { font-size: 14px; }
@@ -300,13 +305,12 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
 @keyframes twinkle { 50% { opacity: .2; } }
 .tv-art { position: relative; }
 .tv-art .cartimg { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
-.tv-card.gold { border-color: #e8b23a; }
-.tv-card.gold .tv-art { width: 220px; height: 220px; border: none;
-  background: radial-gradient(circle at 32% 24%, #fff6cc, #f0c14a 42%, #8d5a10); box-shadow: 0 0 22px rgba(240, 193, 74, .5); }
+.tv-card.gold { border-color: rgba(240, 193, 74, .45); }
+.tv-card.gold .tv-art { border-color: #f0c14a; box-shadow: 0 0 0 4px rgba(0,0,0,.45), 0 0 16px rgba(240, 193, 74, .35); background: #10131c; }
 .goldtoggle { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; margin: 4px 0 8px; }
 .cgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 12px; max-width: 920px; margin: 8px auto 12px; }
 .ccard { cursor: pointer; min-height: 44px; }
 @media (prefers-reduced-motion: reduce) {
-  .holo, .spark { animation: none; }
+  .holo, .spark, .cart { animation: none; }
   .holo { opacity: .35; background-position: 40% 40%; }
 }

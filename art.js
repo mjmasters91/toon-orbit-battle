@@ -116,6 +116,8 @@
     const id = img && img.getAttribute && img.getAttribute('data-id');
     const card = root.TOB_CARDS && root.TOB_CARDS.CARDS[id];
     if (!card) { if (img) img.remove(); return; }
+    const cart = img.closest && img.closest('.cart');
+    if (cart) cart.classList.add('ready');
     const holder = document.createElement('div');
     holder.innerHTML = svg(card);
     if (holder.firstChild) img.replaceWith(holder.firstChild);

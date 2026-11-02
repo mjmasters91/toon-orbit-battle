@@ -51,7 +51,7 @@
   }
   function faceHTML(card, eager) {
     const src = 'assets/cards/' + encodeURIComponent(card.id) + '.webp';
-    return `<img class="cartimg" alt="" data-id="${card.id}" src="${src}" loading="${eager ? 'eager' : 'lazy'}" decoding="async" onerror="TOB_ART.useSvg(this)">`;
+    return `<img class="cartimg" alt="" data-id="${card.id}" src="${src}" loading="${eager ? 'eager' : 'lazy'}" decoding="async" onload="this.closest('.cart')&&this.closest('.cart').classList.add('ready')" onerror="TOB_ART.useSvg(this)">`;
   }
   function backHTML() { return `<div class="card back"><div class="backlogo"><span>TOON</span><b>ORBIT</b></div></div>`; }
 
@@ -418,7 +418,7 @@
         <div class="sb-title">Collection</div>
         <div class="tag">Gold copies are cosmetic. Every toon can have one, and they play the same.</div>
         <label class="goldtoggle"><input type="checkbox" id="goldView" ${collectionGold ? 'checked' : ''}> View gold copies</label>
-        <div class="cgrid">${cards.map(c => `<div class="ccard" data-cid="${c.id}">${cardHTML(c)}</div>`).join('')}</div>
+        <div class="cgrid">${cards.map(c => `<div class="ccard" data-cid="${c.id}">${cardHTML(c, null, true)}</div>`).join('')}</div>
         <div class="go-btns"><button class="btn" id="btnBack">BACK</button></div></div>`;
       $('#goldView').onchange = () => { collectionGold = $('#goldView').checked; draw(); };
       $('#btnBack').onclick = showDeckSelect;
