@@ -47,20 +47,21 @@
     profile = profile || {};
     const granted = profile.welcomeGranted === true;
     let packs = Math.max(0, profile.packs | 0);
-    let packWins = Math.max(0, profile.packWins | 0);
     if (!granted) packs += 3;
-    if (packWins >= 3) {
-      packs += Math.floor(packWins / 3);
-      packWins = packWins % 3;
-    }
+    const name = username || profile.username || '';
+    const lower = name.toLowerCase();
+    let role = profile.role === 'admin' || profile.role === 'player' ? profile.role : '';
+    if (!role) role = lower === 'mjmasters91' ? 'admin' : 'player';
+    if (lower === 'guest') role = 'player';
     return {
-      username: username || profile.username || '',
+      username: name,
       createdAt: profile.createdAt || new Date().toISOString(),
       starterDeck: profile.starterDeck || null,
       stats: normStats(profile.stats),
       collection: normCollection(profile.collection),
       packs,
-      packWins,
+      coins: Math.max(0, profile.coins | 0),
+      role,
       welcomeGranted: true,
       lastDaily: typeof profile.lastDaily === 'string' ? profile.lastDaily : null,
     };
@@ -264,7 +265,7 @@
         id: data.user.id,
         username: name.username,
         starter_deck: null,
-        stats: {wins: 0, losses: 0, games: 0, packs: 3, packWins: 0, welcomeGranted: true, lastDaily: null},
+        stats: {wins: 0, losses: 0, games: 0, packs: 3, coins: 0, role: 'player', welcomeGranted: true, lastDaily: null},
         collection: [],
       };
       const ins = await this.client.from('profiles').insert(row);
@@ -303,7 +304,8 @@
         stats: normStats(stats),
         collection: normCollection(data.collection),
         packs: stats.packs | 0,
-        packWins: stats.packWins | 0,
+        coins: stats.coins | 0,
+        role: stats.role === 'admin' || stats.role === 'player' ? stats.role : undefined,
         welcomeGranted: stats.welcomeGranted === true,
         lastDaily: typeof stats.lastDaily === 'string' ? stats.lastDaily : null,
       };
@@ -316,7 +318,7 @@
         starter_deck: packed.starterDeck,
         stats: {
           wins: packed.stats.wins, losses: packed.stats.losses, games: packed.stats.games,
-          packs: packed.packs, packWins: packed.packWins, welcomeGranted: true, lastDaily: packed.lastDaily,
+          packs: packed.packs, coins: packed.coins, role: packed.role, welcomeGranted: true, lastDaily: packed.lastDaily,
         },
         collection: packed.collection,
       }).eq('id', this.user.id);
@@ -404,5 +406,30 @@
     },
     peekGuest() { return clone(readGuest()); },
     clearGuest() { localStorage.removeItem(GUEST_KEY); },
+    listProfiles() {
+      const accounts = readAccounts();
+      const list = Object.keys(accounts).map(k => clone(accounts[k].profile)).filter(Boolean);
+      const guest = readGuest();
+      if (guest) list.push(clone(guest));
+      list.sort((a, b) => String(a.username || '').localeCompare(String(b.username || '')));
+      return list;
+    },
+    adminSave(username, profile) {
+      const name = String(username || '');
+      if (name.toLowerCase() === 'guest') {
+        const packed = packProfile(profile, 'Guest');
+        try { localStorage.setItem(GUEST_KEY, JSON.stringify(packed)); }
+        catch (e) { return {ok: false, error: 'This browser blocked saving. Check storage settings and try again.'}; }
+        return {ok: true, profile: packed};
+      }
+      const accounts = readAccounts();
+      const key = name.toLowerCase();
+      if (!accounts[key]) return {ok: false, error: 'No player with that name.'};
+      const packed = packProfile(profile, accounts[key].username);
+      accounts[key].profile = packed;
+      try { writeAccounts(accounts); }
+      catch (e) { return {ok: false, error: 'This browser blocked saving. Check storage settings and try again.'}; }
+      return {ok: true, profile: packed};
+    },
   };
 })(this);

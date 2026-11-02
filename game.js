@@ -7,6 +7,36 @@
   const AUTO = qs.has('auto'); let autoGames = Math.max(1, parseInt(qs.get('auto') || '1', 10) || 1);
   // ===== CONFIG: seconds on the countdown for every timed phase (placement, discard, swap, silver). =====
   const PHASE_SECONDS = 30;
+  const ECONOMY_DEFAULTS = {winCoins: 100, lossCoins: 25, packPrice: 300};
+  function readEconomy() {
+    const base = {winCoins: ECONOMY_DEFAULTS.winCoins, lossCoins: ECONOMY_DEFAULTS.lossCoins, packPrice: ECONOMY_DEFAULTS.packPrice};
+    try {
+      const saved = JSON.parse(localStorage.getItem('tob_economy') || 'null');
+      if (!saved) return base;
+      ['winCoins', 'lossCoins', 'packPrice'].forEach(k => {
+        const n = Math.round(Number(saved[k]));
+        if (Number.isFinite(n) && n >= 0 && n <= 1000000) base[k] = n;
+      });
+    } catch (e) { /* keep defaults */ }
+    return base;
+  }
+  let ECONOMY = readEconomy();
+  function saveEconomy(next) {
+    ECONOMY = next;
+    try { localStorage.setItem('tob_economy', JSON.stringify(ECONOMY)); } catch (e) { /* ignore */ }
+  }
+  function countCoins(node, total) {
+    if (!node) return;
+    if (reduceMotion()) { node.textContent = '+' + total; return; }
+    const start = performance.now();
+    const dur = 700;
+    const frame = (now) => {
+      const t = Math.min(1, (now - start) / dur);
+      node.textContent = '+' + Math.round(total * (1 - Math.pow(1 - t, 3)));
+      if (t < 1) requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+  }
   const T = AUTO ? {flip: 25, pause: 40, play: PHASE_SECONDS, short: PHASE_SECONDS} : {flip: 750, pause: 1200, play: PHASE_SECONDS, short: PHASE_SECONDS};
   const $ = s => document.querySelector(s);
   const el = (tag, cls, html) => { const d = document.createElement(tag); if (cls) d.className = cls; if (html != null) d.innerHTML = html; return d; };
@@ -384,10 +414,15 @@
     blip(r.winner === 'p' ? 990 : 220, 0.4, 'triangle', 0.08);
     setMsg(title + ' ' + how); setActions(`<button class="btn go" id="btnAgain2">PLAY AGAIN</button>`);
     window.TOB_DONE = results.length;
-    let reward = null;
-    try { reward = await recordResult(r); }
-    catch (e) { reward = null; }
-    if (reward) showReward(reward);
+    let outcome = null;
+    try { outcome = await recordResult(r); }
+    catch (e) { outcome = null; }
+    if (outcome && outcome.gained > 0) {
+      const btns = ov.querySelector('.go-btns');
+      if (btns) btns.insertAdjacentHTML('beforebegin', `<div class="coinaward"><span class="coinicon" aria-hidden="true"></span> <b id="coinGain">+0</b> Orbit Coins</div>`);
+      countCoins($('#coinGain'), outcome.gained);
+    }
+    if (outcome && outcome.reward) showReward(outcome.reward);
     if (AUTO && results.length < autoGames) setTimeout(() => quickStart(), 50);
   }
 
@@ -402,7 +437,15 @@
     const menu = $('#userMenu');
     const user = window.TOB_AUTH.currentUser();
     if (!menu) return;
-    if (!user) { menu.classList.add('hidden'); closeUserMenu(); return; }
+    if (!user) {
+      menu.classList.add('hidden');
+      closeUserMenu();
+      const bal = $('#coinBal');
+      if (bal) bal.classList.add('hidden');
+      const adminBtn = $('#btnAdmin');
+      if (adminBtn) adminBtn.classList.add('hidden');
+      return;
+    }
     menu.classList.remove('hidden');
     const name = user.username || 'Player';
     $('#userAvatar').textContent = name.slice(0, 1).toUpperCase();
@@ -443,18 +486,15 @@
       profile.stats.wins = (profile.stats.wins | 0) + 1;
       reward = randomReward();
       profile.collection = (profile.collection || []).concat([reward]);
-      profile.packWins = (profile.packWins | 0) + 1;
-      if (profile.packWins >= 3) {
-        profile.packWins = 0;
-        profile.packs = (profile.packs | 0) + 1;
-      }
     } else if (r.winner === 'o') {
       profile.stats.losses = (profile.stats.losses | 0) + 1;
     }
+    const gained = r.winner === 'p' ? ECONOMY.winCoins : ECONOMY.lossCoins;
+    profile.coins = (profile.coins | 0) + gained;
     const saved = await window.TOB_AUTH.saveProfile(profile);
     if (saved && saved.ok) rememberPacks(profile);
     if (!saved || !saved.ok) return null;
-    return reward;
+    return {reward, gained};
   }
   function showReward(rec) {
     const copy = COPIES.makeCopy(rec.id, {gold: !!rec.gold, uid: rec.uid});
@@ -478,6 +518,7 @@
     closeUserMenu();
     try { await window.TOB_AUTH.logOut(); } catch (e) { /* leave the table anyway */ }
     renderUser();
+    rememberPacks(null);
     G = null;
     stopTimer();
     showAuth('login');
@@ -565,7 +606,7 @@
             const guestWelcome = guestSnap.welcomeGranted === true;
             profile.packs = (guestSnap.packs | 0) + (guestWelcome ? 0 : 3);
             profile.welcomeGranted = true;
-            profile.packWins = guestSnap.packWins | 0;
+            profile.coins = guestSnap.coins | 0;
             profile.lastDaily = typeof guestSnap.lastDaily === 'string' ? guestSnap.lastDaily : null;
           } else profile.collection = starter;
           const saved = await window.TOB_AUTH.saveProfile(profile);
@@ -650,7 +691,8 @@
   }
 
   /* ---------- packs ---------- */
-  let packState = {packs: 0, packWins: 0, lastDaily: null};
+  let packState = {packs: 0, lastDaily: null, coins: 0, role: 'player'};
+  let stageToken = 0;
   let currentPulls = null;
   let flipped = [];
   let packSummaryShown = false;
@@ -661,15 +703,23 @@
     return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   }
   function rememberPacks(profile) {
+    const user = window.TOB_AUTH.currentUser();
     packState = {
       packs: profile ? (profile.packs | 0) : 0,
-      packWins: profile ? (profile.packWins | 0) : 0,
       lastDaily: profile && typeof profile.lastDaily === 'string' ? profile.lastDaily : null,
+      coins: profile ? (profile.coins | 0) : 0,
+      role: profile && profile.role === 'admin' ? 'admin' : 'player',
     };
     document.querySelectorAll('[data-packbadge]').forEach(el => {
       el.textContent = packState.packs ? String(packState.packs) : '';
       el.classList.toggle('on', packState.packs > 0);
     });
+    const bal = $('#coinBal');
+    const count = $('#coinCount');
+    if (bal) bal.classList.toggle('hidden', !user);
+    if (count && user) count.textContent = String(packState.coins);
+    const adminBtn = $('#btnAdmin');
+    if (adminBtn) adminBtn.classList.toggle('hidden', !user || packState.role !== 'admin');
   }
   async function liveProfile() {
     let profile = await window.TOB_AUTH.loadProfile();
@@ -713,7 +763,7 @@
   function foilMarkup() {
     const bits = Array.from({length: 8}, (_, i) => `<i style="--i:${i}"></i>`).join('');
     return `<div class="foil-sheen"></div><div class="foil-tear"></div>
-      <div class="foil-face"><div class="foil-logo"><span class="ring"></span>TOON ORBIT <b>BATTLE</b></div><div class="foil-sub">TOON PACK</div></div>
+      <div class="foil-face"><div class="foil-brand"><span class="foil-planet" aria-hidden="true"></span><span class="foil-words">TOON ORBIT <b>BATTLE</b></span></div><div class="foil-sub">TOON PACK</div></div>
       <div class="foil-bits">${bits}</div>`;
   }
   function goldBurst() {
@@ -740,7 +790,12 @@
         <div class="sb-title">Packs</div>
         <div class="foilpack idle">${foilMarkup()}</div>
         <div class="progress-line" id="packCount">${profile.packs | 0} unopened</div>
-        <div class="packhint" id="packProgress">${profile.packWins | 0}/3 wins to next pack</div>
+        <div class="shop" id="packShop">
+          <div class="sb-title">Pack shop</div>
+          <div class="shop-price"><span class="coinicon" aria-hidden="true"></span> ${ECONOMY.packPrice} Orbit Coins</div>
+          <button type="button" class="btn go" id="btnBuyPack" ${(profile.coins | 0) < ECONOMY.packPrice ? 'disabled' : ''}>Buy pack</button>
+          <p class="shop-note" id="shopNote">${(profile.coins | 0) < ECONOMY.packPrice ? `You need ${ECONOMY.packPrice} Orbit Coins for a pack. You have ${profile.coins | 0}.` : 'Buy a pack with Orbit Coins. No real money.'}</p>
+        </div>
         <div class="tag">Five toons. One is new when you still have cards to find. Each copy has a 10% chance to be gold.</div>
         <div class="go-btns">
           <button type="button" class="btn go" id="btnOpenPack" ${(profile.packs | 0) < 1 ? 'disabled' : ''}>Open pack</button>
@@ -764,6 +819,110 @@
     rememberPacks(profile);
     packSound('daily');
     showPacks();
+  }
+  async function buyPack() {
+    const profile = await liveProfile();
+    if (!profile) return;
+    if ((profile.coins | 0) < ECONOMY.packPrice) return;
+    profile.coins = (profile.coins | 0) - ECONOMY.packPrice;
+    profile.packs = (profile.packs | 0) + 1;
+    const saved = await window.TOB_AUTH.saveProfile(profile);
+    if (!saved || !saved.ok) return;
+    rememberPacks(profile);
+    packSound('daily');
+    showPacks();
+  }
+  function toast(msg) {
+    const node = $('#toast');
+    if (!node) return;
+    node.textContent = msg;
+    node.classList.remove('hidden');
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => node.classList.add('hidden'), 2200);
+  }
+  function clampInt(v, fallback) {
+    const n = Math.round(Number(v));
+    if (!Number.isFinite(n) || n < 0 || n > 1000000) return fallback;
+    return n;
+  }
+  function showAdmin() {
+    if (packState.role !== 'admin') return showDeckSelect();
+    closeUserMenu();
+    hidePreview();
+    stopTimer();
+    const ov = $('#overlay');
+    ov.classList.remove('hidden');
+    const people = window.TOB_AUTH.listProfiles();
+    const cardOpts = CARD_LIST.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+    const rows = people.map(p => {
+      const count = (p.collection || []).length;
+      const key = String(p.username || '').toLowerCase();
+      return `<div class="adminrow" data-user="${key}">
+        <div class="adminwho"><b>${p.username}</b> <span>${p.role === 'admin' ? 'admin' : 'player'}</span></div>
+        <div class="adminmeta">${p.coins | 0} coins · ${p.packs | 0} packs · ${count} cards</div>
+        <div class="admingrid">
+          <input class="admin-in" data-field="coins" type="number" min="0" value="${p.coins | 0}" aria-label="Coins for ${p.username}">
+          <button type="button" class="btn" data-act="coins">Set coins</button>
+          <input class="admin-in" data-field="packs" type="number" min="0" value="${p.packs | 0}" aria-label="Packs for ${p.username}">
+          <button type="button" class="btn" data-act="packs">Set packs</button>
+          <select data-field="card" aria-label="Card for ${p.username}">${cardOpts}</select>
+          <label class="goldlab"><input type="checkbox" data-field="gold"> Gold</label>
+          <button type="button" class="btn" data-act="card">Grant card</button>
+          <button type="button" class="btn" data-act="role">${p.role === 'admin' ? 'Demote' : 'Make admin'}</button>
+        </div>
+      </div>`;
+    }).join('') || '<p class="tag">No accounts on this device.</p>';
+    ov.innerHTML = `<div class="panel admin">
+      <div class="sb-title">Admin</div>
+      <p class="tag">Local admin is device-only and client-side. Anyone with this browser can change the data. A Supabase project has to enforce the admin role on the server.</p>
+      <div class="econ">
+        <label>Win <input id="ecoWin" type="number" min="0" value="${ECONOMY.winCoins}"></label>
+        <label>Loss <input id="ecoLoss" type="number" min="0" value="${ECONOMY.lossCoins}"></label>
+        <label>Pack <input id="ecoPrice" type="number" min="0" value="${ECONOMY.packPrice}"></label>
+        <button type="button" class="btn go" id="btnSaveEcon">Save economy</button>
+      </div>
+      <div class="adminlist">${rows}</div>
+      <div class="go-btns"><button type="button" class="btn" id="btnAdminBack">BACK</button></div>
+    </div>`;
+    $('#btnAdminBack').onclick = () => showDeckSelect();
+    $('#btnSaveEcon').onclick = () => {
+      saveEconomy({
+        winCoins: clampInt($('#ecoWin').value, ECONOMY.winCoins),
+        lossCoins: clampInt($('#ecoLoss').value, ECONOMY.lossCoins),
+        packPrice: clampInt($('#ecoPrice').value, ECONOMY.packPrice),
+      });
+      toast('Saved economy');
+      showAdmin();
+    };
+    ov.querySelectorAll('[data-act]').forEach(btn => { btn.onclick = () => adminAct(btn); });
+  }
+  function adminAct(btn) {
+    const row = btn.closest('.adminrow');
+    const username = row && row.dataset.user;
+    const profile = window.TOB_AUTH.listProfiles().find(p => String(p.username || '').toLowerCase() === username);
+    if (!profile) { toast('That player is not on this device'); return; }
+    const act = btn.dataset.act;
+    if (act === 'coins') profile.coins = clampInt(row.querySelector('[data-field="coins"]').value, profile.coins | 0);
+    else if (act === 'packs') {
+      profile.packs = clampInt(row.querySelector('[data-field="packs"]').value, profile.packs | 0);
+      profile.welcomeGranted = true;
+    } else if (act === 'card') {
+      const id = row.querySelector('[data-field="card"]').value;
+      if (!CARDS[id]) { toast('Pick a card'); return; }
+      const gold = !!row.querySelector('[data-field="gold"]').checked;
+      const copy = COPIES.makeCopy(id, {gold});
+      profile.collection = (profile.collection || []).concat([{id: copy.id, gold: !!copy.gold, uid: copy.uid}]);
+    } else if (act === 'role') {
+      if (String(profile.username || '').toLowerCase() === 'guest') { toast('Guest stays a player'); return; }
+      profile.role = profile.role === 'admin' ? 'player' : 'admin';
+    }
+    const saved = window.TOB_AUTH.adminSave(profile.username, profile);
+    if (!saved || !saved.ok) { toast((saved && saved.error) || 'Could not save'); return; }
+    const me = window.TOB_AUTH.currentUser();
+    if (me && String(me.username || '').toLowerCase() === username) rememberPacks(saved.profile);
+    const labels = {coins: 'Updated coins for ', packs: 'Updated packs for ', card: 'Granted a card to ', role: 'Updated role for '};
+    toast((labels[act] || 'Saved ') + profile.username);
+    showAdmin();
   }
   async function openPack() {
     if (packBusy) return;
@@ -884,7 +1043,6 @@
         <div class="dname">${d.name}</div><div class="dcolors">${[...new Set(d.cards.map(id => CARDS[id].color))].map(c => `<span class="gem" style="background:${COLORS[c]}"></span>`).join('')}</div></div>`).join('')}
         <div class="deckpick ${cd.length === 12 ? '' : 'dim'}" data-deck="custom"><div class="fan">${cd.slice(0, 3).map(id => cardHTML(CARDS[id])).join('') || '<div class="card back"><div class="backlogo"><span>MY</span><b>DECK</b></div></div>'}</div>
         <div class="dname">My Deck</div><div class="dcolors">${cd.length}/12 cards</div></div></div>
-      <div class="packhint">${packState.packWins}/3 wins to next pack</div>
       <div class="go-btns"><button class="btn" id="btnPacks">PACKS <span class="packbadge${packState.packs ? ' on' : ''}" data-packbadge>${packState.packs || ''}</span></button><button class="btn" id="btnCollection">CARD GALLERY</button><button class="btn" id="btnBuild">DECK BUILDER</button><button class="btn" id="btnRules2">HOW TO PLAY</button></div></div>`;
   }
   let collectionGold = false;
@@ -976,6 +1134,8 @@
       return;
     }
     if (t.id === 'btnPacks' || t.id === 'btnPacksMenu') return showPacks();
+    if (t.id === 'btnAdmin') return showAdmin();
+    if (t.id === 'btnBuyPack') return buyPack();
     if (t.id === 'btnOpenPack' || t.id === 'btnOpenAnother') return openPack();
     if (t.id === 'btnDaily') return claimDaily();
     if (t.id === 'btnRevealAll') return revealAll();

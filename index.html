@@ -21,6 +21,7 @@
   <header class="topbar">
     <div class="logo"><span class="ring"></span>TOON ORBIT <b>BATTLE</b></div>
     <div class="nav">
+      <div class="coinbal hidden" id="coinBal" title="Orbit Coins"><span class="coinicon" aria-hidden="true"></span><span id="coinCount">0</span></div>
       <div class="usermenu hidden" id="userMenu">
         <button type="button" class="btn small userchip" id="btnUser" aria-haspopup="menu" aria-expanded="false" aria-controls="userPop">
           <span class="avatar" id="userAvatar" aria-hidden="true">?</span>
@@ -28,6 +29,7 @@
         </button>
         <div class="usermenu-pop hidden" id="userPop" role="menu">
           <button type="button" class="menuitem" id="btnPacksMenu" role="menuitem">Packs <span class="packbadge" data-packbadge></span></button>
+          <button type="button" class="menuitem hidden" id="btnAdmin" role="menuitem">Admin</button>
           <button type="button" class="menuitem" id="btnMyCollection" role="menuitem">My Collection</button>
           <button type="button" class="menuitem" id="btnLogOut" role="menuitem">Log out</button>
         </div>
@@ -65,6 +67,7 @@
   </footer>
   <div id="overlay" class="hidden"></div>
   <div id="reward" class="hidden" role="dialog" aria-modal="true" aria-label="New toon"></div>
+  <div id="toast" class="toast hidden" role="status"></div>
   <div id="preview" class="preview hidden" role="dialog" aria-modal="true" aria-label="Card preview">
     <button type="button" class="preview-backdrop" id="previewBackdrop" aria-label="Close preview"></button>
     <div class="preview-sheet">

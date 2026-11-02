@@ -223,8 +223,9 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
   .nav { display: flex; flex-wrap: nowrap; justify-content: flex-end; gap: 0; min-width: 0; }
   .lbl-full { display: none; }
   .lbl-short { display: inline; }
-  .userchip { max-width: 92px; gap: 4px; padding: 0 6px 0 4px; }
-  .uname { max-width: 46px; }
+  .userchip { max-width: 78px; gap: 4px; padding: 0 6px 0 4px; }
+  .uname { max-width: 34px; }
+  .coinbal { height: 22px; font-size: 11px; padding: 0 5px; margin-right: 2px; }
   .avatar { width: 22px; height: 22px; font-size: 12px; }
   .btn.small { padding: 6px 7px; font-size: 11px; margin: 0 1px; }
   .cname { font-size: 9px; }
@@ -373,10 +374,29 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
   background: linear-gradient(155deg, #1b1033 0%, #5c2d9e 36%, #f0c14a 64%, #6d28d9 100%);
   box-shadow: inset 0 0 0 2px rgba(255,255,255,.5), 0 16px 36px rgba(0,0,0,.4); }
 .foil-sheen { position: absolute; inset: -40%; pointer-events: none; background: linear-gradient(115deg, transparent 32%, rgba(255,255,255,.42) 48%, transparent 64%); animation: sheen 3.6s linear infinite; }
-.foil-face { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; }
-.foil-logo { position: relative; padding-left: 40px; font: 700 12px/1.15 "Outfit", system-ui, sans-serif; letter-spacing: .06em; color: #fff; }
-.foil-logo b { color: #f0c14a; }
-.foil-logo .ring { width: 28px; height: 28px; margin-top: -14px; }
+.foil-face { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 16px; }
+.foil-brand { display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: 100%; }
+.foil-planet { position: relative; width: 44px; height: 44px; border-radius: 50%; flex: none;
+  background: radial-gradient(circle at 35% 35%, #c8f6ff, #2f7bff 58%, #06204a); border: 2px solid rgba(255,255,255,.6); box-shadow: 0 0 12px rgba(80,150,255,.45); }
+.foil-planet::after { content: ""; position: absolute; left: 50%; top: 50%; width: 58px; height: 12px; margin: -6px 0 0 -29px; border: 2px solid #f0c14a; border-radius: 50%; transform: rotate(-18deg); box-sizing: border-box; }
+.foil-words { font: 800 13px/1.2 "Outfit", system-ui, sans-serif; letter-spacing: .08em; color: #fff; text-align: center; }
+.foil-words b { color: #f0c14a; display: block; letter-spacing: .16em; }
+.coinbal { display: inline-flex; align-items: center; gap: 4px; margin-right: 4px; padding: 0 8px; height: 28px; border-radius: 999px; background: rgba(240,193,74,.16); color: #ffe7a3; font: 800 12px/1 "Outfit", system-ui, sans-serif; flex: none; }
+.coinicon { width: 16px; height: 16px; border-radius: 50%; position: relative; flex: none; display: inline-block; background: radial-gradient(circle at 35% 30%, #fff6c8, #f0c14a 46%, #a56b12); box-shadow: inset 0 0 0 1.5px #fff1b8; }
+.coinicon::after { content: ""; position: absolute; left: 50%; top: 50%; width: 12px; height: 4px; margin: -2px 0 0 -6px; border: 1.5px solid #6b4510; border-radius: 50%; transform: rotate(-18deg); }
+.shop { margin: 8px 0; }
+.shop-price { font-weight: 800; color: #ffe7a3; margin-bottom: 6px; }
+.shop-note { color: #ffd0c8; font-weight: 600; margin: 8px 0 0; }
+.coinaward { margin: 8px 0; font-weight: 800; color: #ffe7a3; }
+.adminrow { text-align: left; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1); border-radius: 14px; padding: 10px; margin: 8px 0; }
+.adminwho { font-size: 15px; } .adminwho span { color: #f0c14a; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+.adminmeta { color: #b7c3e0; font-size: 13px; margin: 2px 0 8px; }
+.admingrid { display: grid; grid-template-columns: 1fr auto; gap: 6px; align-items: center; }
+.econ { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; align-items: end; margin: 8px 0 12px; }
+.econ label { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: #b7c3e0; }
+.admin-in, .econ input, .adminrow select { width: 100%; padding: 8px; border-radius: 10px; border: 1px solid rgba(255,255,255,.16); background: rgba(0,0,0,.28); color: #fff; font: 600 14px "Outfit", system-ui, sans-serif; }
+.goldlab { font-size: 13px; color: #ffe7a3; }
+.toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 120; background: #f0c14a; color: #1c1404; font: 800 14px/1.2 "Outfit", system-ui, sans-serif; padding: 12px 16px; border-radius: 999px; box-shadow: 0 12px 28px rgba(0,0,0,.4); max-width: calc(100vw - 32px); }
 .foil-sub { font: 800 12px/1 "Outfit", system-ui, sans-serif; letter-spacing: .2em; color: #1c1404; background: linear-gradient(#fff6d0, #e8b23a); border-radius: 999px; padding: 6px 10px; }
 .foilpack.shake { animation: packshake .7s ease-in-out; }
 @keyframes packshake { 20% { transform: rotate(-4deg) scale(1.03); } 40% { transform: rotate(4deg); } 60% { transform: rotate(-3deg); } 80% { transform: rotate(2deg); } }
