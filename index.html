@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Toon Orbit Battle</title>
+<meta name="viewport" content="width=1220">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ccircle cx=%2250%22 cy=%2250%22 r=%2240%22 fill=%22%2318f%22/%3E%3C/svg%3E">
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <div class="logo"><span class="ring"></span>TOON ORBIT <b>BATTLE</b></div>
+    <div class="nav">
+      <button class="btn small" id="btnRules">How to Play</button>
+      <button class="btn small" id="btnNew">New Game</button>
+      <button class="btn small" id="btnSound">Sound: On</button>
+    </div>
+  </header>
+  <main class="layout">
+    <aside class="left">
+      <div id="scoreboard" class="box"></div>
+      <div class="box tv"><div class="tv-title">TOON TV</div><div id="inspector"></div></div>
+    </aside>
+    <section class="arena">
+      <div class="ohandrow"><div id="o-hand"></div></div>
+      <div class="side opp">
+        <div class="row outer" id="o-outer"></div>
+        <div class="row inner" id="o-inner"></div>
+      </div>
+      <div class="midline"><div id="phaseMsg">Welcome to Toon Orbit Battle!</div><div id="timer"></div></div>
+      <div class="side me">
+        <div class="row inner" id="p-inner"></div>
+        <div class="row outer" id="p-outer"></div>
+      </div>
+    </section>
+    <aside class="right"><div id="decks"></div></aside>
+  </main>
+  <footer class="handbar">
+    <div class="handlabel">YOUR HAND</div>
+    <div id="hand"></div>
+    <div id="actions"></div>
+  </footer>
+  <div id="overlay" class="hidden"></div>
+</div>
+<script src="cards.js"></script>
+<script src="engine.js"></script>
+<script src="ai.js"></script>
+<script src="art.js"></script>
+<script src="game.js"></script>
+</body>
+</html>
