@@ -702,6 +702,45 @@ button.portal-greet:hover { color: #ffa733; }
 .db-item.focus { background: #1c1c20; }
 .db-row { display: flex; gap: 10px; width: 100%; text-align: left; color: #f4f4f6; background: transparent; border: 0; padding: 12px; cursor: pointer; align-items: flex-start; }
 .db-thumb { width: 54px; height: 54px; object-fit: cover; border-radius: 8px; flex: none; background: #0b0b0d; }
+.db-puck .cname { display: none; }
+.db-puck .card { width: 64px; height: 64px; }
+.db-rows.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); gap: 12px; padding: 12px; }
+.db-rows.grid .db-item { border: 1px solid #2a2a2e; border-radius: 12px; overflow: hidden; }
+.db-rows.grid .db-row { flex-direction: column; align-items: stretch; }
+.db-rows.grid .db-puck { display: flex; justify-content: center; }
+.db-rows.grid .db-puck .card { width: min(140px, 100%); height: auto; aspect-ratio: 1; }
+.yd-row { display: flex; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid #2a2a2e; }
+.yd-main { display: flex; gap: 10px; flex: 1; min-width: 0; background: transparent; border: 0; color: inherit; text-align: left; cursor: pointer; padding: 4px; border-radius: 10px; }
+.yd-main:hover, .db-row:hover { background: rgba(255,122,0,.08); }
+.yd-main:active, .db-row:active { transform: scale(.99); }
+.yd-puck .card { width: 60px; height: 60px; }
+.yd-tools { display: flex; flex-direction: column; gap: 6px; flex: none; }
+.db-remove { min-width: 72px; min-height: 44px; border-radius: 10px; border: 1px solid #ff7a00; background: #241206; color: #ffb15a; font: 800 13px/1 Inter, "Segoe UI", system-ui, sans-serif; cursor: pointer; }
+.db-hero { display: flex; justify-content: center; margin-bottom: 8px; }
+.db-hero .card { width: min(220px, 70vw); height: auto; aspect-ratio: 1; }
+.db-switch { display: flex; gap: 8px; padding: 8px 12px; background: #0b0b0d; }
+.db-quick, .db-toolsline, .db-pills, .db-chipline, .db-sugrow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.db-chipline.shut { display: none; }
+.db-fold { width: 100%; text-align: left; background: transparent; color: #ffa733; border: 0; font: 800 13px/1 Inter, "Segoe UI", system-ui, sans-serif; padding: 8px 0; cursor: pointer; }
+.db-chip { display: inline-flex; align-items: center; gap: 4px; background: #0b0b0d; color: #f4f4f6; border: 1px solid #3a3a40; border-radius: 999px; padding: 6px 8px; font: 700 13px/1 Inter, "Segoe UI", system-ui, sans-serif; cursor: pointer; }
+.db-chip.on, .db-pill { border-color: #ff7a00; }
+.db-chip i, .db-colors i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.db-chip em { font-style: normal; color: #b7b7be; }
+.db-pill { background: #241206; color: #ffb15a; border-radius: 999px; padding: 6px 10px; cursor: pointer; font: 700 13px/1 Inter, "Segoe UI", system-ui, sans-serif; }
+.db-count { color: #b7b7be; font-size: 13px; font-weight: 700; }
+.db-suggest { padding: 8px 12px; border-bottom: 1px solid #2a2a2e; }
+.db-suggest b { display: block; color: #ffa733; font-size: 13px; letter-spacing: .04em; margin-bottom: 6px; }
+.db-sug { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 84px; background: transparent; border: 0; color: #f4f4f6; font: 700 11px/1.2 Inter, "Segoe UI", system-ui, sans-serif; cursor: pointer; }
+.sug-puck .card { width: 64px; height: 64px; }
+.db-sugrow { overflow-x: auto; flex-wrap: nowrap; }
+.db-empty { padding: 16px; color: #c8c8ce; }
+.db-flash { animation: dbIn .55s ease; }
+@keyframes dbIn { from { background: rgba(255, 140, 40, .45); } to { background: transparent; } }
+.db-skel { display: grid; gap: 10px; padding: 12px; }
+.sk { height: 88px; border-radius: 12px; background: linear-gradient(90deg, #19191c 0%, #2c2c31 50%, #19191c 100%); background-size: 200% 100%; animation: sk 1.1s linear infinite; }
+@keyframes sk { to { background-position: -200% 0; } }
+#deckBuilder.pane-deck .db-listcol { display: none; }
+#deckBuilder.pane-deck .db-deckcol { display: block; position: relative; max-height: none; padding: 12px 12px 88px; }
 .db-copy { min-width: 0; flex: 1; }
 .db-name, .db-dname { display: block; font-weight: 800; font-size: 16px; line-height: 1.3; }
 .db-meta { display: block; margin: 2px 0 6px; color: #ffa733; font-size: 14px; font-weight: 700; line-height: 1.35; }
@@ -736,7 +775,10 @@ button.portal-greet:hover { color: #ffa733; }
   .db-listcol, .db-detail, .db-deckcol { display: block; overflow: auto; min-height: 0; }
   .db-detail, .db-deckcol { padding: 14px; border-left: 1px solid #2a2a2e; }
   .db-filters { position: sticky; top: 0; }
-  .db-tray, #btnCloseDeck { display: none; }
+  .db-tray, .db-switch, #btnCloseDeck { display: none; }
   .db-sheet { display: none !important; }
   .db-power { font-size: 15px; }
+  .db-rows.grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  #deckBuilder.pane-deck .db-listcol { display: block; }
+  #deckBuilder.pane-deck .db-deckcol { display: block; position: static; padding: 14px; max-height: none; }
 }

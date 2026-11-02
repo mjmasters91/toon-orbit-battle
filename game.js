@@ -1575,7 +1575,7 @@
     };
     draw();
   }
-  let buildFinish = 'all', buildColor = '', buildArch = '', buildQ = '', buildSort = 'name', buildCombo = false, buildFocus = '', buildFrom = 'home', buildDeckOpen = false, buildSheet = false;
+  let buildFinish = 'all', buildColor = '', buildArch = '', buildQ = '', buildSort = 'name', buildCombo = false, buildOwned = false, buildNotIn = false, buildPartners = false, buildView = 'grid', buildFoldColor = false, buildFoldArch = false, buildFocus = '', buildFrom = 'home', buildDeckOpen = false, buildSheet = false, buildFlash = '';
   function comboFacts(card, selIds, ownedIds) {
     const book = window.TOB_COMBOS;
     if (!book || !card) return [];
@@ -1636,6 +1636,9 @@
     stopTimer();
     hidePreview();
     closeUserMenu();
+    const ovEarly = $('#overlay');
+    ovEarly.classList.remove('hidden');
+    ovEarly.innerHTML = `<div id="deckBuilder"><header class="db-top"><div class="db-title">DECK BUILDER</div></header><div class="db-skel">${'<div class="sk"></div>'.repeat(6)}</div></div>`;
     const profile = await window.TOB_AUTH.loadProfile();
     const bags = ownedBags(profile);
     let sel = customDeck(bags);
@@ -1643,20 +1646,77 @@
     const arches = [...new Set(CARD_LIST.map(c => c.archetype).filter(Boolean))].sort();
     const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
     const ownedIds = new Set(bags.keys());
+    const ownCount = new Map();
+    const pullRank = new Map();
+    escrowUids();
+    const listed = new Set();
+    if (window.TOB_AUCTIONS && window.TOB_AUCTIONS.list) {
+      const me = window.TOB_AUTH.currentUser && window.TOB_AUTH.currentUser();
+      const mine = me ? String(me.username || '').toLowerCase() : '';
+      window.TOB_AUCTIONS.list().forEach(lot => {
+        if (lot && lot.status === 'open' && String(lot.seller || '').toLowerCase() === mine && lot.card) listed.add(lot.card.uid);
+      });
+    }
+    ((profile && profile.collection) || []).forEach((rec, i) => {
+      if (!rec || !CARDS[rec.id] || listed.has(rec.uid)) return;
+      ownCount.set(rec.id, (ownCount.get(rec.id) || 0) + 1);
+      pullRank.set(rec.id, i);
+    });
+    const haystack = new Map();
+    CARD_LIST.forEach(c => {
+      let extra = '';
+      const book = window.TOB_COMBOS;
+      if (book) {
+        (book.sets || []).forEach(s => { if (s.ids.includes(c.id)) extra += ' ' + s.name + ' ' + s.ids.map(id => CARDS[id] ? CARDS[id].name : '').join(' '); });
+        (book.pairs || []).forEach(p => { if (c.archetype && (p.a === c.archetype || p.b === c.archetype)) extra += ' ' + p.name + ' ' + p.a + ' ' + p.b; });
+      }
+      haystack.set(c.id, (c.name + ' ' + (c.power || '') + ' ' + (c.archetype || '') + ' ' + c.group + extra).toLowerCase());
+    });
     const draw = () => {
       const chosen = id => sel.find(row => row.id === id);
       const selIds = new Set(sel.map(row => row.id));
-      let cards = CARD_LIST.filter(c => {
+      const q = buildQ.trim().toLowerCase();
+      const partnerIds = new Set();
+      const book = window.TOB_COMBOS || {sets: [], pairs: []};
+      (book.sets || []).forEach(s => {
+        const have = s.ids.filter(id => selIds.has(id));
+        if (!have.length) return;
+        s.ids.forEach(id => { if (!selIds.has(id) && ownedIds.has(id)) partnerIds.add(id); });
+      });
+      const deckArches = new Set([...selIds].map(id => CARDS[id] && CARDS[id].archetype).filter(Boolean));
+      (book.pairs || []).forEach(p => {
+        if (deckArches.has(p.a) === deckArches.has(p.b)) return;
+        const need = deckArches.has(p.a) ? p.b : p.a;
+        CARD_LIST.forEach(c => { if (c.archetype === need && ownedIds.has(c.id) && !selIds.has(c.id)) partnerIds.add(c.id); });
+      });
+      const passesQuick = c => {
         const bag = bags.get(c.id);
-        if (buildQ && c.name.toLowerCase().indexOf(buildQ.trim().toLowerCase()) === -1) return false;
-        if (buildColor && c.color !== buildColor) return false;
-        if (buildArch && (c.archetype || '') !== buildArch) return false;
+        if (q && haystack.get(c.id).indexOf(q) === -1) return false;
         if (buildCombo && !(window.TOB_COMBOS && window.TOB_COMBOS.cardInCombo(c))) return false;
+        if (buildOwned && !bag) return false;
+        if (buildNotIn && selIds.has(c.id)) return false;
+        if (buildPartners && !partnerIds.has(c.id)) return false;
         if (buildFinish === 'gold') return !!(bag && bag.gold);
         if (buildFinish === 'standard') return !!(bag && bag.standard) || !bag;
         return true;
+      };
+      const pool = CARD_LIST.filter(passesQuick);
+      const colorCounts = {};
+      const archCounts = {};
+      pool.forEach(c => {
+        if (!buildArch || (c.archetype || '') === buildArch) colorCounts[c.color] = (colorCounts[c.color] || 0) + 1;
+        if (!buildColor || c.color === buildColor) archCounts[c.archetype || ''] = (archCounts[c.archetype || ''] || 0) + 1;
       });
-      cards.sort((a, b) => buildSort === 'pts-desc' ? b.pts - a.pts : buildSort === 'pts-asc' ? a.pts - b.pts : a.name.localeCompare(b.name));
+      let cards = pool.filter(c => (!buildColor || c.color === buildColor) && (!buildArch || (c.archetype || '') === buildArch));
+      const byColor = (a, b) => a.color.localeCompare(b.color) || a.name.localeCompare(b.name);
+      const byArch = (a, b) => (a.archetype || '').localeCompare(b.archetype || '') || a.name.localeCompare(b.name);
+      cards.sort((a, b) => buildSort === 'pts-desc' ? b.pts - a.pts || a.name.localeCompare(b.name)
+        : buildSort === 'pts-asc' ? a.pts - b.pts || a.name.localeCompare(b.name)
+        : buildSort === 'color' ? byColor(a, b)
+        : buildSort === 'arch' ? byArch(a, b)
+        : buildSort === 'recent' ? (pullRank.get(b.id) || -1) - (pullRank.get(a.id) || -1) || a.name.localeCompare(b.name)
+        : buildSort === 'owned' ? (ownCount.get(b.id) || 0) - (ownCount.get(a.id) || 0) || a.name.localeCompare(b.name)
+        : a.name.localeCompare(b.name));
       if (!cards.some(c => c.id === buildFocus)) buildFocus = (sel[0] && sel[0].id) || (cards[0] && cards[0].id) || '';
       const focus = CARDS[buildFocus];
       const mark = state => state === 'miss' ? 'is-miss' : state === 'in' ? 'is-in' : 'is-own';
@@ -1668,7 +1728,9 @@
         const bag = bags.get(card.id);
         const extras = extraPowers(card).map(line => `<p class="db-power">${esc(line)}</p>`).join('');
         const both = bag && bag.gold && bag.standard;
-        return `<div class="db-dname">${esc(card.name)}</div>
+        const face = COPIES.makeCopy(card.id, {gold: !!(row && row.gold), uid: row && row.uid});
+        return `<div class="db-puck db-hero">${cardHTML(face, null, true)}</div>
+          <div class="db-dname">${esc(card.name)}</div>
           <p class="db-meta">${card.pts} pts · ${esc(cap(card.color))} · ${esc(card.archetype || card.group)}${row && row.gold ? ' · Gold' : ''}</p>
           <p class="db-power">${esc(card.power && card.power !== 'No Power' ? card.power : 'No power.')}</p>
           ${extras}
@@ -1688,9 +1750,10 @@
         const row = chosen(c.id);
         const gold = row ? !!row.gold : !!(bag && bag.gold && !bag.standard);
         const both = bag && bag.gold && bag.standard;
-        return `<article class="db-item${row ? ' in' : ''}${c.id === buildFocus ? ' focus' : ''}">
+        const copy = COPIES.makeCopy(c.id, {gold, uid: row && row.uid});
+        return `<article class="db-item${row ? ' in' : ''}${c.id === buildFocus ? ' focus' : ''}${buildFlash === c.id ? ' db-flash' : ''}">
           <button type="button" class="db-row" data-focus="${c.id}">
-            <img class="db-thumb" alt="" src="assets/cards/${encodeURIComponent(c.id)}.webp">
+            <span class="db-puck">${cardHTML(copy)}</span>
             <span class="db-copy">
               <span class="db-name">${esc(c.name)}</span>
               <span class="db-meta">${c.pts} pts · ${esc(cap(c.color))} · ${esc(c.archetype || c.group)}${gold ? ' · Gold' : ''}</span>
@@ -1704,32 +1767,103 @@
           </span>
         </article>`;
       }).join('');
-      const deckHtml = `<div class="db-deckhead">Your deck <b>${sel.length}/12</b> · ${pts} pts</div>
+      const deckRows = sel.map(row => {
+        const c = CARDS[row.id];
+        const bag = bags.get(row.id);
+        const copy = COPIES.makeCopy(row.id, {gold: !!row.gold, uid: row.uid});
+        const both = bag && bag.gold && bag.standard;
+        return `<article class="yd-row${buildFlash === row.id ? ' db-flash' : ''}">
+          <button type="button" class="yd-main" data-focus="${c.id}">
+            <span class="db-puck yd-puck">${cardHTML(copy)}</span>
+            <span class="db-copy">
+              <span class="db-name">${esc(c.name)}</span>
+              <span class="db-meta">${c.pts} pts · ${esc(cap(c.color))} · ${esc(c.archetype || c.group)}${row.gold ? ' · Gold' : ''}</span>
+              <span class="db-power">${esc(c.power && c.power !== 'No Power' ? c.power : 'No power.')}</span>
+            </span>
+          </button>
+          <span class="yd-tools">
+            ${both ? `<button type="button" class="btn yd-gold" data-goldpick="${c.id}">${row.gold ? 'Gold' : 'Std'}</button>` : ''}
+            <button type="button" class="db-remove" data-remove="${c.id}" aria-label="Remove ${esc(c.name)}">Remove</button>
+          </span>
+        </article>`;
+      }).join('');
+      const deckHtml = `<div class="db-deckhead">YOUR DECK <b>${sel.length}/12</b> · ${pts} pts</div>
+        <div class="db-decktools"><button type="button" class="btn" id="btnClearDeck" ${sel.length ? '' : 'disabled'}>Clear deck</button></div>
         <div class="db-colors">${Object.entries(colors).map(([c, n]) => `<span><i style="background:${COLORS[c]}"></i>${n} ${esc(cap(c))}</span>`).join('') || '<span>No colors yet</span>'}</div>
-        <ul class="db-slots">${sel.map(row => `<li><span>${esc(CARDS[row.id].name)}${row.gold ? ' · Gold' : ''}</span><b>${CARDS[row.id].pts}</b><button type="button" data-add="${row.id}" aria-label="Remove ${esc(CARDS[row.id].name)}">×</button></li>`).join('') || '<li class="is-miss">Empty slots stay open until you add 12 cards.</li>'}</ul>
+        <div class="yd-list">${deckRows || '<p class="db-empty">Your deck is empty. Add cards from the list. They show up here.</p>'}</div>
         <div class="db-active"><b>Active combos in this deck</b>${report.active.length ? report.active.map(line => `<p>${esc(line)}</p>`).join('') : '<p>None yet. Add a full crew or both sides of a pair.</p>'}</div>
         <div class="db-active"><b>Partners you own</b>${report.suggest.length ? report.suggest.map(line => `<p>${esc(line)}</p>`).join('') : '<p>No missing partner sitting in your collection.</p>'}</div>`;
-      ov.innerHTML = `<div id="deckBuilder">
+      const goalColor = Object.entries(colors).sort((a, b) => b[1] - a[1])[0];
+      const suggestIds = [];
+      partnerIds.forEach(id => { if (suggestIds.length < 8) suggestIds.push(id); });
+      if (goalColor) CARD_LIST.forEach(c => {
+        if (suggestIds.length >= 8) return;
+        if (c.color === goalColor[0] && ownedIds.has(c.id) && !selIds.has(c.id) && suggestIds.indexOf(c.id) === -1) suggestIds.push(c.id);
+      });
+      const suggest = suggestIds.length ? `<div class="db-suggest"><b>Suggested for this deck</b><div class="db-sugrow">${suggestIds.map(id => {
+        const c = CARDS[id];
+        const bag = bags.get(id);
+        const copy = COPIES.makeCopy(id, {gold: !!(bag && bag.gold && !bag.standard)});
+        return `<button type="button" class="db-sug" data-focus="${id}"><span class="db-puck sug-puck">${cardHTML(copy)}</span><span>${esc(c.name)}</span></button>`;
+      }).join('')}</div></div>` : '';
+      const pill = (key, label) => `<button type="button" class="db-pill" data-clear="${key}">${esc(label)} ×</button>`;
+      const pills = [
+        buildQ ? pill('q', buildQ) : '',
+        buildFinish !== 'all' ? pill('finish', buildFinish === 'gold' ? 'Gold' : 'Standard') : '',
+        buildCombo ? pill('combo', 'Has combo') : '',
+        buildOwned ? pill('owned', 'Owned only') : '',
+        buildNotIn ? pill('notin', 'Not in deck') : '',
+        buildPartners ? pill('partners', 'Combo partners') : '',
+        buildColor ? pill('color', cap(buildColor)) : '',
+        buildArch ? pill('arch', buildArch) : '',
+      ].join('');
+      const pillRow = (pills ? pills + '<button type="button" class="db-pill" data-clear="all">Clear all</button>' : '') ;
+      ov.innerHTML = `<div id="deckBuilder" class="${buildDeckOpen ? 'pane-deck' : 'pane-cards'}">
         <header class="db-top">
           <div class="db-title">DECK BUILDER</div>
           <button type="button" class="btn go" id="btnSaveDeck" ${sel.length === 12 ? '' : 'disabled'}>Save & play</button>
           <button type="button" class="btn" id="btnBack">${buildFrom === 'deck' ? 'Deck select' : 'Home'}</button>
         </header>
+        <div class="db-switch">
+          <button type="button" class="btn${buildDeckOpen ? '' : ' go'}" data-pane="cards">Cards</button>
+          <button type="button" class="btn${buildDeckOpen ? ' go' : ''}" data-pane="deck">My Deck</button>
+        </div>
         <div class="db-body">
           <section class="db-listcol">
             <div class="db-filters">
-              <input id="buildQ" value="${esc(buildQ)}" placeholder="Search name" aria-label="Search cards">
-              ${chip('all', 'All')}${chip('gold', 'Gold')}${chip('standard', 'Standard')}
-              <select id="buildColor" aria-label="Color"><option value="">All colors</option>${Object.keys(COLORS).map(c => `<option value="${c}"${buildColor === c ? ' selected' : ''}>${cap(c)}</option>`).join('')}</select>
-              <select id="buildArch" aria-label="Archetype"><option value="">All types</option>${arches.map(a => `<option value="${esc(a)}"${buildArch === a ? ' selected' : ''}>${esc(a)}</option>`).join('')}</select>
-              <button type="button" class="btn filter${buildCombo ? ' on' : ''}" id="btnHasCombo">Has combo</button>
-              <select id="buildSort" aria-label="Sort"><option value="name"${buildSort === 'name' ? ' selected' : ''}>Name</option><option value="pts-desc"${buildSort === 'pts-desc' ? ' selected' : ''}>Points high</option><option value="pts-asc"${buildSort === 'pts-asc' ? ' selected' : ''}>Points low</option></select>
-              <button type="button" class="btn" id="btnAutoGold">Auto-use gold copies</button>
+              <input id="buildQ" value="${esc(buildQ)}" placeholder="Search name, power, combo" aria-label="Search cards">
+              <div class="db-quick">
+                ${chip('all', 'All')}${chip('gold', 'Gold')}${chip('standard', 'Standard')}
+                <button type="button" class="btn filter${buildCombo ? ' on' : ''}" data-qtog="combo">Has combo</button>
+                <button type="button" class="btn filter${buildOwned ? ' on' : ''}" data-qtog="owned">Owned only</button>
+                <button type="button" class="btn filter${buildNotIn ? ' on' : ''}" data-qtog="notin">Not in deck</button>
+                <button type="button" class="btn filter${buildPartners ? ' on' : ''}" data-qtog="partners">Combo partners</button>
+              </div>
+              <button type="button" class="db-fold" data-fold="color">Colors${buildColor ? ' · ' + esc(cap(buildColor)) : ''}</button>
+              <div class="db-chipline${buildFoldColor ? '' : ' shut'}">${Object.keys(COLORS).map(c => `<button type="button" class="db-chip${buildColor === c ? ' on' : ''}" data-color="${c}"><i style="background:${COLORS[c]}"></i>${cap(c)} <em>${colorCounts[c] || 0}</em></button>`).join('')}</div>
+              <button type="button" class="db-fold" data-fold="arch">Types${buildArch ? ' · ' + esc(buildArch) : ''}</button>
+              <div class="db-chipline${buildFoldArch ? '' : ' shut'}">${arches.map(a => `<button type="button" class="db-chip${buildArch === a ? ' on' : ''}" data-arch="${esc(a)}"><i style="background:hsl(${[...a].reduce((h, ch) => (h * 33 + ch.charCodeAt(0)) % 360, 0)} 62% 48%)"></i>${esc(a)} <em>${archCounts[a] || 0}</em></button>`).join('')}</div>
+              <div class="db-toolsline">
+                <select id="buildSort" aria-label="Sort">
+                  <option value="name"${buildSort === 'name' ? ' selected' : ''}>Name A–Z</option>
+                  <option value="pts-desc"${buildSort === 'pts-desc' ? ' selected' : ''}>Points high</option>
+                  <option value="pts-asc"${buildSort === 'pts-asc' ? ' selected' : ''}>Points low</option>
+                  <option value="color"${buildSort === 'color' ? ' selected' : ''}>Color</option>
+                  <option value="arch"${buildSort === 'arch' ? ' selected' : ''}>Archetype</option>
+                  <option value="recent"${buildSort === 'recent' ? ' selected' : ''}>Recently pulled</option>
+                  <option value="owned"${buildSort === 'owned' ? ' selected' : ''}>Most owned</option>
+                </select>
+                <button type="button" class="btn${buildView === 'grid' ? ' go' : ''}" data-view="grid">Grid</button>
+                <button type="button" class="btn${buildView === 'list' ? ' go' : ''}" data-view="list">List</button>
+                <button type="button" class="btn" id="btnAutoGold">Auto-use gold</button>
+              </div>
+              <div class="db-pills">${pillRow}<span class="db-count">${cards.length} cards</span></div>
             </div>
-            <div class="db-rows">${rows || '<p class="db-power">No cards match these filters.</p>'}</div>
+            ${suggest}
+            <div class="db-rows ${buildView}">${rows || '<p class="db-empty">No cards match. Clear a filter to see more.</p>'}</div>
           </section>
           <section class="db-detail">${detailHtml(focus)}</section>
-          <aside class="db-deckcol${buildDeckOpen ? ' open' : ''}">${deckHtml}<button type="button" class="btn" id="btnCloseDeck">Close deck</button></aside>
+          <aside class="db-deckcol">${deckHtml}</aside>
         </div>
         <button type="button" class="db-tray" id="btnOpenDeck">Deck ${sel.length}/12 · ${pts} pts</button>
         <div class="db-sheet${buildSheet ? ' open' : ''}"><button type="button" class="btn" id="btnCloseSheet">Close</button>${detailHtml(focus)}</div>
@@ -1749,8 +1883,15 @@
         btn.onclick = () => {
           const id = btn.dataset.add;
           if (chosen(id)) sel = sel.filter(row => row.id !== id);
-          else if (sel.length < 12) sel.push(pickGold(id));
+          else if (sel.length < 12) { sel.push(pickGold(id)); buildFlash = id; }
           buildFocus = id;
+          draw();
+        };
+      });
+      ov.querySelectorAll('[data-remove]').forEach(btn => {
+        btn.onclick = (ev) => {
+          ev.stopPropagation();
+          sel = sel.filter(row => row.id !== btn.dataset.remove);
           draw();
         };
       });
@@ -1768,12 +1909,16 @@
         };
       });
       ov.querySelectorAll('[data-bfinish]').forEach(btn => { btn.onclick = () => { buildFinish = btn.dataset.bfinish; draw(); }; });
-      const q = $('#buildQ');
-      if (q) q.onchange = () => { buildQ = q.value; draw(); };
-      $('#buildColor').onchange = () => { buildColor = $('#buildColor').value; draw(); };
-      $('#buildArch').onchange = () => { buildArch = $('#buildArch').value; draw(); };
-      $('#buildSort').onchange = () => { buildSort = $('#buildSort').value; draw(); };
-      $('#btnHasCombo').onclick = () => { buildCombo = !buildCombo; draw(); };
+      const searchBox = $('#buildQ');
+      if (searchBox) searchBox.oninput = () => {
+        const pos = searchBox.selectionStart;
+        buildQ = searchBox.value;
+        draw();
+        const again = $('#buildQ');
+        if (again) { again.focus(); try { again.setSelectionRange(pos, pos); } catch (e) { /* ignore */ } }
+      };
+      const sortBox = $('#buildSort');
+      if (sortBox) sortBox.onchange = () => { buildSort = sortBox.value; draw(); };
       $('#btnAutoGold').onclick = () => {
         sel = sel.map(row => {
           const bag = bags.get(row.id);
@@ -1782,7 +1927,43 @@
         });
         draw();
       };
-      $('#btnOpenDeck').onclick = () => { buildDeckOpen = !buildDeckOpen; buildSheet = false; draw(); };
+      $('#btnOpenDeck').onclick = () => { buildDeckOpen = true; buildSheet = false; draw(); };
+      ov.querySelectorAll('[data-pane]').forEach(btn => { btn.onclick = () => { buildDeckOpen = btn.dataset.pane === 'deck'; buildSheet = false; draw(); }; });
+      ov.querySelectorAll('[data-qtog]').forEach(btn => {
+        btn.onclick = () => {
+          const k = btn.dataset.qtog;
+          if (k === 'combo') buildCombo = !buildCombo;
+          if (k === 'owned') buildOwned = !buildOwned;
+          if (k === 'notin') buildNotIn = !buildNotIn;
+          if (k === 'partners') buildPartners = !buildPartners;
+          draw();
+        };
+      });
+      ov.querySelectorAll('[data-fold]').forEach(btn => { btn.onclick = () => { if (btn.dataset.fold === 'color') buildFoldColor = !buildFoldColor; else buildFoldArch = !buildFoldArch; draw(); }; });
+      ov.querySelectorAll('[data-color]').forEach(btn => { btn.onclick = () => { buildColor = buildColor === btn.dataset.color ? '' : btn.dataset.color; draw(); }; });
+      ov.querySelectorAll('[data-arch]').forEach(btn => { btn.onclick = () => { buildArch = buildArch === btn.dataset.arch ? '' : btn.dataset.arch; draw(); }; });
+      ov.querySelectorAll('[data-view]').forEach(btn => { btn.onclick = () => { buildView = btn.dataset.view; draw(); }; });
+      ov.querySelectorAll('[data-clear]').forEach(btn => {
+        btn.onclick = () => {
+          const k = btn.dataset.clear;
+          if (k === 'all' || k === 'q') buildQ = '';
+          if (k === 'all' || k === 'finish') buildFinish = 'all';
+          if (k === 'all' || k === 'combo') buildCombo = false;
+          if (k === 'all' || k === 'owned') buildOwned = false;
+          if (k === 'all' || k === 'notin') buildNotIn = false;
+          if (k === 'all' || k === 'partners') buildPartners = false;
+          if (k === 'all' || k === 'color') buildColor = '';
+          if (k === 'all' || k === 'arch') buildArch = '';
+          draw();
+        };
+      });
+      const clearBtn = $('#btnClearDeck');
+      if (clearBtn) clearBtn.onclick = () => {
+        if (!sel.length || !window.confirm('Remove every card from your deck?')) return;
+        sel = [];
+        try { localStorage.setItem('tob_custom', '[]'); } catch (e) { /* ignore */ }
+        draw();
+      };
       const closeDeck = $('#btnCloseDeck');
       if (closeDeck) closeDeck.onclick = () => { buildDeckOpen = false; draw(); };
       const closeSheet = $('#btnCloseSheet');
@@ -1791,6 +1972,18 @@
       $('#btnBack').onclick = () => buildFrom === 'deck' ? showDeckSelect() : showHome();
     };
     draw();
+    if (!showBuilder._keys) {
+      showBuilder._keys = true;
+      document.addEventListener('keydown', e => {
+        if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey) return;
+        if (!document.getElementById('deckBuilder')) return;
+        const tag = ((e.target && e.target.tagName) || '').toLowerCase();
+        if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+        e.preventDefault();
+        const box = document.getElementById('buildQ');
+        if (box) box.focus();
+      });
+    }
   }
   let aucTab = 'browse', aucLot = null, aucQ = '', aucArch = '', aucGold = '', aucSort = 'ending', aucTimer = null;
   function aucClock(ends) {
