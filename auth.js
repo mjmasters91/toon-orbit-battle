@@ -45,12 +45,24 @@
   }
   function packProfile(profile, username) {
     profile = profile || {};
+    const granted = profile.welcomeGranted === true;
+    let packs = Math.max(0, profile.packs | 0);
+    let packWins = Math.max(0, profile.packWins | 0);
+    if (!granted) packs += 3;
+    if (packWins >= 3) {
+      packs += Math.floor(packWins / 3);
+      packWins = packWins % 3;
+    }
     return {
       username: username || profile.username || '',
       createdAt: profile.createdAt || new Date().toISOString(),
       starterDeck: profile.starterDeck || null,
       stats: normStats(profile.stats),
       collection: normCollection(profile.collection),
+      packs,
+      packWins,
+      welcomeGranted: true,
+      lastDaily: typeof profile.lastDaily === 'string' ? profile.lastDaily : null,
     };
   }
   function emptyProfile(username) {
@@ -252,7 +264,7 @@
         id: data.user.id,
         username: name.username,
         starter_deck: null,
-        stats: {wins: 0, losses: 0, games: 0},
+        stats: {wins: 0, losses: 0, games: 0, packs: 3, packWins: 0, welcomeGranted: true, lastDaily: null},
         collection: [],
       };
       const ins = await this.client.from('profiles').insert(row);
@@ -283,12 +295,17 @@
       const {data, error} = await this.client.from('profiles').select('*').eq('id', this.user.id).maybeSingle();
       if (error || !data) return null;
       this.username = data.username || this.username;
+      const stats = data.stats || {};
       return {
         username: data.username,
         createdAt: data.created_at,
         starterDeck: data.starter_deck || null,
-        stats: normStats(data.stats),
+        stats: normStats(stats),
         collection: normCollection(data.collection),
+        packs: stats.packs | 0,
+        packWins: stats.packWins | 0,
+        welcomeGranted: stats.welcomeGranted === true,
+        lastDaily: typeof stats.lastDaily === 'string' ? stats.lastDaily : null,
       };
     }
     async saveProfile(profile) {
@@ -297,7 +314,10 @@
       const {error} = await this.client.from('profiles').update({
         username: packed.username,
         starter_deck: packed.starterDeck,
-        stats: packed.stats,
+        stats: {
+          wins: packed.stats.wins, losses: packed.stats.losses, games: packed.stats.games,
+          packs: packed.packs, packWins: packed.packWins, welcomeGranted: true, lastDaily: packed.lastDaily,
+        },
         collection: packed.collection,
       }).eq('id', this.user.id);
       if (error) return {ok: false, error: this._friendly(error)};

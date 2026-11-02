@@ -366,7 +366,48 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
 .burst.b2 { animation-delay: .35s; transform: rotate(24deg) scale(1.08); }
 .burst.b3 { animation-delay: .15s; transform: rotate(-16deg) scale(.92); }
 @keyframes rewardflip { from { transform: rotateY(88deg) scale(.86); opacity: 0; } to { transform: none; opacity: 1; } }
+.packbadge { display: none; margin-left: 6px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: #f0c14a; color: #1c1404; font: 800 11px/18px "Outfit", system-ui, sans-serif; vertical-align: 1px; }
+.packbadge.on { display: inline-block; }
+.packhint { color: #f0c14a; font-weight: 700; margin: 6px 0; }
+.foilpack { position: relative; width: 168px; height: 232px; margin: 6px auto 10px; border-radius: 18px; overflow: hidden;
+  background: linear-gradient(155deg, #1b1033 0%, #5c2d9e 36%, #f0c14a 64%, #6d28d9 100%);
+  box-shadow: inset 0 0 0 2px rgba(255,255,255,.5), 0 16px 36px rgba(0,0,0,.4); }
+.foil-sheen { position: absolute; inset: -40%; pointer-events: none; background: linear-gradient(115deg, transparent 32%, rgba(255,255,255,.42) 48%, transparent 64%); animation: sheen 3.6s linear infinite; }
+.foil-face { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; }
+.foil-logo { position: relative; padding-left: 40px; font: 700 12px/1.15 "Outfit", system-ui, sans-serif; letter-spacing: .06em; color: #fff; }
+.foil-logo b { color: #f0c14a; }
+.foil-logo .ring { width: 28px; height: 28px; margin-top: -14px; }
+.foil-sub { font: 800 12px/1 "Outfit", system-ui, sans-serif; letter-spacing: .2em; color: #1c1404; background: linear-gradient(#fff6d0, #e8b23a); border-radius: 999px; padding: 6px 10px; }
+.foilpack.shake { animation: packshake .7s ease-in-out; }
+@keyframes packshake { 20% { transform: rotate(-4deg) scale(1.03); } 40% { transform: rotate(4deg); } 60% { transform: rotate(-3deg); } 80% { transform: rotate(2deg); } }
+.foil-tear { position: absolute; z-index: 3; left: 12%; right: 12%; top: 24%; height: 3px; border-radius: 2px; background: #fff; box-shadow: 0 0 14px #fff; transform: scaleX(0); transform-origin: left center; }
+.foilpack.tear .foil-tear { animation: tearopen .42s ease forwards; }
+@keyframes tearopen { to { transform: scaleX(1); opacity: .15; } }
+.foil-bits { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+.foil-bits i { position: absolute; left: 50%; top: 24%; width: 6px; height: 6px; margin: -3px; border-radius: 50%; background: #fff4c2; opacity: 0; }
+.foilpack.tear .foil-bits i { animation: bit .55s ease forwards; animation-delay: calc(var(--i) * 18ms); }
+@keyframes bit { 40% { opacity: 1; } 100% { opacity: 0; transform: translate(calc((var(--i) - 3.5) * 18px), -28px); } }
+.pullrow { display: flex; justify-content: center; gap: 5px; margin: 8px 0 12px; }
+.pullcard { width: 60px; height: 60px; padding: 0; border: 0; background: transparent; cursor: pointer; perspective: 520px; position: relative; }
+.pull-inner { display: block; width: 100%; height: 100%; position: relative; transform-style: preserve-3d; }
+.pull-back, .pull-front { position: absolute; inset: 0; backface-visibility: hidden; -webkit-backface-visibility: hidden; transition: transform .4s ease; }
+.pull-front { transform: rotateY(180deg); }
+.pullcard.flipped .pull-front { transform: rotateY(0deg); }
+.pullcard.flipped .pull-back { transform: rotateY(-180deg); }
+.pullcard .card { width: 60px; height: 60px; }
+.newtag, .duptag { position: absolute; z-index: 6; left: 50%; top: -7px; transform: translateX(-50%); font: 800 9px/1 "Outfit", system-ui, sans-serif; border-radius: 999px; padding: 3px 4px; pointer-events: none; white-space: nowrap; }
+.newtag { background: #9dffb0; color: #06210e; }
+.duptag { background: #f0c14a; color: #1c1404; }
+.goldflash { position: fixed; inset: 0; z-index: 85; pointer-events: none; background: rgba(255, 236, 170, .5); animation: flashout .48s ease forwards; }
+.goldray { position: fixed; left: 50%; top: -8%; z-index: 85; width: 120px; height: 120%; margin-left: -60px; pointer-events: none; background: linear-gradient(90deg, transparent, rgba(255, 214, 110, .7), transparent); animation: flashout .48s ease forwards; }
+@keyframes flashout { 70% { opacity: 1; } 100% { opacity: 0; } }
+.pack-summary { margin: 0 0 6px; }
+@media (min-width: 1100px) {
+  .pullcard, .pullcard .card { width: 88px; height: 88px; }
+  .foilpack { width: 200px; height: 276px; }
+}
 @media (prefers-reduced-motion: reduce) {
-  .holo, .spark, .cart, .reward-flip, .burst { animation: none; }
+  .holo, .spark, .cart, .reward-flip, .burst, .foilpack.shake, .foil-sheen, .foil-bits i, .foil-tear, .goldflash, .goldray { animation: none; }
   .holo { opacity: .35; background-position: 40% 40%; }
+  .pull-back, .pull-front { transition: none; }
 }

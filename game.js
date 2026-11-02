@@ -443,10 +443,16 @@
       profile.stats.wins = (profile.stats.wins | 0) + 1;
       reward = randomReward();
       profile.collection = (profile.collection || []).concat([reward]);
+      profile.packWins = (profile.packWins | 0) + 1;
+      if (profile.packWins >= 3) {
+        profile.packWins = 0;
+        profile.packs = (profile.packs | 0) + 1;
+      }
     } else if (r.winner === 'o') {
       profile.stats.losses = (profile.stats.losses | 0) + 1;
     }
     const saved = await window.TOB_AUTH.saveProfile(profile);
+    if (saved && saved.ok) rememberPacks(profile);
     if (!saved || !saved.ok) return null;
     return reward;
   }
@@ -527,6 +533,7 @@
       const res = await window.TOB_AUTH.playAsGuest();
       if (!res.ok) { $('#authError').textContent = res.error; return; }
       renderUser();
+      await liveProfile();
       showDeckSelect();
     };
     $('#btnAuthSubmit').onclick = async () => {
@@ -549,12 +556,17 @@
           const profile = await window.TOB_AUTH.loadProfile();
           profile.starterDeck = starterPick;
           const starter = starterRecords(starterPick);
-          const hasGuest = !!(guestSnap && ((guestSnap.collection && guestSnap.collection.length) || (guestSnap.stats && (guestSnap.stats.games || guestSnap.stats.wins || guestSnap.stats.losses))));
+          const hasGuest = !!(guestSnap && ((guestSnap.collection && guestSnap.collection.length) || (guestSnap.stats && (guestSnap.stats.games || guestSnap.stats.wins || guestSnap.stats.losses)) || guestSnap.welcomeGranted || (guestSnap.packs | 0) > 0));
           if (hasGuest) {
             profile.collection = starter.concat(guestSnap.collection || []);
             profile.stats.wins += (guestSnap.stats && guestSnap.stats.wins) || 0;
             profile.stats.losses += (guestSnap.stats && guestSnap.stats.losses) || 0;
             profile.stats.games += (guestSnap.stats && guestSnap.stats.games) || 0;
+            const guestWelcome = guestSnap.welcomeGranted === true;
+            profile.packs = (guestSnap.packs | 0) + (guestWelcome ? 0 : 3);
+            profile.welcomeGranted = true;
+            profile.packWins = guestSnap.packWins | 0;
+            profile.lastDaily = typeof guestSnap.lastDaily === 'string' ? guestSnap.lastDaily : null;
           } else profile.collection = starter;
           const saved = await window.TOB_AUTH.saveProfile(profile);
           if (!saved.ok) { errBox.textContent = saved.error || 'Could not save your collection.'; return; }
@@ -564,6 +576,7 @@
           if (!res.ok) { errBox.textContent = res.error; return; }
         }
         renderUser();
+        await liveProfile();
         showDeckSelect();
       } finally {
         if (btn.isConnected) { btn.disabled = false; btn.textContent = prev; }
@@ -636,6 +649,216 @@
     draw();
   }
 
+  /* ---------- packs ---------- */
+  let packState = {packs: 0, packWins: 0, lastDaily: null};
+  let currentPulls = null;
+  let flipped = [];
+  let packSummaryShown = false;
+  let packBusy = false;
+  const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function todayKey() {
+    const d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+  function rememberPacks(profile) {
+    packState = {
+      packs: profile ? (profile.packs | 0) : 0,
+      packWins: profile ? (profile.packWins | 0) : 0,
+      lastDaily: profile && typeof profile.lastDaily === 'string' ? profile.lastDaily : null,
+    };
+    document.querySelectorAll('[data-packbadge]').forEach(el => {
+      el.textContent = packState.packs ? String(packState.packs) : '';
+      el.classList.toggle('on', packState.packs > 0);
+    });
+  }
+  async function liveProfile() {
+    let profile = await window.TOB_AUTH.loadProfile();
+    if (!profile) { rememberPacks(null); return null; }
+    if (profile.welcomeGranted !== true) {
+      profile.welcomeGranted = false;
+      const saved = await window.TOB_AUTH.saveProfile(profile);
+      if (saved && saved.ok) profile = await window.TOB_AUTH.loadProfile();
+    }
+    rememberPacks(profile);
+    return profile;
+  }
+  function rollPack(ownedIds) {
+    const ids = CARD_LIST.map(c => c.id);
+    const unowned = ids.filter(id => !ownedIds.has(id));
+    const pulls = [];
+    const forceAt = unowned.length ? Math.floor(Math.random() * 5) : -1;
+    for (let i = 0; i < 5; i++) {
+      const id = i === forceAt ? unowned[Math.floor(Math.random() * unowned.length)] : ids[Math.floor(Math.random() * ids.length)];
+      const gold = Math.random() < 0.1; /* pack */
+      const copy = COPIES.makeCopy(id, {gold});
+      pulls.push({id: copy.id, gold: !!copy.gold, uid: copy.uid});
+    }
+    return pulls;
+  }
+  function annotatePulls(pulls, before) {
+    const counts = {};
+    before.forEach(rec => { if (rec && rec.id) counts[rec.id] = (counts[rec.id] || 0) + 1; });
+    return pulls.map(pull => {
+      counts[pull.id] = (counts[pull.id] || 0) + 1;
+      return {id: pull.id, gold: !!pull.gold, uid: pull.uid, isNew: counts[pull.id] === 1, dup: counts[pull.id]};
+    });
+  }
+  function packSound(kind) {
+    if (kind === 'shake') blip(130, 0.16, 'sawtooth', 0.035);
+    else if (kind === 'tear') { blip(480, 0.06, 'square', 0.04); blip(860, 0.1, 'triangle', 0.04); }
+    else if (kind === 'flip') blip(640, 0.06, 'square', 0.045);
+    else if (kind === 'gold') { blip(880, 0.08, 'triangle', 0.06); blip(1320, 0.16, 'triangle', 0.05); }
+    else blip(720, 0.1, 'triangle', 0.05);
+  }
+  function foilMarkup() {
+    const bits = Array.from({length: 8}, (_, i) => `<i style="--i:${i}"></i>`).join('');
+    return `<div class="foil-sheen"></div><div class="foil-tear"></div>
+      <div class="foil-face"><div class="foil-logo"><span class="ring"></span>TOON ORBIT <b>BATTLE</b></div><div class="foil-sub">TOON PACK</div></div>
+      <div class="foil-bits">${bits}</div>`;
+  }
+  function goldBurst() {
+    packSound('gold');
+    try { if (navigator.vibrate) navigator.vibrate([28, 36, 70]); } catch (e) { /* no haptic */ }
+    if (reduceMotion()) return;
+    const flash = el('div', 'goldflash');
+    const ray = el('div', 'goldray');
+    document.body.appendChild(flash);
+    document.body.appendChild(ray);
+    setTimeout(() => { flash.remove(); ray.remove(); }, 520);
+  }
+  function showPacks() {
+    closeUserMenu();
+    hidePreview();
+    stopTimer();
+    const ov = $('#overlay');
+    ov.classList.remove('hidden');
+    const draw = async () => {
+      const profile = await liveProfile();
+      if (!profile) { showAuth('login'); return; }
+      const claimed = profile.lastDaily === todayKey();
+      ov.innerHTML = `<div class="panel packs">
+        <div class="sb-title">Packs</div>
+        <div class="foilpack idle">${foilMarkup()}</div>
+        <div class="progress-line" id="packCount">${profile.packs | 0} unopened</div>
+        <div class="packhint" id="packProgress">${profile.packWins | 0}/3 wins to next pack</div>
+        <div class="tag">Five toons. One is new when you still have cards to find. Each copy has a 10% chance to be gold.</div>
+        <div class="go-btns">
+          <button type="button" class="btn go" id="btnOpenPack" ${(profile.packs | 0) < 1 ? 'disabled' : ''}>Open pack</button>
+          <button type="button" class="btn" id="btnDaily" ${claimed ? 'disabled' : ''}>${claimed ? 'Daily pack claimed' : 'Claim daily pack'}</button>
+          <button type="button" class="btn" id="btnPackBack">BACK</button>
+        </div>
+      </div>`;
+      $('#btnPackBack').onclick = () => showDeckSelect();
+    };
+    draw();
+  }
+  async function claimDaily() {
+    const profile = await liveProfile();
+    if (!profile) return;
+    const today = todayKey();
+    if (profile.lastDaily === today) return;
+    profile.lastDaily = today;
+    profile.packs = (profile.packs | 0) + 1;
+    const saved = await window.TOB_AUTH.saveProfile(profile);
+    if (!saved || !saved.ok) return;
+    rememberPacks(profile);
+    packSound('daily');
+    showPacks();
+  }
+  async function openPack() {
+    if (packBusy) return;
+    packBusy = true;
+    try {
+      const profile = await liveProfile();
+      if (!profile || (profile.packs | 0) < 1) return;
+      const before = (profile.collection || []).slice();
+      const pulls = rollPack(new Set(before.map(rec => rec && rec.id).filter(Boolean)));
+      const annotated = annotatePulls(pulls, before);
+      profile.packs = (profile.packs | 0) - 1;
+      profile.collection = before.concat(pulls.map(p => ({id: p.id, gold: !!p.gold, uid: p.uid})));
+      const saved = await window.TOB_AUTH.saveProfile(profile);
+      if (!saved || !saved.ok) return;
+      rememberPacks(profile);
+      currentPulls = annotated;
+      flipped = annotated.map(() => false);
+      packSummaryShown = false;
+      await playPull(annotated);
+    } finally {
+      packBusy = false;
+    }
+  }
+  async function playPull(pulls) {
+    const ov = $('#overlay');
+    ov.classList.remove('hidden');
+    const reduce = reduceMotion();
+    ov.innerHTML = `<div class="panel packopen"><div class="foilpack${reduce ? ' tear' : ' shake'}" id="foilPack">${foilMarkup()}</div></div>`;
+    packSound('shake');
+    if (!reduce) await wait(700);
+    const pack = $('#foilPack');
+    if (pack) pack.classList.add('tear');
+    packSound('tear');
+    if (!reduce) await wait(420);
+    renderFan(pulls);
+  }
+  function renderFan(pulls) {
+    const ov = $('#overlay');
+    const cards = pulls.map((pull, i) => {
+      const copy = COPIES.makeCopy(pull.id, {gold: pull.gold, uid: pull.uid});
+      const mark = pull.isNew ? '<div class="newtag">NEW!</div>' : (pull.dup > 1 ? `<div class="duptag">x${pull.dup}</div>` : '');
+      return `<button type="button" class="pullcard${pull.gold ? ' is-gold' : ''}" data-i="${i}">
+        <span class="pull-inner">
+          <span class="pull-back">${backHTML()}</span>
+          <span class="pull-front">${cardHTML(copy, null, true)}${mark}</span>
+        </span>
+      </button>`;
+    }).join('');
+    ov.innerHTML = `<div class="panel packopen">
+      <div class="sb-title">Tap to flip</div>
+      <div class="pullrow">${cards}</div>
+      <div class="go-btns"><button type="button" class="btn go" id="btnRevealAll">Reveal all</button></div>
+    </div>`;
+  }
+  function flipPull(i) {
+    if (!currentPulls || flipped[i] || packSummaryShown) return;
+    const pull = currentPulls[i];
+    if (!pull) return;
+    flipped[i] = true;
+    const node = document.querySelector(`.pullcard[data-i="${i}"]`);
+    if (node) node.classList.add('flipped');
+    packSound('flip');
+    if (pull.gold) goldBurst();
+    if (flipped.length === currentPulls.length && flipped.every(Boolean)) showPackSummary();
+  }
+  async function revealAll() {
+    if (!currentPulls) return;
+    const reduce = reduceMotion();
+    for (let i = 0; i < currentPulls.length; i++) {
+      if (!flipped[i]) {
+        flipPull(i);
+        if (!reduce) await wait(120);
+      }
+    }
+  }
+  function showPackSummary() {
+    if (packSummaryShown || !currentPulls) return;
+    packSummaryShown = true;
+    const fresh = currentPulls.filter(p => p.isNew).length;
+    const golds = currentPulls.filter(p => p.gold).length;
+    const ov = $('#overlay');
+    ov.innerHTML = `<div class="panel packopen">
+      <div class="reward-title pack-summary" id="packSummary">${fresh} new, ${golds} gold</div>
+      <div class="pullrow summary">${currentPulls.map(pull => {
+        const copy = COPIES.makeCopy(pull.id, {gold: pull.gold, uid: pull.uid});
+        const mark = pull.isNew ? '<div class="newtag">NEW!</div>' : (pull.dup > 1 ? `<div class="duptag">x${pull.dup}</div>` : '');
+        return `<div class="pullcard flipped${pull.gold ? ' is-gold' : ''}"><span class="pull-inner"><span class="pull-front">${cardHTML(copy, null, true)}${mark}</span></span></div>`;
+      }).join('')}</div>
+      <div class="go-btns">
+        <button type="button" class="btn go" id="btnOpenAnother" ${packState.packs > 0 ? '' : 'disabled'}>Open another</button>
+        <button type="button" class="btn" id="btnViewPackCollection">View collection</button>
+      </div>
+    </div>`;
+  }
+
   /* ---------- deck selection / builder ---------- */
   let lastDeck = null;
   const OPP_NAMES = {galaxy: 'Commander Kix', spooky: 'Baron Boo', barnyard: 'Farmer Fizz', sprout: 'Professor Sprig', custom: 'Mystery Rival'};
@@ -661,7 +884,8 @@
         <div class="dname">${d.name}</div><div class="dcolors">${[...new Set(d.cards.map(id => CARDS[id].color))].map(c => `<span class="gem" style="background:${COLORS[c]}"></span>`).join('')}</div></div>`).join('')}
         <div class="deckpick ${cd.length === 12 ? '' : 'dim'}" data-deck="custom"><div class="fan">${cd.slice(0, 3).map(id => cardHTML(CARDS[id])).join('') || '<div class="card back"><div class="backlogo"><span>MY</span><b>DECK</b></div></div>'}</div>
         <div class="dname">My Deck</div><div class="dcolors">${cd.length}/12 cards</div></div></div>
-      <div class="go-btns"><button class="btn" id="btnCollection">CARD GALLERY</button><button class="btn" id="btnBuild">DECK BUILDER</button><button class="btn" id="btnRules2">HOW TO PLAY</button></div></div>`;
+      <div class="packhint">${packState.packWins}/3 wins to next pack</div>
+      <div class="go-btns"><button class="btn" id="btnPacks">PACKS <span class="packbadge${packState.packs ? ' on' : ''}" data-packbadge>${packState.packs || ''}</span></button><button class="btn" id="btnCollection">CARD GALLERY</button><button class="btn" id="btnBuild">DECK BUILDER</button><button class="btn" id="btnRules2">HOW TO PLAY</button></div></div>`;
   }
   let collectionGold = false;
   function showCollection() {
@@ -751,6 +975,12 @@
       t.setAttribute('aria-expanded', open ? 'true' : 'false');
       return;
     }
+    if (t.id === 'btnPacks' || t.id === 'btnPacksMenu') return showPacks();
+    if (t.id === 'btnOpenPack' || t.id === 'btnOpenAnother') return openPack();
+    if (t.id === 'btnDaily') return claimDaily();
+    if (t.id === 'btnRevealAll') return revealAll();
+    if (t.classList.contains('pullcard')) return flipPull(+t.dataset.i);
+    if (t.id === 'btnViewPackCollection') return showMyCollection();
     if (t.id === 'btnMyCollection') return showMyCollection();
     if (t.id === 'btnLogOut') { doLogOut(); return; }
     if (t.id === 'btnRewardOk') return hideReward();
@@ -845,8 +1075,11 @@
     if (AUTO) {
       if (!window.TOB_AUTH.currentUser()) await window.TOB_AUTH.playAsGuest();
       renderUser();
+      await liveProfile();
       quickStart(qs.get('deck') || null);
-    } else if (window.TOB_AUTH.currentUser()) showDeckSelect();
-    else showAuth('signup');
+    } else if (window.TOB_AUTH.currentUser()) {
+      await liveProfile();
+      showDeckSelect();
+    } else showAuth('signup');
   }
 })();
