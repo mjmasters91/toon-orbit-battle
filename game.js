@@ -101,7 +101,7 @@
       <div class="tv-art">${faceHTML(card, true)}${card.gold ? '<div class="holo"></div><div class="spark"></div>' : ''}</div>
       <div class="tv-name">${card.name}</div>
       <div class="tv-meta"><span class="gem" style="background:${COLORS[card.color]}"></span>${cap(card.color)} · ${card.pts} pts</div>
-      <div class="tv-group">${card.group}</div>
+      <div class="tv-group">${card.archetype ? card.archetype + ' · ' : ''}${card.group}</div>
       <div class="tv-feat">${card.features.join(' · ')}</div>
       <div class="tv-power">${card.power}</div>
       ${info ? `<div class="tv-live">In play: <b>${info.knocked ? 0 : info.value}</b> pts${notes.length ? '<br>' + notes.join('<br>') : ''}</div>` : ''}
@@ -629,6 +629,11 @@
     };
   }
   let mineFilter = 'all';
+  let archFilter = '';
+  function archOptions() {
+    const names = [...new Set(CARD_LIST.map(c => c.archetype).filter(Boolean))].sort();
+    return `<select id="archPick" class="archpick" aria-label="Archetype"><option value="">All archetypes</option>${names.map(a => `<option value="${a}"${archFilter === a ? ' selected' : ''}>${a}</option>`).join('')}</select>`;
+  }
   function showMyCollection() {
     stopTimer();
     hidePreview();
@@ -657,6 +662,7 @@
         if (mineFilter === 'owned') return !!(group && group.count);
         if (mineFilter === 'gold') return !!(group && group.gold);
         if (mineFilter !== 'all' && COLORS[mineFilter]) return c.color === mineFilter;
+        if (archFilter && c.archetype !== archFilter) return false;
         return true;
       });
       const cells = cards.map(c => {
@@ -673,10 +679,13 @@
         <div class="progress-line" id="colProgress">${stats.unique} / ${stats.total} collected, ${stats.gold} gold</div>
         <div class="mine-stats">${sinceTxt ? 'Since ' + sinceTxt + ' · ' : ''}${profile.stats.wins | 0} wins · ${profile.stats.losses | 0} losses · ${profile.stats.games | 0} games</div>
         <div class="filters">${filters.map(([id, label]) => `<button type="button" class="btn filter${mineFilter === id ? ' on' : ''}" data-filter="${id}">${label}</button>`).join('')}</div>
+        ${archOptions()}
         ${cells ? `<div class="cgrid">${cells}</div>` : '<p class="tag">Nothing in this filter yet.</p>'}
         <div class="go-btns"><button type="button" class="btn" id="btnMineBack">BACK</button></div>
       </div>`;
       ov.querySelectorAll('[data-filter]').forEach(btn => { btn.onclick = () => { mineFilter = btn.dataset.filter; draw(); }; });
+      const archPick = $('#archPick');
+      if (archPick) archPick.onchange = () => { archFilter = archPick.value; draw(); };
       $('#btnMineBack').onclick = () => {
         if (G && G.phase !== 'OVER' && G.phase !== 'INTRO') $('#overlay').classList.add('hidden');
         else showHome();
@@ -1053,7 +1062,7 @@
 
   /* ---------- deck selection / builder ---------- */
   let lastDeck = null;
-  const OPP_NAMES = {galaxy: 'Commander Kix', spooky: 'Baron Boo', barnyard: 'Farmer Fizz', sprout: 'Professor Sprig', custom: 'Mystery Rival'};
+  const OPP_NAMES = {galaxy: 'Commander Kix', spooky: 'Baron Boo', barnyard: 'Farmer Fizz', sprout: 'Professor Sprig', batch1: 'Captain Crumble', custom: 'Mystery Rival'};
   function customDeck() { try { const d = JSON.parse(localStorage.getItem('tob_custom') || '[]'); return d.filter(id => CARDS[id]); } catch (e) { return []; } }
   function quickStart(key) {
     key = key || lastDeck || Object.keys(DECKS)[Math.floor(Math.random() * 4)];
@@ -1211,14 +1220,17 @@
     hidePreview();
     const ov = $('#overlay'); ov.classList.remove('hidden');
     const draw = () => {
-      const cards = CARD_LIST.map(c => COPIES.makeCopy(c.id, {gold: collectionGold}));
+      const cards = CARD_LIST.filter(c => !archFilter || c.archetype === archFilter).map(c => COPIES.makeCopy(c.id, {gold: collectionGold}));
       ov.innerHTML = `<div class="panel collection">
         <div class="sb-title">Card Gallery</div>
         <div class="tag">Gold copies are cosmetic. Every toon can have one, and they play the same.</div>
         <label class="goldtoggle"><input type="checkbox" id="goldView" ${collectionGold ? 'checked' : ''}> View gold copies</label>
+        ${archOptions()}
         <div class="cgrid">${cards.map(c => `<div class="ccard" data-cid="${c.id}">${cardHTML(c, null, true)}</div>`).join('')}</div>
         <div class="go-btns"><button class="btn" id="btnBack">BACK</button></div></div>`;
       $('#goldView').onchange = () => { collectionGold = $('#goldView').checked; draw(); };
+      const archPick = $('#archPick');
+      if (archPick) archPick.onchange = () => { archFilter = archPick.value; draw(); };
       $('#btnBack').onclick = showHome;
       ov.querySelectorAll('.ccard').forEach(node => {
         node.onclick = (ev) => { ev.stopPropagation(); inspect(COPIES.makeCopy(node.dataset.cid, {gold: collectionGold})); };

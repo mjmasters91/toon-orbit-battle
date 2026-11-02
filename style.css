@@ -331,6 +331,7 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
 .tv-card.gold { border-color: rgba(240, 193, 74, .45); }
 .tv-card.gold .tv-art { border-color: #f0c14a; box-shadow: 0 0 0 4px rgba(0,0,0,.45), 0 0 16px rgba(240, 193, 74, .35); background: #10131c; }
 .goldtoggle { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; margin: 4px 0 8px; }
+.archpick { margin: 4px 8px 8px; padding: 8px 10px; border-radius: 999px; border: 1px solid rgba(255,255,255,.2); background: rgba(0,0,0,.28); color: #fff; font: 600 14px "Outfit", system-ui, sans-serif; }
 .cgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 12px; max-width: 920px; margin: 8px auto 12px; }
 .ccard { cursor: pointer; min-height: 44px; }
 .auth-tabs { display: flex; justify-content: center; gap: 8px; margin-bottom: 4px; }
