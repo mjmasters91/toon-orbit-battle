@@ -43,17 +43,24 @@
     });
     return out;
   }
-  /* Usernames that become admin when the account is first created. No passwords live here. */
+  /* Usernames that are admins. No passwords live here. Compared trim + case-insensitive. */
   const ADMIN_USERNAMES = ['mjmasters91', 'sender'];
+  function adminKey(name) {
+    return String(name || '').trim().toLowerCase();
+  }
+  function isListedAdmin(name) {
+    return ADMIN_USERNAMES.indexOf(adminKey(name)) !== -1;
+  }
   function packProfile(profile, username) {
     profile = profile || {};
     const granted = profile.welcomeGranted === true;
     let packs = Math.max(0, profile.packs | 0);
     if (!granted) packs += 3;
-    const name = username || profile.username || '';
-    const lower = name.toLowerCase();
+    const name = String(username || profile.username || '').trim();
+    const lower = adminKey(name);
     let role = profile.role === 'admin' || profile.role === 'player' ? profile.role : '';
-    if (!role) role = ADMIN_USERNAMES.indexOf(lower) !== -1 ? 'admin' : 'player';
+    if (!role) role = isListedAdmin(name) ? 'admin' : 'player';
+    if (isListedAdmin(name)) role = 'admin';
     if (lower === 'guest') role = 'player';
     return {
       username: name,
@@ -345,9 +352,21 @@
     if (!user) return null;
     return {username: user.username, guest: false, id: user.id, email: user.email || null};
   }
-  const ready = Promise.resolve(provider.ready).then(() => {
+  async function ensureBootstrapAdmin() {
+    const user = currentUser();
+    if (!user || user.guest || !isListedAdmin(user.username)) return;
+    const profile = await provider.loadProfile();
+    if (!profile) return;
+    const clean = String(profile.username || user.username).trim();
+    if (profile.role === 'admin' && profile.username === clean) return;
+    profile.role = 'admin';
+    profile.username = clean;
+    await provider.saveProfile(profile);
+  }
+  const ready = Promise.resolve(provider.ready).then(async () => {
     if (provider.currentUser()) guestOn = false;
     else guestOn = localStorage.getItem(GUEST_FLAG) === '1';
+    try { await ensureBootstrapAdmin(); } catch (e) { /* stay on the sign-in screen */ }
   }).catch(() => { guestOn = false; });
 
   root.TOB_AUTH = {
@@ -365,10 +384,11 @@
       });
     },
     logIn(creds) {
-      return provider.logIn(creds).then(res => {
+      return provider.logIn(creds).then(async res => {
         if (res && res.ok) {
           guestOn = false;
           localStorage.removeItem(GUEST_FLAG);
+          try { await ensureBootstrapAdmin(); } catch (e) { /* the account still opens */ }
         }
         return res;
       });
