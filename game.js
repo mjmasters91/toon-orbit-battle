@@ -38,7 +38,7 @@
     return `<div class="card" data-id="${card.id}" style="--cc:${c}">
       <div class="cname">${card.name}</div>
       <div class="cart">${ART.svg(card)}</div>
-      ${card.powers.length ? '<div class="pstar" title="Has a power">★</div>' : ''}
+      ${card.powers.length ? '<div class="pstar" aria-label="Has a power">★</div>' : ''}
       ${recol}
       <div class="cpts ${bcls}">${badge}</div>
       ${info && info.knocked ? '<div class="kostamp">CANCELLED</div>' : ''}
@@ -46,11 +46,19 @@
   }
   function backHTML() { return `<div class="card back"><div class="backlogo"><span>TOON</span><b>ORBIT</b></div></div>`; }
 
+  const narrow = () => matchMedia('(max-width: 1099px)').matches;
   function inspect(card, info) {
     const box = $('#inspector');
-    if (!card) { box.innerHTML = '<div class="tv-idle">Hover over a card to see it on Toon TV!</div>'; return; }
+    const pop = $('#preview'), body = $('#previewBody');
+    if (!card) {
+      const idle = '<div class="tv-idle">Tap a card to see it on Toon TV.</div>';
+      box.innerHTML = idle;
+      if (body) body.innerHTML = idle;
+      if (pop) pop.classList.add('hidden');
+      return;
+    }
     const notes = info ? (info.knocked ? [info.knocked] : info.notes) : [];
-    box.innerHTML = `<div class="tv-card" style="--cc:${COLORS[card.color]}">
+    const html = `<div class="tv-card" style="--cc:${COLORS[card.color]}">
       <div class="tv-art">${ART.svg(card)}</div>
       <div class="tv-name">${card.name}</div>
       <div class="tv-meta"><span class="gem" style="background:${COLORS[card.color]}"></span>${cap(card.color)} · ${card.pts} pts</div>
@@ -59,10 +67,13 @@
       <div class="tv-power">${card.power}</div>
       ${info ? `<div class="tv-live">In play: <b>${info.knocked ? 0 : info.value}</b> pts${notes.length ? '<br>' + notes.join('<br>') : ''}</div>` : ''}
     </div>`;
+    box.innerHTML = html;
+    if (body) body.innerHTML = html;
+    if (pop) pop.classList.toggle('hidden', !narrow());
   }
 
   /* ---------- game state ---------- */
-  let G = null, timerId = null;
+  let G = null, timerId = null, lastPlace = 0;
   function newState(pIds, oIds, oName) {
     const mk = ids => E.shuffle(ids.map(id => CARDS[id]));
     const pDeck = mk(pIds), oDeck = mk(oIds);
@@ -148,11 +159,19 @@
   function startTimer(secs, onTimeout) {
     stopTimer();
     let left = secs; const t = $('#timer');
-    const tick = () => { t.textContent = left; t.className = left <= 10 ? 'warn' : ''; };
+    const tick = () => {
+      t.textContent = left;
+      t.style.setProperty('--p', String(Math.max(0, left) / secs));
+      t.setAttribute('aria-label', left + ' seconds left');
+      t.className = left <= 10 ? 'warn' : '';
+    };
     tick();
     timerId = setInterval(() => { left--; tick(); if (left <= 0) { stopTimer(); onTimeout(); } }, 1000);
   }
-  function stopTimer() { if (timerId) clearInterval(timerId); timerId = null; $('#timer').textContent = ''; }
+  function stopTimer() {
+    if (timerId) clearInterval(timerId); timerId = null;
+    const t = $('#timer'); t.textContent = ''; t.style.removeProperty('--p'); t.removeAttribute('aria-label');
+  }
   const wait = ms => new Promise(r => setTimeout(r, ms));
   function aiState() { return {boards: G.boards, shown: G.shown, goals: G.goals, penalty: G.penalty, silver: G.silver}; }
 
@@ -181,7 +200,7 @@
   function beginPlay(round) {
     G.round = round; G.phase = round === 1 ? 'PLAY_1' : 'PLAY_2'; G.selected = -1;
     const n = round === 1 ? 4 : 3;
-    setMsg(`<b>Round ${round}:</b> Play ${n} toons! Drag or click a card, then click a slot.`);
+    setMsg(`<b>Round ${round}:</b> Play ${n} toons! Tap or drag a card, then tap a slot.`);
     setActions(`<button class="btn go" id="btnReady" disabled>READY!</button>`);
     render(); updateReady();
     startTimer(T.play, () => { setMsg("Time's up! Filling your empty slots…"); finishPlay(true); });
@@ -194,7 +213,10 @@
   function placeCard(handIdx, slot) {
     if (!G.phase.startsWith('PLAY') || !activeSlots().includes(slot) || G.boards.p[slot]) return;
     const [c] = G.pHand.splice(handIdx, 1); G.boards.p[slot] = c; G.selected = -1; blip(700, 0.05);
+    lastPlace = performance.now();
     render(); updateReady();
+    const cell = document.querySelector(`.slot[data-side="p"][data-slot="${slot}"] .card`);
+    if (cell) cell.classList.add('dropin');
   }
   function unplace(slot) {
     if (!G.phase.startsWith('PLAY') || !activeSlots().includes(slot) || !G.boards.p[slot]) return;
@@ -233,7 +255,7 @@
   }
   function beginDiscard() {
     G.phase = 'DISCARD'; G.discardSel = new Set();
-    setMsg('Discard up to 2 cards (click to mark), then press DONE. You will draw back to 6.');
+    setMsg('Discard up to 2 cards (tap to mark), then press DONE. You will draw back to 6.');
     setActions(`<button class="btn go" id="btnDiscard">DONE</button>`);
     render();
     startTimer(T.short, () => { G.discardSel = new Set(); finishDiscard(); }); // time's up = discard nothing
@@ -308,10 +330,11 @@
     const how = r.reason === 'color' ? `Won by Color — more ${ev.targets.map(cap).join(' AND ')} cards` : r.reason === 'points' ? 'Won by Points' : 'Same score — nobody wins';
     const line = s => `${ev.total[s]} pts${ev.bonus === s ? ` + ${E.COLOR_BONUS} color bonus` : ''}${G.penalty[s] ? ` − ${G.penalty[s]} swap` : ''} = <b>${ev.score[s]}</b>`;
     const ov = $('#overlay'); ov.classList.remove('hidden');
+    const pill = (side, who) => `<div class="go-pill ${side === 'p' ? 'me' : 'opp'}"><div class="go-who">${who}</div><div class="go-num">${ev.score[side]}</div><div class="go-math">${line(side)}</div></div>`;
     ov.innerHTML = `<div class="panel gameover ${r.winner === 'p' ? 'win' : r.winner === 'o' ? 'lose' : 'tie'}">
       <div class="go-title">${title}</div><div class="go-how">${how}</div>
-      <table class="go-table"><tr><td>You</td><td>${line('p')}</td></tr><tr><td>${G.oName}</td><td>${line('o')}</td></tr>
-      ${ev.targets.map(c => `<tr><td><span class="gem" style="background:${COLORS[c]}"></span>${cap(c)} cards</td><td>You ${ev.counts.p[c] || 0} · ${G.oName} ${ev.counts.o[c] || 0}</td></tr>`).join('')}</table>
+      <div class="go-scores">${pill('p', 'You')}${pill('o', G.oName)}</div>
+      ${ev.targets.length ? `<div class="go-colors">${ev.targets.map(c => `<div class="go-color"><span class="gem" style="background:${COLORS[c]}"></span>${cap(c)} cards: You ${ev.counts.p[c] || 0} · ${G.oName} ${ev.counts.o[c] || 0}</div>`).join('')}</div>` : ''}
       <div class="go-btns"><button class="btn go" id="btnAgain">PLAY AGAIN</button><button class="btn" id="btnPick">CHANGE DECK</button><button class="btn" id="btnBoard">VIEW BOARD</button></div></div>`;
     blip(r.winner === 'p' ? 990 : 220, 0.4, 'triangle', 0.08);
     setMsg(title + ' ' + how); setActions(`<button class="btn go" id="btnAgain2">PLAY AGAIN</button>`);
@@ -353,7 +376,7 @@
       <div class="bgrid">${CARD_LIST.map(c => `<div class="bcard ${sel.includes(c.id) ? 'in' : ''}" data-bid="${c.id}">${cardHTML(c)}</div>`).join('')}</div>
       <div class="go-btns"><button class="btn go" id="btnSaveDeck" ${sel.length === 12 ? '' : 'disabled'}>SAVE & PLAY</button><button class="btn" id="btnBack">BACK</button></div></div>`;
       ov.querySelectorAll('.bcard').forEach(b => {
-        b.onclick = () => { const id = b.dataset.bid; if (sel.includes(id)) sel = sel.filter(x => x !== id); else if (sel.length < 12) sel.push(id); draw(); };
+        b.onclick = () => { const id = b.dataset.bid; if (sel.includes(id)) sel = sel.filter(x => x !== id); else if (sel.length < 12) sel.push(id); draw(); inspect(CARDS[id]); };
         b.onmouseenter = () => inspect(CARDS[b.dataset.bid]);
       });
       $('#btnSaveDeck').onclick = () => { localStorage.setItem('tob_custom', JSON.stringify(sel)); quickStart('custom'); };
@@ -383,7 +406,8 @@
     if (!t) return;
     if (t.id === 'btnReady') return finishPlay(false);
     if (t.id === 'btnDiscard') return finishDiscard();
-    if (t.id === 'btnSwapYes') { G.swapMode = true; setMsg('Click a card in your hand to put in your last slot (−10).'); setActions('<button class="btn" id="btnSwapNo">CANCEL – NO SWAP</button>'); render(); return; }
+    if (t.id === 'btnPreviewClose') { $('#preview').classList.add('hidden'); return; }
+    if (t.id === 'btnSwapYes') { G.swapMode = true; setMsg('Tap a card in your hand to put in your last slot (−10).'); setActions('<button class="btn" id="btnSwapNo">CANCEL – NO SWAP</button>'); render(); return; }
     if (t.id === 'btnSwapNo') return afterSwap(null);
     if (t.classList.contains('colorbtn')) return finishSilver(t.dataset.color, G.pendingSilver);
     if (t.id === 'btnAgain' || t.id === 'btnAgain2') return quickStart();
@@ -397,23 +421,40 @@
     if (!G) return;
     if (t.classList.contains('handcard')) {
       const i = +t.dataset.idx;
-      if (G.phase === 'DISCARD') { if (G.discardSel.has(i)) G.discardSel.delete(i); else if (G.discardSel.size < 2) G.discardSel.add(i); blip(600, .04); render(); return; }
-      if (G.phase === 'SWAP' && G.swapMode) return afterSwap(i);
+      const card = G.pHand[i];
+      if (G.phase === 'DISCARD') { if (G.discardSel.has(i)) G.discardSel.delete(i); else if (G.discardSel.size < 2) G.discardSel.add(i); blip(600, .04); render(); if (card) inspect(card); return; }
+      if (G.phase === 'SWAP' && G.swapMode) { if (card) inspect(card); return afterSwap(i); }
       if (G.phase.startsWith('PLAY')) {
-        if (G.selected === i) { const free = activeSlots().find(s => !G.boards.p[s]); if (free != null) placeCard(i, free); return; }
-        G.selected = i; render(); return;
+        if (G.selected === i) { const free = activeSlots().find(s => !G.boards.p[s]); if (free != null) { if (card) inspect(card); return placeCard(i, free); } }
+        G.selected = i; render(); if (card) inspect(card); return;
       }
+      if (card) inspect(card);
+      return;
     }
-    if (t.classList.contains('slot') && t.dataset.side === 'p') {
+    if (t.classList.contains('goalcard')) {
+      const held = t.querySelector('.card[data-id]');
+      if (held && CARDS[held.dataset.id]) inspect(CARDS[held.dataset.id]);
+      return;
+    }
+    if (t.classList.contains('slot')) {
+      const held = t.querySelector('.card[data-id]');
+      if (held && CARDS[held.dataset.id]) {
+        const side = t.dataset.side, si = +t.dataset.slot;
+        let info = null;
+        if (G.lastEv && G.shown[side] && G.shown[side][si]) info = G.lastEv.cells[side][si];
+        inspect(CARDS[held.dataset.id], info);
+      }
+      if (t.dataset.side !== 'p') return;
       const s = +t.dataset.slot;
       if (G.boards.p[s] && !G.shown.p[s]) return unplace(s);
       if (G.selected >= 0) return placeCard(G.selected, s);
-      const free = activeSlots().includes(s) && G.pHand.length ? 0 : -1;
-      if (free === 0 && G.phase.startsWith('PLAY')) { setMsg('Pick a card from your hand first, then click a slot.'); }
+      if (activeSlots().includes(s) && G.pHand.length && G.phase.startsWith('PLAY')) setMsg('Pick a card from your hand first, then tap a slot.');
     }
   });
   document.addEventListener('dblclick', e => {
-    const h = e.target.closest('.handcard'); if (!h || !G || !G.phase.startsWith('PLAY')) return;
+    if (performance.now() - lastPlace < 500) return;
+    const h = e.target.closest('.handcard');
+    if (!h || !h.isConnected || !G || !G.phase.startsWith('PLAY')) return;
     const free = activeSlots().find(s => !G.boards.p[s]); if (free != null) placeCard(+h.dataset.idx, free);
   });
   document.addEventListener('dragstart', e => { const h = e.target.closest('.handcard'); if (h) e.dataTransfer.setData('text/plain', h.dataset.idx); });
