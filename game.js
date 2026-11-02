@@ -51,7 +51,7 @@
     const box = $('#inspector');
     const pop = $('#preview'), body = $('#previewBody');
     if (!card) {
-      const idle = '<div class="tv-idle">Tap a card to see it on Toon TV.</div>';
+      const idle = '<div class="tv-idle">Tap a card to preview it.</div>';
       box.innerHTML = idle;
       if (body) body.innerHTML = idle;
       if (pop) pop.classList.add('hidden');
@@ -138,10 +138,11 @@
     const tg = G.targets;
     const goalTxt = tg.length === 0 ? 'No goal color — Points only!' : tg.length === 1 ? `Goal color: ${cap(tg[0])} (most cards = +${E.COLOR_BONUS})` : `Goal colors: ${cap(tg[0])} & ${cap(tg[1])} (more of BOTH wins!)`;
     const rows = tg.map(c => `<tr><td><span class="gem" style="background:${COLORS[c]}"></span>${cap(c)}</td><td>${ev.counts.p[c] || 0}</td><td>${ev.counts.o[c] || 0}</td></tr>`).join('');
-    const pen = s => G.penalty[s] ? `<div class="pen">−${G.penalty[s]} for swapping</div>` : '';
-    const bon = s => ev.bonus === s ? `<div class="bon">+${E.COLOR_BONUS} color bonus</div>` : '';
+    const pen = s => G.penalty[s] ? `<div class="pen">−${G.penalty[s]} swap</div>` : '';
+    const bon = s => ev.bonus === s ? `<div class="bon">+${E.COLOR_BONUS} color</div>` : '';
+    const prev = G.prevScore;
     $('#scoreboard').innerHTML = `
-      <div class="sb-title">SCOREBOARD</div>
+      <div class="sb-title">Score</div>
       <div class="sb-goal">${goalTxt}</div>
       <div class="sb-scores">
         <div class="sb-side me"><div class="sb-name">YOU</div><div class="sb-num" id="sb-p">${ev.score.p}</div>${bon('p')}${pen('p')}</div>
@@ -151,6 +152,11 @@
       ${tg.length ? `<table class="sb-colors"><tr><th>Color</th><th>You</th><th>Opp</th></tr>${rows}</table>` : ''}
       ${ev.colorLead ? `<div class="sb-lead">${ev.colorLead === 'p' ? 'You lead' : G.oName + ' leads'} in BOTH colors!</div>` : ''}
       ${G.silver.p || G.silver.o ? `<div class="sb-silver">${G.silver.p ? 'Your silver = ' + cap(G.silver.p) : ''} ${G.silver.o ? '· Opp silver = ' + cap(G.silver.o) : ''}</div>` : ''}`;
+    if (prev) {
+      if (prev.p !== ev.score.p) { const n = $('#sb-p'); if (n) n.classList.add('pop'); }
+      if (prev.o !== ev.score.o) { const n = $('#sb-o'); if (n) n.classList.add('pop'); }
+    }
+    G.prevScore = {p: ev.score.p, o: ev.score.o};
   }
 
   /* ---------- phase/timer helpers ---------- */
