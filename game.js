@@ -1,6 +1,7 @@
 /* Toon Orbit Battle — game flow & UI. */
 (function () {
   const {CARDS, CARD_LIST, DECKS, COLORS} = window.TOB_CARDS;
+  const COPIES = window.TOB_COPIES;
   const E = window.TOB_ENGINE, AI = window.TOB_AI, ART = window.TOB_ART;
   const qs = new URLSearchParams(location.search);
   const AUTO = qs.has('auto'); let autoGames = Math.max(1, parseInt(qs.get('auto') || '1', 10) || 1);
@@ -27,23 +28,30 @@
   }
 
   /* ---------- card rendering ---------- */
-  function cardHTML(card, info) {
+  function cardHTML(card, info, eager) {
     const c = COLORS[card.color];
     let badge = card.pts, bcls = '';
-    if (info) {
-      if (info.knocked) { badge = '✕'; bcls = 'ko'; }
-      else { badge = info.value; bcls = info.value > card.pts ? 'up' : info.value < card.pts ? 'down' : ''; }
-    }
-    const recol = info && !info.knocked && info.color !== card.color ? `<div class="recolor" style="background:${COLORS[info.color]}"></div>` : '';
     const long = card.name.length > 11 ? ' long' : '';
-    return `<div class="card" data-id="${card.id}" style="--cc:${c}">
+    const gold = !!card.gold;
+    const playInfo = info && typeof info === 'object' ? info : null;
+    if (playInfo) {
+      if (playInfo.knocked) { badge = '✕'; bcls = 'ko'; }
+      else { badge = playInfo.value; bcls = playInfo.value > card.pts ? 'up' : playInfo.value < card.pts ? 'down' : ''; }
+    }
+    const recol2 = playInfo && !playInfo.knocked && playInfo.color !== card.color ? `<div class="recolor" style="background:${COLORS[playInfo.color]}"></div>` : '';
+    return `<div class="card${gold ? ' gold' : ''}" data-id="${card.id}" style="--cc:${c}">
       <div class="cname${long}">${card.name}</div>
-      <div class="cart">${ART.svg(card)}</div>
+      <div class="cart">${faceHTML(card, eager)}${gold ? '<div class="holo"></div><div class="spark"></div>' : ''}</div>
+      ${gold ? '<div class="goldtag">GOLD</div>' : ''}
       ${card.powers.length ? '<div class="pstar" aria-label="Has a power">★</div>' : ''}
-      ${recol}
+      ${recol2}
       <div class="cpts ${bcls}">${badge}</div>
-      ${info && info.knocked ? '<div class="kostamp">CANCELLED</div>' : ''}
+      ${playInfo && playInfo.knocked ? '<div class="kostamp">CANCELLED</div>' : ''}
     </div>`;
+  }
+  function faceHTML(card, eager) {
+    const src = 'assets/cards/' + encodeURIComponent(card.id) + '.webp';
+    return `<img class="cartimg" alt="" data-id="${card.id}" src="${src}" loading="${eager ? 'eager' : 'lazy'}" decoding="async" onerror="TOB_ART.useSvg(this)">`;
   }
   function backHTML() { return `<div class="card back"><div class="backlogo"><span>TOON</span><b>ORBIT</b></div></div>`; }
 
@@ -59,8 +67,8 @@
       return;
     }
     const notes = info ? (info.knocked ? [info.knocked] : info.notes) : [];
-    const html = `<div class="tv-card" style="--cc:${COLORS[card.color]}">
-      <div class="tv-art">${ART.svg(card)}</div>
+    const html = `<div class="tv-card${card.gold ? ' gold' : ''}" style="--cc:${COLORS[card.color]}">
+      <div class="tv-art">${faceHTML(card, true)}${card.gold ? '<div class="holo"></div><div class="spark"></div>' : ''}</div>
       <div class="tv-name">${card.name}</div>
       <div class="tv-meta"><span class="gem" style="background:${COLORS[card.color]}"></span>${cap(card.color)} · ${card.pts} pts</div>
       <div class="tv-group">${card.group}</div>
@@ -75,9 +83,14 @@
 
   /* ---------- game state ---------- */
   let G = null, timerId = null, lastPlace = 0;
+  function buildDeck(ids) {
+    const copies = ids.map(id => COPIES.makeCopy(id, {gold: false})).filter(Boolean);
+    const n = 1 + (Math.random() < 0.5 ? 1 : 0);
+    COPIES.stampGold(copies, n);
+    return E.shuffle(copies);
+  }
   function newState(pIds, oIds, oName) {
-    const mk = ids => E.shuffle(ids.map(id => CARDS[id]));
-    const pDeck = mk(pIds), oDeck = mk(oIds);
+    const pDeck = buildDeck(pIds), oDeck = buildDeck(oIds);
     const s = {
       phase: 'INTRO', oName, pDeck, oDeck, pHand: [], oHand: [], pDiscard: [], oDiscard: [],
       goalCards: {p: pDeck[11], o: oDeck[11]},
@@ -101,10 +114,10 @@
     const hidden = G.round < 2 && i >= 4;
     let inner = '';
     if (card) {
-      if (G.shown[side][i]) inner = cardHTML(card, ev.cells[side][i]);
+      if (G.shown[side][i]) inner = cardHTML(card, ev.cells[side][i], true);
       else if (side === 'p') {
         const faceDown = i === 6 && !G.phase.startsWith('PLAY');
-        inner = `<div class="pending">${cardHTML(card)}${faceDown ? '<div class="pend-tag">Face down</div>' : ''}</div>`;
+        inner = `<div class="pending">${cardHTML(card, null, true)}${faceDown ? '<div class="pend-tag">Face down</div>' : ''}</div>`;
       }
       else inner = backHTML();
     } else inner = `<div class="slotnum">${i + 1}</div>`;
@@ -123,7 +136,7 @@
     const hand = $('#hand'); hand.innerHTML = '';
     G.pHand.forEach((c, i) => {
       const w = el('div', 'handcard' + (G.selected === i ? ' sel' : '') + (G.discardSel.has(i) ? ' disc' : ''));
-      w.innerHTML = cardHTML(c) + (G.discardSel.has(i) ? '<div class="disc-tag">DISCARD</div>' : '');
+      w.innerHTML = cardHTML(c, null, true) + (G.discardSel.has(i) ? '<div class="disc-tag">DISCARD</div>' : '');
       w.dataset.idx = i; w.draggable = G.phase.startsWith('PLAY');
       hand.appendChild(w);
     });
@@ -133,10 +146,22 @@
       const deck = side === 'p' ? G.pDeck : G.oDeck, gc = G.goalCards[side], inDeck = deck.includes(gc);
       return `<div class="deckbox"><div class="dlabel">${label}</div>
         <div class="deckstack">${deck.length ? `<div class="stack">${deck.length}</div>` : '<div class="stack empty">0</div>'}
-        <div class="goalcard ${inDeck ? '' : 'drawn'}" data-goal="${side}">${cardHTML(gc)}<div class="goaltag">Goal</div></div></div></div>`;
+        <div class="goalcard ${inDeck ? '' : 'drawn'}" data-goal="${side}">${cardHTML(gc, null, true)}<div class="goaltag">Goal</div></div></div></div>`;
     };
     $('#decks').innerHTML = deckBox('o', G.oName + "'s Deck") + deckBox('p', 'Your Deck');
     renderScore(ev);
+    const live = [].concat(G.pHand, G.oHand, G.boards.p, G.boards.o, [G.goalCards.p, G.goalCards.o]);
+    preloadArt(live);
+  }
+  const preloadedArt = new Set();
+  function preloadArt(cards) {
+    cards.forEach(c => {
+      if (!c || !c.id || preloadedArt.has(c.id)) return;
+      preloadedArt.add(c.id);
+      const img = new Image();
+      img.decoding = 'async';
+      img.src = 'assets/cards/' + encodeURIComponent(c.id) + '.webp';
+    });
   }
   function renderScore(ev) {
     const tg = G.targets;
@@ -380,7 +405,28 @@
         <div class="dname">${d.name}</div><div class="dcolors">${[...new Set(d.cards.map(id => CARDS[id].color))].map(c => `<span class="gem" style="background:${COLORS[c]}"></span>`).join('')}</div></div>`).join('')}
         <div class="deckpick ${cd.length === 12 ? '' : 'dim'}" data-deck="custom"><div class="fan">${cd.slice(0, 3).map(id => cardHTML(CARDS[id])).join('') || '<div class="card back"><div class="backlogo"><span>MY</span><b>DECK</b></div></div>'}</div>
         <div class="dname">My Deck</div><div class="dcolors">${cd.length}/12 cards</div></div></div>
-      <div class="go-btns"><button class="btn" id="btnBuild">DECK BUILDER</button><button class="btn" id="btnRules2">HOW TO PLAY</button></div></div>`;
+      <div class="go-btns"><button class="btn" id="btnCollection">COLLECTION</button><button class="btn" id="btnBuild">DECK BUILDER</button><button class="btn" id="btnRules2">HOW TO PLAY</button></div></div>`;
+  }
+  let collectionGold = false;
+  function showCollection() {
+    stopTimer();
+    hidePreview();
+    const ov = $('#overlay'); ov.classList.remove('hidden');
+    const draw = () => {
+      const cards = CARD_LIST.map(c => COPIES.makeCopy(c.id, {gold: collectionGold}));
+      ov.innerHTML = `<div class="panel collection">
+        <div class="sb-title">Collection</div>
+        <div class="tag">Gold copies are cosmetic. Every toon can have one, and they play the same.</div>
+        <label class="goldtoggle"><input type="checkbox" id="goldView" ${collectionGold ? 'checked' : ''}> View gold copies</label>
+        <div class="cgrid">${cards.map(c => `<div class="ccard" data-cid="${c.id}">${cardHTML(c)}</div>`).join('')}</div>
+        <div class="go-btns"><button class="btn" id="btnBack">BACK</button></div></div>`;
+      $('#goldView').onchange = () => { collectionGold = $('#goldView').checked; draw(); };
+      $('#btnBack').onclick = showDeckSelect;
+      ov.querySelectorAll('.ccard').forEach(node => {
+        node.onclick = (ev) => { ev.stopPropagation(); inspect(COPIES.makeCopy(node.dataset.cid, {gold: collectionGold})); };
+      });
+    };
+    draw();
   }
   function showBuilder() {
     let sel = customDeck();
@@ -417,8 +463,8 @@
   /* ---------- events ---------- */
   document.addEventListener('click', e => {
     const pop = $('#preview');
-    const outsideSheet = pop && !pop.classList.contains('hidden') && !e.target.closest('.preview-sheet');
-    if (outsideSheet && e.target.id !== 'previewBackdrop') pop.classList.add('hidden');
+    const keep = e.target.closest('.preview-sheet, .handcard, .ccard, .card, .goalcard');
+    if (pop && !pop.classList.contains('hidden') && !keep) pop.classList.add('hidden');
     const t = e.target.closest('button, .handcard, .slot, .deckpick, .goalcard');
     if (!t) return;
     if (t.id === 'btnReady') return finishPlay(false);
@@ -431,6 +477,7 @@
     if (t.id === 'btnPick' || t.id === 'btnNew') return showDeckSelect();
     if (t.id === 'btnBoard') { $('#overlay').classList.add('hidden'); return; }
     if (t.id === 'btnBuild') return showBuilder();
+    if (t.id === 'btnCollection') return showCollection();
     if (t.id === 'btnRules' || t.id === 'btnRules2') return showRules();
     if (t.id === 'btnClose') { if (G && G.phase !== 'OVER') $('#overlay').classList.add('hidden'); else showDeckSelect(); return; }
     if (t.id === 'btnSound') { soundOn = !soundOn; t.textContent = 'Sound: ' + (soundOn ? 'On' : 'Off'); return; }
@@ -486,6 +533,29 @@
     inspect(CARDS[c.dataset.id], info);
   });
 
+  window.TOB.renderCopy = cardHTML;
+  if (matchMedia('(hover: hover) and (pointer: fine)').matches) {
+    let tracked = null;
+    document.addEventListener('pointermove', e => {
+      const card = e.target.closest && e.target.closest('.card.gold, .tv-card.gold');
+      if (tracked && tracked !== card) tracked.classList.remove('track');
+      tracked = card || null;
+      if (!card) return;
+      const r = card.getBoundingClientRect();
+      card.style.setProperty('--hx', ((e.clientX - r.left) / r.width * 100).toFixed(1));
+      card.style.setProperty('--hy', ((e.clientY - r.top) / r.height * 100).toFixed(1));
+      card.classList.add('track');
+    }, {passive: true});
+  } else if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    window.addEventListener('deviceorientation', e => {
+      if (e.gamma == null) return;
+      const x = Math.max(0, Math.min(100, 50 + e.gamma));
+      const y = Math.max(0, Math.min(100, 50 + (e.beta || 0) / 2));
+      document.documentElement.style.setProperty('--hx', x.toFixed(1));
+      document.documentElement.style.setProperty('--hy', y.toFixed(1));
+      document.documentElement.classList.add('tilt');
+    }, {passive: true});
+  }
   inspect(null);
   if (AUTO) quickStart(qs.get('deck') || null); else showDeckSelect();
 })();

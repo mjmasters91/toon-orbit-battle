@@ -112,5 +112,13 @@
     let body = a.kind ? object(a.kind) : back(a) + head(a) + eyes(a.eyes) + mouth(a.mouth) + front(a);
     return `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice">${bg}${body}</svg>`;
   }
-  root.TOB_ART = {svg};
+  function useSvg(img) {
+    const id = img && img.getAttribute && img.getAttribute('data-id');
+    const card = root.TOB_CARDS && root.TOB_CARDS.CARDS[id];
+    if (!card) { if (img) img.remove(); return; }
+    const holder = document.createElement('div');
+    holder.innerHTML = svg(card);
+    if (holder.firstChild) img.replaceWith(holder.firstChild);
+  }
+  root.TOB_ART = {svg, useSvg};
 })(this);
