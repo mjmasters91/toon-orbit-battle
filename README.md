@@ -29,7 +29,7 @@ The game is a static site. There is no backend in the default setup. Sign-in goe
 | `loadProfile` | That player's profile |
 | `saveProfile` | Write the profile back |
 
-A profile is `{username, createdAt, starterDeck, stats: {wins, losses, games}, collection, packs, coins, role, welcomeGranted, lastDaily}`. Each collection entry is a copy `{id, gold, uid}` from `copies.js`. Gold does not change scoring. `packs` is how many unopened packs the player has. `coins` are Orbit Coins. `role` is `player` or `admin`.
+A profile is `{username, createdAt, starterDeck, stats, collection, packs, coins, role, welcomeGranted, lastDaily, avatar, showcase, friends}`. `stats` keeps `wins`, `losses`, and `games`, plus `streak`, `bestStreak`, `packsOpened`, `decks`, and `archetypes`. Older saves that only have wins and losses still load. Each collection entry is a copy `{id, gold, uid}` from `copies.js`. Gold does not change scoring. `packs` is how many unopened packs the player has. `coins` are Orbit Coins. `role` is `player` or `admin`.
 
 On first launch the game asks you to sign up or log in. **Play as guest** keeps a profile on this device only. Signing up afterward moves the guest's cards and win/loss record onto the new account.
 
@@ -145,4 +145,39 @@ revoke all on function public.admin_update_profile(uuid, text, integer, integer,
 grant execute on function public.admin_update_profile(uuid, text, integer, integer, jsonb) to authenticated;
 ```
 
-There is no delete policy: a player cannot delete another row, and client code does not delete profiles. After the table exists, set `url` and `anonKey` in `supabase-config.js` and reload. Local accounts are not copied to Supabase.
+Friends and a public profile view are ready for when online accounts turn on. The game calls `searchUsers`, `loadPublicProfile`, `listFriends`, `addFriend`, and `removeFriend` on the auth provider. Local play only finds usernames saved on this device. `SupabaseAuthProvider` uses the view and the friends table below.
+
+```sql
+create or replace view public.public_profiles as
+select id, username, created_at, starter_deck, stats, collection
+from public.profiles;
+
+grant select on public.public_profiles to authenticated;
+
+create table if not exists public.friends (
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  friend_id uuid not null references public.profiles (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (user_id, friend_id),
+  check (user_id <> friend_id)
+);
+
+alter table public.friends enable row level security;
+
+create policy "read own friends"
+  on public.friends for select
+  to authenticated
+  using (auth.uid() = user_id);
+
+create policy "add own friends"
+  on public.friends for insert
+  to authenticated
+  with check (auth.uid() = user_id);
+
+create policy "remove own friends"
+  on public.friends for delete
+  to authenticated
+  using (auth.uid() = user_id);
+```
+
+The view is owned by the database owner, so logged-in players can read public profile rows without a select policy on `profiles` itself. Avatar, showcase, streaks, and deck counts travel inside `stats`. There is no delete policy on profiles: a player cannot delete another row, and client code does not delete profiles. After the table exists, set `url` and `anonKey` in `supabase-config.js` and reload. Local accounts are not copied to Supabase.

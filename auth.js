@@ -26,13 +26,50 @@
     for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
     return diff === 0;
   }
+  function normMap(obj) {
+    const out = {};
+    if (!obj || typeof obj !== 'object') return out;
+    Object.keys(obj).forEach(k => {
+      const n = obj[k] | 0;
+      if (n > 0 && /^[A-Za-z0-9_ ]{1,40}$/.test(k)) out[k] = n;
+    });
+    return out;
+  }
   function normStats(stats) {
     stats = stats || {};
+    const wins = Math.max(0, stats.wins | 0);
+    const losses = Math.max(0, stats.losses | 0);
+    const games = Math.max(stats.games | 0, wins + losses);
+    const streak = Math.max(0, stats.streak | 0);
+    const best = Math.max(streak, stats.bestStreak | 0);
     return {
-      wins: stats.wins | 0,
-      losses: stats.losses | 0,
-      games: stats.games | 0,
+      wins, losses, games, streak,
+      bestStreak: best,
+      packsOpened: Math.max(0, stats.packsOpened | 0),
+      decks: normMap(stats.decks),
+      archetypes: normMap(stats.archetypes),
     };
+  }
+  function normNames(list) {
+    const out = [];
+    const seen = new Set();
+    (list || []).forEach(name => {
+      const n = String(name || '').trim();
+      const key = n.toLowerCase();
+      if (!/^[A-Za-z0-9_]{3,16}$/.test(n) || seen.has(key)) return;
+      seen.add(key);
+      out.push(n);
+    });
+    return out.slice(0, 40);
+  }
+  function normIds(list) {
+    const cards = root.TOB_CARDS && root.TOB_CARDS.CARDS;
+    const out = [];
+    (list || []).forEach(id => {
+      if (!cards || !cards[id] || out.includes(id)) return;
+      out.push(id);
+    });
+    return out.slice(0, 6);
   }
   function normCollection(list) {
     const cards = root.TOB_CARDS && root.TOB_CARDS.CARDS;
@@ -68,6 +105,9 @@
       starterDeck: profile.starterDeck || null,
       stats: normStats(profile.stats),
       collection: normCollection(profile.collection),
+      avatar: (root.TOB_CARDS && root.TOB_CARDS.CARDS && root.TOB_CARDS.CARDS[profile.avatar]) ? profile.avatar : null,
+      showcase: normIds(profile.showcase),
+      friends: normNames(profile.friends),
       packs,
       coins: Math.max(0, profile.coins | 0),
       role,
@@ -119,6 +159,11 @@
     currentUser() { return null; }
     loadProfile() { return Promise.resolve(null); }
     saveProfile() { return Promise.reject(new Error('saveProfile is not implemented')); }
+    searchUsers() { return Promise.resolve([]); }
+    loadPublicProfile() { return Promise.resolve(null); }
+    listFriends() { return Promise.resolve([]); }
+    addFriend() { return Promise.resolve({ok: false, error: 'Friends are not available.'}); }
+    removeFriend() { return Promise.resolve({ok: false, error: 'Friends are not available.'}); }
   }
 
   class LocalAuthProvider extends AuthProvider {
@@ -193,6 +238,43 @@
       if (!this._key) return null;
       const rec = readAccounts()[this._key];
       return rec ? clone(rec.profile) : null;
+    }
+    async searchUsers(username) {
+      const key = String(username || '').trim().toLowerCase();
+      if (!key) return [];
+      const rec = readAccounts()[key];
+      return rec ? [{username: rec.username, id: key}] : [];
+    }
+    async loadPublicProfile(username) {
+      const key = String(username || '').trim().toLowerCase();
+      if (key === 'guest') {
+        const guest = readGuest();
+        return guest ? clone(guest) : null;
+      }
+      const rec = readAccounts()[key];
+      return rec ? clone(rec.profile) : null;
+    }
+    async listFriends() {
+      const profile = await this.loadProfile();
+      return (profile && profile.friends) || [];
+    }
+    async addFriend(username) {
+      const found = await this.searchUsers(username);
+      if (!found.length) return {ok: false, error: 'No account with that username on this device.'};
+      const me = this.currentUser();
+      if (me && found[0].username.toLowerCase() === me.username.toLowerCase()) return {ok: false, error: 'That’s you.'};
+      const profile = await this.loadProfile();
+      if (!profile) return {ok: false, error: 'Log in first.'};
+      if ((profile.friends || []).some(f => f.toLowerCase() === found[0].username.toLowerCase())) return {ok: false, error: 'Already friends.'};
+      profile.friends = (profile.friends || []).concat([found[0].username]);
+      return this.saveProfile(profile);
+    }
+    async removeFriend(username) {
+      const profile = await this.loadProfile();
+      if (!profile) return {ok: false, error: 'Log in first.'};
+      const key = String(username || '').trim().toLowerCase();
+      profile.friends = (profile.friends || []).filter(f => f.toLowerCase() !== key);
+      return this.saveProfile(profile);
     }
     async saveProfile(profile) {
       if (!this._key) return {ok: false, error: 'Log in first.'};
@@ -274,7 +356,7 @@
         id: data.user.id,
         username: name.username,
         starter_deck: null,
-        stats: {wins: 0, losses: 0, games: 0, packs: 3, coins: 0, role: 'player', welcomeGranted: true, lastDaily: null},
+        stats: {wins: 0, losses: 0, games: 0, streak: 0, bestStreak: 0, packsOpened: 0, decks: {}, archetypes: {}, packs: 3, coins: 0, role: 'player', welcomeGranted: true, lastDaily: null},
         collection: [],
       };
       const ins = await this.client.from('profiles').insert(row);
@@ -306,18 +388,79 @@
       if (error || !data) return null;
       this.username = data.username || this.username;
       const stats = data.stats || {};
-      return {
+      return packProfile({
         username: data.username,
         createdAt: data.created_at,
         starterDeck: data.starter_deck || null,
-        stats: normStats(stats),
-        collection: normCollection(data.collection),
-        packs: stats.packs | 0,
-        coins: stats.coins | 0,
-        role: stats.role === 'admin' || stats.role === 'player' ? stats.role : undefined,
-        welcomeGranted: stats.welcomeGranted === true,
-        lastDaily: typeof stats.lastDaily === 'string' ? stats.lastDaily : null,
-      };
+        stats,
+        collection: data.collection,
+        avatar: stats.avatar,
+        showcase: stats.showcase,
+        packs: stats.packs,
+        coins: stats.coins,
+        role: stats.role,
+        welcomeGranted: stats.welcomeGranted,
+        lastDaily: stats.lastDaily,
+      }, data.username);
+    }
+    _publicFrom(row) {
+      if (!row) return null;
+      const stats = row.stats || {};
+      return packProfile({
+        username: row.username,
+        createdAt: row.created_at,
+        starterDeck: row.starter_deck || null,
+        stats,
+        collection: row.collection,
+        avatar: stats.avatar,
+        showcase: stats.showcase,
+        coins: stats.coins,
+        packs: stats.packs,
+        role: 'player',
+      }, row.username);
+    }
+    async searchUsers(username) {
+      if (!this.client) return [];
+      const name = String(username || '').trim();
+      if (!name) return [];
+      const {data, error} = await this.client.from('public_profiles').select('id, username').ilike('username', name).limit(5);
+      if (error || !data) return [];
+      return data.map(row => ({username: row.username, id: row.id}));
+    }
+    async loadPublicProfile(username) {
+      if (!this.client) return null;
+      const name = String(username || '').trim();
+      if (!name) return null;
+      const {data, error} = await this.client.from('public_profiles').select('*').ilike('username', name).maybeSingle();
+      if (error || !data) return null;
+      return this._publicFrom(data);
+    }
+    async listFriends() {
+      if (!this.user || !this.client) return [];
+      const {data, error} = await this.client.from('friends').select('friend_id').eq('user_id', this.user.id);
+      if (error || !data || !data.length) return [];
+      const ids = data.map(row => row.friend_id);
+      const profs = await this.client.from('public_profiles').select('username').in('id', ids);
+      return ((profs.data) || []).map(row => row.username);
+    }
+    async addFriend(username) {
+      if (!this.user || !this.client) return {ok: false, error: 'Log in first.'};
+      const found = await this.searchUsers(username);
+      const exact = found.find(row => row.username.toLowerCase() === String(username || '').trim().toLowerCase()) || (found.length === 1 ? found[0] : null);
+      if (!exact) return {ok: false, error: 'No account with that username.'};
+      if (exact.id === this.user.id) return {ok: false, error: 'That’s you.'};
+      const {error} = await this.client.from('friends').insert({user_id: this.user.id, friend_id: exact.id});
+      if (error && !/duplicate|unique/i.test(error.message || '')) return {ok: false, error: this._friendly(error)};
+      return {ok: true};
+    }
+    async removeFriend(username) {
+      if (!this.user || !this.client) return {ok: false, error: 'Log in first.'};
+      const found = await this.searchUsers(username);
+      const exact = found.find(row => row.username.toLowerCase() === String(username || '').trim().toLowerCase());
+      if (!exact) return {ok: false, error: 'No account with that username.'};
+      const {error} = await this.client.from('friends').delete().eq('user_id', this.user.id).eq('friend_id', exact.id);
+      if (error) return {ok: false, error: this._friendly(error)};
+      return {ok: true};
     }
     async saveProfile(profile) {
       if (!this.user || !this.client) return {ok: false, error: 'Log in first.'};
@@ -327,6 +470,9 @@
         starter_deck: packed.starterDeck,
         stats: {
           wins: packed.stats.wins, losses: packed.stats.losses, games: packed.stats.games,
+          streak: packed.stats.streak, bestStreak: packed.stats.bestStreak, packsOpened: packed.stats.packsOpened,
+          decks: packed.stats.decks, archetypes: packed.stats.archetypes,
+          avatar: packed.avatar, showcase: packed.showcase,
           packs: packed.packs, coins: packed.coins, role: packed.role, welcomeGranted: true, lastDaily: packed.lastDaily,
         },
         collection: packed.collection,
@@ -412,6 +558,36 @@
         return Promise.resolve({ok: true});
       }
       return provider.saveProfile(profile);
+    },
+    searchUsers(username) { return provider.searchUsers(username); },
+    loadPublicProfile(username) {
+      const key = String(username || '').trim().toLowerCase();
+      if (key === 'guest') return Promise.resolve(clone(readGuest()));
+      return provider.loadPublicProfile(username);
+    },
+    async listFriends() {
+      if (guestOn) {
+        const guest = readGuest();
+        return (guest && guest.friends) || [];
+      }
+      return provider.listFriends();
+    },
+    async addFriend(username) {
+      if (!guestOn) return provider.addFriend(username);
+      const found = await provider.searchUsers(username);
+      if (!found.length) return {ok: false, error: 'No account with that username on this device.'};
+      const guest = readGuest() || emptyProfile('Guest');
+      if ((guest.friends || []).some(f => f.toLowerCase() === found[0].username.toLowerCase())) return {ok: false, error: 'Already friends.'};
+      guest.friends = (guest.friends || []).concat([found[0].username]);
+      return this.saveProfile(guest);
+    },
+    async removeFriend(username) {
+      if (!guestOn) return provider.removeFriend(username);
+      const guest = readGuest();
+      if (!guest) return {ok: false, error: 'Log in first.'};
+      const key = String(username || '').trim().toLowerCase();
+      guest.friends = (guest.friends || []).filter(f => f.toLowerCase() !== key);
+      return this.saveProfile(guest);
     },
     async playAsGuest() {
       if (provider.currentUser()) await provider.logOut();

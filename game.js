@@ -506,10 +506,22 @@
     let reward = null;
     if (r.winner === 'p') {
       profile.stats.wins = (profile.stats.wins | 0) + 1;
+      profile.stats.streak = (profile.stats.streak | 0) + 1;
+      profile.stats.bestStreak = Math.max(profile.stats.bestStreak | 0, profile.stats.streak);
       reward = randomReward();
       profile.collection = (profile.collection || []).concat([reward]);
-    } else if (r.winner === 'o') {
-      profile.stats.losses = (profile.stats.losses | 0) + 1;
+    } else {
+      if (r.winner === 'o') profile.stats.losses = (profile.stats.losses | 0) + 1;
+      profile.stats.streak = 0;
+    }
+    profile.stats.decks = profile.stats.decks || {};
+    if (lastDeck) profile.stats.decks[lastDeck] = (profile.stats.decks[lastDeck] | 0) + 1;
+    profile.stats.archetypes = profile.stats.archetypes || {};
+    if (G && G.boards && G.shown) {
+      G.boards.p.forEach((card, i) => {
+        if (!card || !G.shown.p[i] || !card.archetype) return;
+        profile.stats.archetypes[card.archetype] = (profile.stats.archetypes[card.archetype] | 0) + 1;
+      });
     }
     const gained = r.winner === 'p' ? ECONOMY.winCoins : ECONOMY.lossCoins;
     profile.coins = (profile.coins | 0) + gained;
@@ -625,6 +637,14 @@
             profile.stats.wins += (guestSnap.stats && guestSnap.stats.wins) || 0;
             profile.stats.losses += (guestSnap.stats && guestSnap.stats.losses) || 0;
             profile.stats.games += (guestSnap.stats && guestSnap.stats.games) || 0;
+            profile.stats.packsOpened = (guestSnap.stats && guestSnap.stats.packsOpened) || 0;
+            profile.stats.streak = (guestSnap.stats && guestSnap.stats.streak) || 0;
+            profile.stats.bestStreak = (guestSnap.stats && guestSnap.stats.bestStreak) || 0;
+            profile.stats.decks = (guestSnap.stats && guestSnap.stats.decks) || {};
+            profile.stats.archetypes = (guestSnap.stats && guestSnap.stats.archetypes) || {};
+            profile.avatar = guestSnap.avatar || null;
+            profile.showcase = guestSnap.showcase || [];
+            profile.friends = guestSnap.friends || [];
             const guestWelcome = guestSnap.welcomeGranted === true;
             profile.packs = (guestSnap.packs | 0) + (guestWelcome ? 0 : 3);
             profile.welcomeGranted = true;
@@ -877,6 +897,181 @@
     if (!Number.isFinite(n) || n < 0 || n > 1000000) return fallback;
     return n;
   }
+  function rankName(wins) {
+    if (wins >= 20) return 'Legend';
+    if (wins >= 5) return 'Pro';
+    return 'Rookie';
+  }
+  function ownedIndex(profile) {
+    const by = new Map();
+    (profile.collection || []).forEach(rec => {
+      if (!rec || !CARDS[rec.id]) return;
+      let group = by.get(rec.id);
+      if (!group) { group = {id: rec.id, count: 0, gold: false}; by.set(rec.id, group); }
+      group.count++;
+      if (rec.gold) group.gold = true;
+    });
+    return by;
+  }
+  function autoShowcase(profile) {
+    return [...ownedIndex(profile).values()].sort((a, b) => (b.gold - a.gold) || (a.count - b.count) || ((CARDS[b.id].pts | 0) - (CARDS[a.id].pts | 0)) || a.id.localeCompare(b.id)).slice(0, 6);
+  }
+  function topKey(map) {
+    let best = '', n = 0;
+    Object.keys(map || {}).forEach(k => { if ((map[k] | 0) > n) { n = map[k] | 0; best = k; } });
+    return best;
+  }
+  function favoriteArchetype(profile) {
+    const played = topKey(profile.stats && profile.stats.archetypes);
+    if (played) return played;
+    const owned = {};
+    (profile.collection || []).forEach(rec => {
+      const card = CARDS[rec.id];
+      if (!card || !card.archetype) return;
+      owned[card.archetype] = (owned[card.archetype] || 0) + 1;
+    });
+    return topKey(owned) || '—';
+  }
+  function favoriteDeck(profile) {
+    const key = topKey(profile.stats && profile.stats.decks);
+    if (!key) return '—';
+    if (key === 'custom') return 'My Deck';
+    return (DECKS[key] && DECKS[key].name) || key;
+  }
+  async function showProfile(who, opts) {
+    opts = opts || {};
+    stopTimer();
+    hidePreview();
+    closeUserMenu();
+    const me = window.TOB_AUTH.currentUser();
+    if (!me) return showAuth('login');
+    const mine = !who || String(who).toLowerCase() === String(me.username || '').toLowerCase();
+    let profile = mine ? await window.TOB_AUTH.loadProfile() : await window.TOB_AUTH.loadPublicProfile(who);
+    if (!profile) { toast('No profile with that name on this device'); return opts.back === 'admin' ? showAdmin() : showHome(); }
+    const editable = mine;
+    let picking = false;
+    let avatarPick = false;
+    const draw = async () => {
+      if (mine) profile = await window.TOB_AUTH.loadProfile();
+      if (!profile) return showHome();
+      const owned = ownedIndex(profile);
+      const avatarId = (profile.avatar && owned.has(profile.avatar) && CARDS[profile.avatar]) ? profile.avatar : ((autoShowcase(profile)[0] && autoShowcase(profile)[0].id) || 'zoomer');
+      const pinned = (profile.showcase || []).filter(id => owned.has(id));
+      const shown = pinned.length ? pinned.slice(0, 6) : autoShowcase(profile).map(c => c.id);
+      const s = profile.stats || {};
+      const wins = s.wins | 0, losses = s.losses | 0, games = s.games | 0;
+      const pct = games ? Math.round((wins / games) * 100) : 0;
+      const col = collectionStats(profile);
+      const copies = (profile.collection || []).length;
+      const since = profile.createdAt ? new Date(profile.createdAt).toLocaleDateString(undefined, {year: 'numeric', month: 'short', day: 'numeric'}) : '—';
+      const stage = (id, on) => {
+        const rec = owned.get(id) || {gold: false};
+        const copy = COPIES.makeCopy(id, {gold: !!rec.gold});
+        return copy ? `<button type="button" class="prof-card${on ? ' on' : ''}" data-id="${id}">${cardHTML(copy, null, true)}</button>` : '';
+      };
+      const showcase = (picking ? [...owned.keys()] : shown).map(id => stage(id, picking && (profile.showcase || []).includes(id))).join('') || '<p class="prof-note">No cards yet. Open a pack to fill this shelf.</p>';
+      const avatars = avatarPick ? `<div class="prof-avatars">${[...owned.keys()].map(id => `<button type="button" class="prof-mini${id === profile.avatar ? ' on' : ''}" data-ava="${id}"><img src="assets/cards/${encodeURIComponent(id)}.webp" alt=""></button>`).join('')}</div>` : '';
+      const friends = editable ? await window.TOB_AUTH.listFriends() : [];
+      const friendHtml = editable ? `<section class="prof-block prof-friendsblock">
+          <div class="prof-h">FRIENDS</div>
+          <form class="prof-add" id="friendForm"><input id="friendName" maxlength="16" placeholder="Username" aria-label="Friend username"><button type="submit" class="btn go">Add</button></form>
+          <p class="prof-err" id="friendErr"></p>
+          <ul class="prof-friends">${friends.map(name => `<li><span>${name}</span><button type="button" class="btn" data-view="${name}">View</button><button type="button" class="btn" data-drop="${name}">Remove</button></li>`).join('') || '<li class="prof-note">No friends yet.</li>'}</ul>
+          <p class="prof-note">Online friends coming when online accounts launch. On this device, only usernames registered here can be found.</p>
+        </section>` : '';
+      const ov = $('#overlay');
+      ov.classList.remove('hidden');
+      ov.innerHTML = `<div id="profileScreen">
+        <div class="prof-wrap">
+          <header class="prof-head">
+            <img class="prof-ava" src="assets/cards/${encodeURIComponent(avatarId)}.webp" alt="">
+            <div class="prof-id">
+              <div class="prof-name">${profile.username || 'Player'}</div>
+              <div class="prof-rank">${rankName(wins)}</div>
+              <div class="prof-meta">Member since ${since}</div>
+              <div class="prof-coins"><span class="coinicon" aria-hidden="true"></span> ${profile.coins | 0} Orbit Coins</div>
+              ${editable ? `<button type="button" class="btn" id="btnAvatar">${avatarPick ? 'Close avatars' : 'Choose avatar'}</button>` : ''}
+              ${avatars}
+            </div>
+          </header>
+          <section class="prof-block prof-showblock">
+            <div class="prof-h">RAREST CARDS</div>
+            <div class="prof-show">${showcase}</div>
+            ${editable ? `<div class="prof-actions"><button type="button" class="btn" id="btnPin">${picking ? 'Done' : 'Pin showcase'}</button>${pinned.length ? '<button type="button" class="btn" id="btnUnpin">Use rarest</button>' : ''}</div>` : `<p class="prof-note">${pinned.length ? 'Pinned by this player.' : 'Their rarest cards, gold first.'}</p>`}
+          </section>
+          ${friendHtml}
+          <section class="prof-block prof-statsblock">
+            <div class="prof-h">STATS</div>
+            <div class="prof-stats">
+              <div><b>${wins}</b><span>Wins</span></div>
+              <div><b>${losses}</b><span>Losses</span></div>
+              <div><b>${pct}%</b><span>Win rate</span></div>
+              <div><b>${s.streak | 0}</b><span>Streak</span></div>
+              <div><b>${s.bestStreak | 0}</b><span>Best streak</span></div>
+              <div><b>${games}</b><span>Matches</span></div>
+              <div><b>${s.packsOpened | 0}</b><span>Packs opened</span></div>
+              <div><b>${copies}</b><span>Total cards</span></div>
+              <div><b>${col.unique}</b><span>Unique</span></div>
+              <div><b>${col.gold}</b><span>Gold</span></div>
+              <div><b>${col.unique}/${col.total}</b><span>Collection</span></div>
+              <div><b>${favoriteArchetype(profile)}</b><span>Favorite type</span></div>
+              <div><b>${favoriteDeck(profile)}</b><span>Most-used deck</span></div>
+            </div>
+          </section>
+          <div class="go-btns"><button type="button" class="btn" id="btnProfileBack">BACK</button></div>
+        </div>
+      </div>`;
+      $('#btnProfileBack').onclick = () => {
+        if (opts.back === 'admin') return showAdmin();
+        if (opts.back === 'profile') return showProfile();
+        return showHome();
+      };
+      if (editable) {
+        $('#btnAvatar').onclick = () => { avatarPick = !avatarPick; draw(); };
+        ov.querySelectorAll('[data-ava]').forEach(btn => { btn.onclick = async () => { profile.avatar = btn.dataset.ava; await window.TOB_AUTH.saveProfile(profile); avatarPick = false; draw(); }; });
+        const pin = $('#btnPin');
+        if (pin) pin.onclick = async () => {
+          if (!picking) {
+            if (!(profile.showcase || []).length) profile.showcase = autoShowcase(profile).map(c => c.id);
+            picking = true;
+            await window.TOB_AUTH.saveProfile(profile);
+            draw();
+            return;
+          }
+          picking = false;
+          draw();
+        };
+        const unpin = $('#btnUnpin');
+        if (unpin) unpin.onclick = async () => { profile.showcase = []; await window.TOB_AUTH.saveProfile(profile); picking = false; draw(); };
+        ov.querySelectorAll('.prof-card').forEach(btn => {
+          btn.onclick = async () => {
+            if (!picking) { inspect(COPIES.makeCopy(btn.dataset.id, {gold: !!(owned.get(btn.dataset.id) || {}).gold}), null, true); return; }
+            const id = btn.dataset.id;
+            const cur = (profile.showcase || []).slice();
+            const i = cur.indexOf(id);
+            if (i >= 0) cur.splice(i, 1);
+            else if (cur.length < 6) cur.push(id);
+            profile.showcase = cur;
+            await window.TOB_AUTH.saveProfile(profile);
+            draw();
+          };
+        });
+        const form = $('#friendForm');
+        form.onsubmit = async (ev) => {
+          ev.preventDefault();
+          const res = await window.TOB_AUTH.addFriend($('#friendName').value);
+          const err = $('#friendErr');
+          if (!res || !res.ok) { if (err) err.textContent = (res && res.error) || 'Could not add that friend.'; return; }
+          draw();
+        };
+        ov.querySelectorAll('[data-view]').forEach(btn => { btn.onclick = () => showProfile(btn.dataset.view, {back: 'profile'}); });
+        ov.querySelectorAll('[data-drop]').forEach(btn => { btn.onclick = async () => { await window.TOB_AUTH.removeFriend(btn.dataset.drop); draw(); }; });
+      } else {
+        ov.querySelectorAll('.prof-card').forEach(btn => { btn.onclick = () => inspect(COPIES.makeCopy(btn.dataset.id, {gold: !!(owned.get(btn.dataset.id) || {}).gold}), null, true); });
+      }
+    };
+    draw();
+  }
   function showAdmin() {
     if (packState.role !== 'admin') return showHome();
     closeUserMenu();
@@ -903,6 +1098,7 @@
           <button type="button" class="btn" data-act="all">Give all cards</button>
           <button type="button" class="btn" data-act="allgold">Give all gold cards</button>
           <button type="button" class="btn" data-act="role">${p.role === 'admin' ? 'Demote' : 'Make admin'}</button>
+          <button type="button" class="btn" data-act="profile">Profile</button>
         </div>
       </div>`;
     }).join('') || '<p class="tag">No accounts on this device.</p>';
@@ -936,6 +1132,7 @@
     const profile = window.TOB_AUTH.listProfiles().find(p => String(p.username || '').toLowerCase() === username);
     if (!profile) { toast('That player is not on this device'); return; }
     const act = btn.dataset.act;
+    if (act === 'profile') { showProfile(profile.username, {back: 'admin'}); return; }
     let customToast = '';
     if (act === 'coins') profile.coins = clampInt(row.querySelector('[data-field="coins"]').value, profile.coins | 0);
     else if (act === 'packs') {
@@ -978,6 +1175,8 @@
       const pulls = rollPack(new Set(before.map(rec => rec && rec.id).filter(Boolean)));
       const annotated = annotatePulls(pulls, before);
       profile.packs = (profile.packs | 0) - 1;
+      profile.stats = profile.stats || {};
+      profile.stats.packsOpened = (profile.stats.packsOpened | 0) + 1;
       profile.collection = before.concat(pulls.map(p => ({id: p.id, gold: !!p.gold, uid: p.uid})));
       const saved = await window.TOB_AUTH.saveProfile(profile);
       if (!saved || !saved.ok) return;
@@ -1162,7 +1361,7 @@
       ov.innerHTML = `<div id="homeScreen" class="portal">
         <div class="portal-top">
           <div class="portal-brand"><span class="ring"></span><span class="portal-word">TOON ORBIT <b>TRADING CARDS</b></span></div>
-          <div class="portal-greet">HI, ${(user.username || 'PLAYER').toUpperCase()}!</div>
+          <button type="button" class="portal-greet" id="btnProfileGreet">HI, ${(user.username || 'PLAYER').toUpperCase()}!</button>
           <div class="portal-tools">
             <div class="portal-pill"><span class="coinicon" aria-hidden="true"></span> YOU HAVE ${packState.coins | 0} ORBIT COINS</div>
             <button type="button" class="portal-logout" id="btnHomeOut">LOGOUT</button>
@@ -1174,6 +1373,7 @@
           <nav class="portal-tabs">
             ${tab('btnGetCards', 'GET CARDS', 'CARDS')}
             ${tab('btnPlayTab', 'PLAY', 'PLAY')}
+            ${tab('btnProfile', 'PROFILE', 'PROFILE')}
             ${tab('btnHomeCollection', 'MY COLLECTION', 'BINDER')}
             ${tab('btnOpenPacks', 'OPEN PACKS', 'PACKS')}
             ${admin ? tab('btnHomeAdmin', 'ADMIN', 'ADMIN') : ''}
@@ -1356,6 +1556,7 @@
     if (t.id === 'btnPacks' || t.id === 'btnPacksMenu' || t.id === 'btnGetCards' || t.id === 'btnOpenPacks') return showPacks();
     if (t.id === 'btnHomeCollection') return showMyCollection();
     if (t.id === 'btnAdmin' || t.id === 'btnHomeAdmin') return showAdmin();
+    if (t.id === 'btnProfile' || t.id === 'btnProfileGreet' || t.id === 'btnUserProfile') { closeUserMenu(); return showProfile(); }
     if (t.id === 'btnHomeOut') { doLogOut(); return; }
     if (t.id === 'btnBuyPack') return buyPack();
     if (t.id === 'btnOpenPack' || t.id === 'btnOpenAnother') return openPack();

@@ -491,7 +491,7 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
 @media (min-width: 1100px) {
   .foilpack { width: 280px; }
 }
-body:has(#homeScreen) .topbar { display: none; }
+body:has(#homeScreen) .topbar, body:has(#profileScreen) .topbar { display: none; }
 #overlay:has(#homeScreen) { padding: 0; display: block; overflow: auto; background: #0b0b0d; align-items: stretch; justify-content: stretch; }
 #homeScreen.portal { width: 100%; min-height: 100%; max-width: none; margin: 0; padding: 0; box-sizing: border-box; text-align: left; color: #f2f2f4; border-radius: 0;
   display: flex; flex-direction: column; min-height: 100vh;
@@ -511,6 +511,8 @@ body:has(#homeScreen) .topbar { display: none; }
 .portal-brand .ring { position: relative; left: auto; top: auto; margin: 0; flex: none; box-shadow: 0 0 14px rgba(255,122,0,.55); }
 .portal-brand b { color: #ffa733; }
 .portal-greet { font-style: normal; font-weight: 800; font-size: 26px; letter-spacing: .06em; color: #fff; text-transform: uppercase; }
+button.portal-greet { background: none; border: 0; padding: 0; cursor: pointer; }
+button.portal-greet:hover { color: #ffa733; }
 .portal-tools { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .portal-pill, .portal-daily { border-radius: 999px; padding: 6px 12px; font-style: normal; font-weight: 700; letter-spacing: .06em; font-size: 12px; text-transform: uppercase; }
 .portal-pill { background: linear-gradient(180deg, #ffa733, #ff7a00); color: #1a0d00; border: 1px solid #ffd7a8; box-shadow: inset 0 1px 0 rgba(255,255,255,.55), 0 0 14px rgba(255,122,0,.35); }
@@ -582,4 +584,55 @@ body:has(#homeScreen) .topbar { display: none; }
   .holo, .spark, .cart, .reward-flip, .burst, .foilpack.shake, .foilpack.idle, .foil-sheen, .foil-bits i, .foil-tear, .goldflash, .goldray, .portal-cta { animation: none; }
   .holo { opacity: .35; background-position: 40% 40%; }
   .pull-back, .pull-front { transition: none; }
+}
+#overlay:has(#profileScreen) { padding: 0; display: block; overflow: auto; background: #0b0b0d; align-items: stretch; justify-content: stretch; }
+#profileScreen { min-height: 100%; box-sizing: border-box; color: #f2f2f4; text-align: left; padding: 16px;
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  background-color: #0b0b0d;
+  background-image:
+    repeating-linear-gradient(45deg, rgba(255,255,255,.045) 0 1px, transparent 1px 3px, rgba(0,0,0,.55) 3px 4px, transparent 4px 8px),
+    repeating-linear-gradient(-45deg, rgba(0,0,0,.55) 0 1px, transparent 1px 3px, rgba(255,255,255,.04) 3px 4px, transparent 4px 8px),
+    repeating-conic-gradient(from 45deg, #1a1a1e 0% 25%, #101013 0% 50%, #18181c 0% 75%, #0c0c0f 0% 100%),
+    linear-gradient(#141417, #0b0b0d);
+  background-size: 8px 8px, 8px 8px, 6px 6px, auto; }
+.prof-wrap { max-width: 1080px; margin: 0 auto; display: grid; gap: 12px; }
+@media (min-width: 900px) {
+  .prof-wrap { grid-template-columns: minmax(0, 1.15fr) minmax(280px, .85fr); align-items: start; }
+  .prof-statsblock { grid-column: 2; grid-row: 1 / span 3; }
+}
+.prof-head, .prof-block { background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,0) 28%), #141417; border: 1px solid #2a2a2e; border-radius: 12px; padding: 14px; box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 10px 24px rgba(0,0,0,.35); }
+.prof-head { display: flex; gap: 16px; align-items: center; border-color: rgba(255,122,0,.55); }
+.prof-ava { width: 92px; height: 92px; border-radius: 50%; object-fit: cover; flex: none; border: 2px solid #ff7a00; box-shadow: 0 0 18px rgba(255,122,0,.5); background: #0b0b0d; }
+.prof-name { font-weight: 800; font-size: 28px; letter-spacing: .06em; text-transform: uppercase; }
+.prof-rank { display: inline-block; margin: 4px 0; padding: 3px 10px; border-radius: 999px; background: linear-gradient(180deg, #ffa733, #ff7a00); color: #1a0d00; font-weight: 800; letter-spacing: .1em; font-size: 12px; text-transform: uppercase; }
+.prof-meta, .prof-note, .prof-err { color: #c8c8ce; font-size: 13px; margin: 4px 0; }
+.prof-err { color: #ffb0a4; min-height: 1em; }
+.prof-coins { display: flex; align-items: center; gap: 6px; font-weight: 800; color: #ffa733; margin: 4px 0 8px; }
+.prof-h { font-weight: 800; letter-spacing: .12em; color: #ffa733; margin-bottom: 8px; }
+.prof-show { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
+.prof-card, .prof-mini { background: transparent; border: 1px solid transparent; border-radius: 12px; padding: 0; cursor: pointer; color: inherit; }
+.prof-card .card { width: 100%; height: auto; aspect-ratio: 1; }
+.prof-card .holo { opacity: .32; animation: none; background-position: 18% 30%; }
+.prof-card .spark { opacity: .55; animation: none; }
+.prof-card.on, .prof-mini.on { border-color: #ff7a00; box-shadow: 0 0 12px rgba(255,122,0,.45); }
+.prof-avatars { display: grid; grid-template-columns: repeat(auto-fill, minmax(48px, 1fr)); gap: 8px; margin-top: 8px; max-height: 160px; overflow: auto; }
+.prof-mini img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 50%; display: block; }
+.prof-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.prof-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.prof-stats div { background: #0b0b0d; border: 1px solid #2a2a2e; border-radius: 10px; padding: 8px; min-width: 0; }
+.prof-stats b { display: block; color: #fff; font-size: 18px; line-height: 1.2; overflow-wrap: anywhere; }
+.prof-stats span { color: #b7b7be; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+.prof-add { display: flex; gap: 8px; }
+.prof-add input { flex: 1; min-width: 0; background: #0b0b0d; color: #fff; border: 1px solid #3a3a40; border-radius: 8px; padding: 10px 12px; font: 600 16px/1.2 Inter, "Segoe UI", system-ui, sans-serif; }
+.prof-friends { list-style: none; margin: 8px 0 0; padding: 0; }
+.prof-friends li { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,.08); }
+.prof-friends li span { flex: 1; font-weight: 700; }
+@media (max-width: 800px) {
+  #profileScreen { padding: 8px; }
+  .prof-head { align-items: flex-start; }
+  .prof-ava { width: 72px; height: 72px; }
+  .prof-name { font-size: 22px; }
+  .prof-show { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .prof-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .prof-stats b { font-size: 16px; }
 }
