@@ -21,9 +21,19 @@
   <header class="topbar">
     <div class="logo"><span class="ring"></span>TOON ORBIT <b>BATTLE</b></div>
     <div class="nav">
-      <button class="btn small" id="btnRules">How to Play</button>
-      <button class="btn small" id="btnNew">New Game</button>
-      <button class="btn small" id="btnSound">Sound: On</button>
+      <div class="usermenu hidden" id="userMenu">
+        <button type="button" class="btn small userchip" id="btnUser" aria-haspopup="menu" aria-expanded="false" aria-controls="userPop">
+          <span class="avatar" id="userAvatar" aria-hidden="true">?</span>
+          <span class="uname" id="userName">Player</span>
+        </button>
+        <div class="usermenu-pop hidden" id="userPop" role="menu">
+          <button type="button" class="menuitem" id="btnMyCollection" role="menuitem">My Collection</button>
+          <button type="button" class="menuitem" id="btnLogOut" role="menuitem">Log out</button>
+        </div>
+      </div>
+      <button class="btn small" id="btnRules"><span class="lbl-full">How to Play</span><span class="lbl-short">Rules</span></button>
+      <button class="btn small" id="btnNew"><span class="lbl-full">New Game</span><span class="lbl-short">New</span></button>
+      <button class="btn small" id="btnSound"><span class="lbl-full">Sound: On</span><span class="lbl-short">On</span></button>
     </div>
   </header>
   <main class="layout">
@@ -53,6 +63,7 @@
     <div id="actions"></div>
   </footer>
   <div id="overlay" class="hidden"></div>
+  <div id="reward" class="hidden" role="dialog" aria-modal="true" aria-label="New toon"></div>
   <div id="preview" class="preview hidden" role="dialog" aria-modal="true" aria-label="Card preview">
     <button type="button" class="preview-backdrop" id="previewBackdrop" aria-label="Close preview"></button>
     <div class="preview-sheet">
@@ -66,6 +77,8 @@
 <script src="engine.js"></script>
 <script src="ai.js"></script>
 <script src="art.js"></script>
+<script src="supabase-config.js"></script>
+<script src="auth.js"></script>
 <script src="game.js"></script>
 </body>
 </html>

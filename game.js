@@ -222,7 +222,14 @@
   }
 
   /* ---------- flow ---------- */
-  function hidePreview() { const p = $('#preview'); if (p) p.classList.add('hidden'); }
+  function hidePreview() {
+    const p = $('#preview'); if (p) p.classList.add('hidden');
+    hideReward();
+  }
+  function hideReward() {
+    const reward = $('#reward');
+    if (reward) { reward.classList.add('hidden'); reward.innerHTML = ''; }
+  }
   function startGame(pIds, oIds, oName) {
     $('#overlay').classList.add('hidden');
     hidePreview();
@@ -358,7 +365,7 @@
     await flipSeq([['p', 6], ['o', 6]]);
     gameOver();
   }
-  function gameOver() {
+  async function gameOver() {
     G.phase = 'OVER';
     hidePreview();
     const ev = evalNow(true); render();
@@ -377,7 +384,256 @@
     blip(r.winner === 'p' ? 990 : 220, 0.4, 'triangle', 0.08);
     setMsg(title + ' ' + how); setActions(`<button class="btn go" id="btnAgain2">PLAY AGAIN</button>`);
     window.TOB_DONE = results.length;
+    let reward = null;
+    try { reward = await recordResult(r); }
+    catch (e) { reward = null; }
+    if (reward) showReward(reward);
     if (AUTO && results.length < autoGames) setTimeout(() => quickStart(), 50);
+  }
+
+  /* ---------- accounts, collection, rewards ---------- */
+  function closeUserMenu() {
+    const menu = $('#userPop');
+    if (menu) menu.classList.add('hidden');
+    const b = $('#btnUser');
+    if (b) b.setAttribute('aria-expanded', 'false');
+  }
+  function renderUser() {
+    const menu = $('#userMenu');
+    const user = window.TOB_AUTH.currentUser();
+    if (!menu) return;
+    if (!user) { menu.classList.add('hidden'); closeUserMenu(); return; }
+    menu.classList.remove('hidden');
+    const name = user.username || 'Player';
+    $('#userAvatar').textContent = name.slice(0, 1).toUpperCase();
+    $('#userName').textContent = name;
+    $('#btnUser').setAttribute('aria-label', 'Account menu for ' + name);
+  }
+  function randomReward() {
+    const id = CARD_LIST[Math.floor(Math.random() * CARD_LIST.length)].id;
+    const gold = Math.random() < 0.1;
+    const copy = COPIES.makeCopy(id, {gold});
+    return {id: copy.id, gold: !!copy.gold, uid: copy.uid};
+  }
+  function starterRecords(deckKey) {
+    const deck = DECKS[deckKey] || DECKS.galaxy;
+    return deck.cards.map(id => {
+      const copy = COPIES.makeCopy(id, {gold: false});
+      return {id: copy.id, gold: false, uid: copy.uid};
+    });
+  }
+  function collectionStats(profile) {
+    const ids = new Set();
+    let gold = 0;
+    (profile.collection || []).forEach(rec => {
+      if (!rec || !CARDS[rec.id]) return;
+      ids.add(rec.id);
+      if (rec.gold) gold++;
+    });
+    return {unique: ids.size, total: CARD_LIST.length, gold};
+  }
+  async function recordResult(r) {
+    if (!window.TOB_AUTH.currentUser()) return null;
+    const profile = await window.TOB_AUTH.loadProfile();
+    if (!profile) return null;
+    profile.stats = profile.stats || {wins: 0, losses: 0, games: 0};
+    profile.stats.games = (profile.stats.games | 0) + 1;
+    let reward = null;
+    if (r.winner === 'p') {
+      profile.stats.wins = (profile.stats.wins | 0) + 1;
+      reward = randomReward();
+      profile.collection = (profile.collection || []).concat([reward]);
+    } else if (r.winner === 'o') {
+      profile.stats.losses = (profile.stats.losses | 0) + 1;
+    }
+    const saved = await window.TOB_AUTH.saveProfile(profile);
+    if (!saved || !saved.ok) return null;
+    return reward;
+  }
+  function showReward(rec) {
+    const copy = COPIES.makeCopy(rec.id, {gold: !!rec.gold, uid: rec.uid});
+    if (!copy) return;
+    const layer = $('#reward');
+    layer.classList.remove('hidden');
+    layer.innerHTML = `<div class="panel reward${copy.gold ? ' gold' : ''}">
+      <div class="reward-title">New toon!</div>
+      <div class="reward-stage">
+        <div class="reward-flip">${cardHTML(copy, null, true)}</div>
+        ${copy.gold ? '<div class="burst"></div><div class="burst b2"></div><div class="burst b3"></div>' : ''}
+      </div>
+      <div class="reward-name">${copy.name}</div>
+      ${copy.gold ? '<div class="reward-gold">GOLD</div>' : ''}
+      <div class="tag">Added to your collection.</div>
+      <div class="go-btns"><button type="button" class="btn go" id="btnRewardOk">NICE!</button></div>
+    </div>`;
+    blip(copy.gold ? 1040 : 880, 0.22, 'triangle', 0.07);
+  }
+  async function doLogOut() {
+    closeUserMenu();
+    try { await window.TOB_AUTH.logOut(); } catch (e) { /* leave the table anyway */ }
+    renderUser();
+    G = null;
+    stopTimer();
+    showAuth('login');
+  }
+  let authMode = 'signup';
+  let starterPick = 'galaxy';
+  function showAuth(mode) {
+    if (mode) authMode = mode;
+    stopTimer();
+    hidePreview();
+    closeUserMenu();
+    const ov = $('#overlay');
+    ov.classList.remove('hidden');
+    const remote = window.TOB_AUTH.mode === 'supabase';
+    const signup = authMode !== 'login';
+    const guest = window.TOB_AUTH.peekGuest();
+    const claim = !!(guest && ((guest.collection && guest.collection.length) || (guest.stats && (guest.stats.games || guest.stats.wins || guest.stats.losses))));
+    const decks = Object.entries(DECKS).map(([k, d]) => {
+      const gems = [...new Set(d.cards.map(id => CARDS[id].color))].map(c => `<span class="gem" style="background:${COLORS[c]}"></span>`).join('');
+      return `<button type="button" class="starterpick${starterPick === k ? ' on' : ''}" data-starter="${k}"><span class="dname">${d.name}</span><span class="dcolors">${gems}</span></button>`;
+    }).join('');
+    const tag = remote
+      ? (signup ? 'Create an email account. Your toons sync through Supabase.' : 'Log in with email to open your collection.')
+      : (signup ? 'Accounts stay on this device. Guest toons move over when you sign up.' : 'Welcome back. Your collection is saved on this device.');
+    ov.innerHTML = `<div class="panel auth">
+      <div class="big-logo"><span class="ring"></span>TOON ORBIT <b>BATTLE</b></div>
+      <div class="tag">${window.TOB_AUTH.initError || tag}</div>
+      <div class="auth-tabs">
+        <button type="button" class="btn${signup ? ' go' : ''}" id="tabSignUp">Sign up</button>
+        <button type="button" class="btn${signup ? '' : ' go'}" id="tabLogIn">Log in</button>
+      </div>
+      <div class="auth-form">
+        ${remote ? '<label class="field">Email<input id="authEmail" type="email" autocomplete="email" inputmode="email"></label>' : ''}
+        ${(!remote || signup) ? '<label class="field">Username<input id="authUser" type="text" maxlength="16" autocomplete="username" autocapitalize="off" spellcheck="false"></label>' : ''}
+        <label class="field">Password<input id="authPass" type="password" maxlength="128" autocomplete="${signup ? 'new-password' : 'current-password'}"></label>
+        ${signup ? `<div class="field-label">Starter deck</div><div class="starter-grid">${decks}</div>` : ''}
+        ${claim && !signup ? '<p class="auth-claim">You have guest toons. Sign up to keep them.</p>' : ''}
+        ${signup && claim ? '<p class="auth-claim" id="authClaim">Your guest cards and record will move to this account.</p>' : ''}
+        <p class="auth-error" id="authError" role="alert"></p>
+        <button type="button" class="btn go" id="btnAuthSubmit">${signup ? 'Create account' : 'Log in'}</button>
+      </div>
+      <button type="button" class="btn" id="btnGuest">Play as guest</button>
+    </div>`;
+    $('#tabSignUp').onclick = () => showAuth('signup');
+    $('#tabLogIn').onclick = () => showAuth('login');
+    ov.querySelectorAll('[data-starter]').forEach(btn => {
+      btn.onclick = () => {
+        starterPick = btn.dataset.starter;
+        ov.querySelectorAll('[data-starter]').forEach(node => node.classList.toggle('on', node === btn));
+      };
+    });
+    $('#btnGuest').onclick = async () => {
+      const res = await window.TOB_AUTH.playAsGuest();
+      if (!res.ok) { $('#authError').textContent = res.error; return; }
+      renderUser();
+      showDeckSelect();
+    };
+    $('#btnAuthSubmit').onclick = async () => {
+      const btn = $('#btnAuthSubmit');
+      const errBox = $('#authError');
+      errBox.textContent = '';
+      btn.disabled = true;
+      const prev = btn.textContent;
+      btn.textContent = 'Please wait…';
+      const creds = {
+        username: $('#authUser') ? $('#authUser').value : '',
+        password: $('#authPass').value,
+        email: $('#authEmail') ? $('#authEmail').value : '',
+      };
+      try {
+        if (signup) {
+          const guestSnap = window.TOB_AUTH.peekGuest();
+          const res = await window.TOB_AUTH.signUp(creds);
+          if (!res.ok) { errBox.textContent = res.error; return; }
+          const profile = await window.TOB_AUTH.loadProfile();
+          profile.starterDeck = starterPick;
+          const starter = starterRecords(starterPick);
+          const hasGuest = !!(guestSnap && ((guestSnap.collection && guestSnap.collection.length) || (guestSnap.stats && (guestSnap.stats.games || guestSnap.stats.wins || guestSnap.stats.losses))));
+          if (hasGuest) {
+            profile.collection = starter.concat(guestSnap.collection || []);
+            profile.stats.wins += (guestSnap.stats && guestSnap.stats.wins) || 0;
+            profile.stats.losses += (guestSnap.stats && guestSnap.stats.losses) || 0;
+            profile.stats.games += (guestSnap.stats && guestSnap.stats.games) || 0;
+          } else profile.collection = starter;
+          const saved = await window.TOB_AUTH.saveProfile(profile);
+          if (!saved.ok) { errBox.textContent = saved.error || 'Could not save your collection.'; return; }
+          if (hasGuest) window.TOB_AUTH.clearGuest();
+        } else {
+          const res = await window.TOB_AUTH.logIn(creds);
+          if (!res.ok) { errBox.textContent = res.error; return; }
+        }
+        renderUser();
+        showDeckSelect();
+      } finally {
+        if (btn.isConnected) { btn.disabled = false; btn.textContent = prev; }
+      }
+    };
+  }
+  let mineFilter = 'all';
+  function showMyCollection() {
+    stopTimer();
+    hidePreview();
+    closeUserMenu();
+    const ov = $('#overlay');
+    ov.classList.remove('hidden');
+    const draw = async () => {
+      const profile = await window.TOB_AUTH.loadProfile();
+      if (!profile) { showAuth('login'); return; }
+      const byId = new Map();
+      (profile.collection || []).forEach(rec => {
+        if (!rec || !CARDS[rec.id]) return;
+        let group = byId.get(rec.id);
+        if (!group) { group = {count: 0, gold: 0, sample: rec}; byId.set(rec.id, group); }
+        group.count++;
+        if (rec.gold) { group.gold++; group.sample = rec; }
+      });
+      const stats = collectionStats(profile);
+      const since = profile.createdAt ? new Date(profile.createdAt) : null;
+      const sinceTxt = since && !Number.isNaN(since.getTime())
+        ? since.toLocaleDateString(undefined, {year: 'numeric', month: 'short', day: 'numeric'})
+        : '';
+      const filters = [['all', 'All'], ['owned', 'Owned'], ['gold', 'Gold']].concat(Object.keys(COLORS).map(c => [c, cap(c)]));
+      const cards = CARD_LIST.filter(c => {
+        const group = byId.get(c.id);
+        if (mineFilter === 'owned') return !!(group && group.count);
+        if (mineFilter === 'gold') return !!(group && group.gold);
+        if (mineFilter !== 'all' && COLORS[mineFilter]) return c.color === mineFilter;
+        return true;
+      });
+      const cells = cards.map(c => {
+        const group = byId.get(c.id);
+        if (!group || !group.count) {
+          return `<div class="ccard locked" data-cid="${c.id}"><div class="card silhouette" style="--cc:${COLORS[c.color]}"><div class="lockmark" aria-hidden="true"></div></div></div>`;
+        }
+        const copy = COPIES.makeCopy(group.sample.id, {gold: group.gold > 0, uid: group.sample.uid});
+        const badge = group.count > 1 ? `<div class="copycount">${group.count}</div>` : '';
+        return `<div class="ccard" data-cid="${c.id}" data-gold="${copy.gold ? '1' : '0'}">${badge}${cardHTML(copy, null, true)}</div>`;
+      }).join('');
+      ov.innerHTML = `<div class="panel mine">
+        <div class="sb-title">My Collection</div>
+        <div class="progress-line" id="colProgress">${stats.unique} / ${stats.total} collected, ${stats.gold} gold</div>
+        <div class="mine-stats">${sinceTxt ? 'Since ' + sinceTxt + ' · ' : ''}${profile.stats.wins | 0} wins · ${profile.stats.losses | 0} losses · ${profile.stats.games | 0} games</div>
+        <div class="filters">${filters.map(([id, label]) => `<button type="button" class="btn filter${mineFilter === id ? ' on' : ''}" data-filter="${id}">${label}</button>`).join('')}</div>
+        ${cells ? `<div class="cgrid">${cells}</div>` : '<p class="tag">Nothing in this filter yet.</p>'}
+        <div class="go-btns"><button type="button" class="btn" id="btnMineBack">BACK</button></div>
+      </div>`;
+      ov.querySelectorAll('[data-filter]').forEach(btn => { btn.onclick = () => { mineFilter = btn.dataset.filter; draw(); }; });
+      $('#btnMineBack').onclick = () => {
+        if (G && G.phase !== 'OVER' && G.phase !== 'INTRO') $('#overlay').classList.add('hidden');
+        else showDeckSelect();
+      };
+      ov.querySelectorAll('.ccard').forEach(node => {
+        node.onclick = (ev) => {
+          ev.stopPropagation();
+          if (node.classList.contains('locked')) return;
+          const group = byId.get(node.dataset.cid);
+          if (!group) return;
+          inspect(COPIES.makeCopy(group.sample.id, {gold: group.gold > 0, uid: group.sample.uid}));
+        };
+      });
+    };
+    draw();
   }
 
   /* ---------- deck selection / builder ---------- */
@@ -405,7 +661,7 @@
         <div class="dname">${d.name}</div><div class="dcolors">${[...new Set(d.cards.map(id => CARDS[id].color))].map(c => `<span class="gem" style="background:${COLORS[c]}"></span>`).join('')}</div></div>`).join('')}
         <div class="deckpick ${cd.length === 12 ? '' : 'dim'}" data-deck="custom"><div class="fan">${cd.slice(0, 3).map(id => cardHTML(CARDS[id])).join('') || '<div class="card back"><div class="backlogo"><span>MY</span><b>DECK</b></div></div>'}</div>
         <div class="dname">My Deck</div><div class="dcolors">${cd.length}/12 cards</div></div></div>
-      <div class="go-btns"><button class="btn" id="btnCollection">COLLECTION</button><button class="btn" id="btnBuild">DECK BUILDER</button><button class="btn" id="btnRules2">HOW TO PLAY</button></div></div>`;
+      <div class="go-btns"><button class="btn" id="btnCollection">CARD GALLERY</button><button class="btn" id="btnBuild">DECK BUILDER</button><button class="btn" id="btnRules2">HOW TO PLAY</button></div></div>`;
   }
   let collectionGold = false;
   function showCollection() {
@@ -415,7 +671,7 @@
     const draw = () => {
       const cards = CARD_LIST.map(c => COPIES.makeCopy(c.id, {gold: collectionGold}));
       ov.innerHTML = `<div class="panel collection">
-        <div class="sb-title">Collection</div>
+        <div class="sb-title">Card Gallery</div>
         <div class="tag">Gold copies are cosmetic. Every toon can have one, and they play the same.</div>
         <label class="goldtoggle"><input type="checkbox" id="goldView" ${collectionGold ? 'checked' : ''}> View gold copies</label>
         <div class="cgrid">${cards.map(c => `<div class="ccard" data-cid="${c.id}">${cardHTML(c, null, true)}</div>`).join('')}</div>
@@ -462,6 +718,7 @@
 
   /* ---------- events ---------- */
   document.addEventListener('click', e => {
+    if (!e.target.closest('.usermenu')) closeUserMenu();
     const pop = $('#preview');
     const keep = e.target.closest('.preview-sheet, .handcard, .ccard, .card, .goalcard');
     if (pop && !pop.classList.contains('hidden') && !keep) pop.classList.add('hidden');
@@ -474,13 +731,35 @@
     if (t.id === 'btnSwapNo') return afterSwap(null);
     if (t.classList.contains('colorbtn')) return finishSilver(t.dataset.color, G.pendingSilver);
     if (t.id === 'btnAgain' || t.id === 'btnAgain2') return quickStart();
-    if (t.id === 'btnPick' || t.id === 'btnNew') return showDeckSelect();
+    if (t.id === 'btnPick' || t.id === 'btnNew') {
+      if (!window.TOB_AUTH.currentUser()) return showAuth('signup');
+      return showDeckSelect();
+    }
     if (t.id === 'btnBoard') { $('#overlay').classList.add('hidden'); return; }
     if (t.id === 'btnBuild') return showBuilder();
     if (t.id === 'btnCollection') return showCollection();
     if (t.id === 'btnRules' || t.id === 'btnRules2') return showRules();
-    if (t.id === 'btnClose') { if (G && G.phase !== 'OVER') $('#overlay').classList.add('hidden'); else showDeckSelect(); return; }
-    if (t.id === 'btnSound') { soundOn = !soundOn; t.textContent = 'Sound: ' + (soundOn ? 'On' : 'Off'); return; }
+    if (t.id === 'btnClose') {
+      if (G && G.phase !== 'OVER') $('#overlay').classList.add('hidden');
+      else if (!window.TOB_AUTH.currentUser()) showAuth('signup');
+      else showDeckSelect();
+      return;
+    }
+    if (t.id === 'btnUser') {
+      const menu = $('#userPop');
+      const open = menu.classList.toggle('hidden') === false;
+      t.setAttribute('aria-expanded', open ? 'true' : 'false');
+      return;
+    }
+    if (t.id === 'btnMyCollection') return showMyCollection();
+    if (t.id === 'btnLogOut') { doLogOut(); return; }
+    if (t.id === 'btnRewardOk') return hideReward();
+    if (t.id === 'btnSound') {
+      soundOn = !soundOn;
+      const on = soundOn ? 'On' : 'Off';
+      t.innerHTML = `<span class="lbl-full">Sound: ${on}</span><span class="lbl-short">${on}</span>`;
+      return;
+    }
     if (t.classList.contains('deckpick')) { const k = t.dataset.deck; if (k === 'custom' && customDeck().length !== 12) return showBuilder(); return quickStart(k); }
     if (!G) return;
     if (t.classList.contains('handcard')) {
@@ -557,5 +836,17 @@
     }, {passive: true});
   }
   inspect(null);
-  if (AUTO) quickStart(qs.get('deck') || null); else showDeckSelect();
+  boot();
+
+  async function boot() {
+    try { await window.TOB_AUTH.ready; }
+    catch (e) { /* the sign-in screen surfaces initError */ }
+    renderUser();
+    if (AUTO) {
+      if (!window.TOB_AUTH.currentUser()) await window.TOB_AUTH.playAsGuest();
+      renderUser();
+      quickStart(qs.get('deck') || null);
+    } else if (window.TOB_AUTH.currentUser()) showDeckSelect();
+    else showAuth('signup');
+  }
 })();
