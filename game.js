@@ -35,8 +35,9 @@
       else { badge = info.value; bcls = info.value > card.pts ? 'up' : info.value < card.pts ? 'down' : ''; }
     }
     const recol = info && !info.knocked && info.color !== card.color ? `<div class="recolor" style="background:${COLORS[info.color]}"></div>` : '';
+    const long = card.name.length > 11 ? ' long' : '';
     return `<div class="card" data-id="${card.id}" style="--cc:${c}">
-      <div class="cname">${card.name}</div>
+      <div class="cname${long}">${card.name}</div>
       <div class="cart">${ART.svg(card)}</div>
       ${card.powers.length ? '<div class="pstar" aria-label="Has a power">★</div>' : ''}
       ${recol}
@@ -129,7 +130,7 @@
       const deck = side === 'p' ? G.pDeck : G.oDeck, gc = G.goalCards[side], inDeck = deck.includes(gc);
       return `<div class="deckbox"><div class="dlabel">${label}</div>
         <div class="deckstack">${deck.length ? `<div class="stack">${deck.length}</div>` : '<div class="stack empty">0</div>'}
-        <div class="goalcard ${inDeck ? '' : 'drawn'}" data-goal="${side}">${cardHTML(gc)}<div class="goaltag">GOAL CARD</div></div></div></div>`;
+        <div class="goalcard ${inDeck ? '' : 'drawn'}" data-goal="${side}">${cardHTML(gc)}<div class="goaltag">Goal</div></div></div></div>`;
     };
     $('#decks').innerHTML = deckBox('o', G.oName + "'s Deck") + deckBox('p', 'Your Deck');
     renderScore(ev);
