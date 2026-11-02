@@ -499,7 +499,7 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
 @media (min-width: 1100px) {
   .foilpack { width: 280px; }
 }
-body:has(#homeScreen) .topbar, body:has(#profileScreen) .topbar, body:has(#auctionScreen) .topbar { display: none; }
+body:has(#homeScreen) .topbar, body:has(#profileScreen) .topbar, body:has(#auctionScreen) .topbar, body:has(#deckBuilder) .topbar { display: none; }
 #overlay:has(#homeScreen) { padding: 0; display: block; overflow: auto; background: #0b0b0d; align-items: stretch; justify-content: stretch; }
 #homeScreen.portal { width: 100%; min-height: 100%; max-width: none; margin: 0; padding: 0; box-sizing: border-box; text-align: left; color: #f2f2f4; border-radius: 0;
   display: flex; flex-direction: column; min-height: 100vh;
@@ -679,4 +679,64 @@ button.portal-greet:hover { color: #ffa733; }
   .prof-show { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .prof-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .prof-stats b { font-size: 16px; }
+}
+#overlay:has(#deckBuilder) { padding: 0; display: block; overflow: auto; background: #0b0b0d; align-items: stretch; justify-content: stretch; }
+#deckBuilder { min-height: 100%; box-sizing: border-box; color: #f4f4f6; text-align: left;
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  background-color: #0b0b0d;
+  background-image:
+    repeating-linear-gradient(45deg, rgba(255,255,255,.045) 0 1px, transparent 1px 3px, rgba(0,0,0,.55) 3px 4px, transparent 4px 8px),
+    repeating-linear-gradient(-45deg, rgba(0,0,0,.55) 0 1px, transparent 1px 3px, rgba(255,255,255,.04) 3px 4px, transparent 4px 8px),
+    repeating-conic-gradient(from 45deg, #1a1a1e 0% 25%, #101013 0% 50%, #18181c 0% 75%, #0c0c0f 0% 100%),
+    linear-gradient(#141417, #0b0b0d);
+  background-size: 8px 8px, 8px 8px, 6px 6px, auto; }
+.db-top { display: flex; gap: 8px; align-items: center; padding: 10px 12px; background: #0b0b0d; border-bottom: 1px solid #ff7a00; position: sticky; top: 0; z-index: 5; }
+.db-title { font-weight: 800; letter-spacing: .12em; flex: 1; }
+.db-body { display: block; }
+.db-listcol, .db-detail, .db-deckcol, .db-sheet { background: #141417; }
+.db-filters { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px; position: sticky; top: 52px; z-index: 4; background: #141417; border-bottom: 1px solid #2a2a2e; }
+.db-filters input, .db-filters select { background: #0b0b0d; color: #fff; border: 1px solid #3a3a40; border-radius: 8px; padding: 8px 10px; font: 600 14px/1.2 Inter, "Segoe UI", system-ui, sans-serif; min-width: 0; }
+.db-filters input { flex: 1 1 140px; }
+.db-item { border-bottom: 1px solid #2a2a2e; background: #141417; }
+.db-item.in { box-shadow: inset 3px 0 0 #ff7a00; }
+.db-item.focus { background: #1c1c20; }
+.db-row { display: flex; gap: 10px; width: 100%; text-align: left; color: #f4f4f6; background: transparent; border: 0; padding: 12px; cursor: pointer; align-items: flex-start; }
+.db-thumb { width: 54px; height: 54px; object-fit: cover; border-radius: 8px; flex: none; background: #0b0b0d; }
+.db-copy { min-width: 0; flex: 1; }
+.db-name, .db-dname { display: block; font-weight: 800; font-size: 16px; line-height: 1.3; }
+.db-meta { display: block; margin: 2px 0 6px; color: #ffa733; font-size: 14px; font-weight: 700; line-height: 1.35; }
+.db-power { display: block; margin: 0 0 8px; color: #f4f4f6; font-size: 14px; font-weight: 500; line-height: 1.45; white-space: normal; overflow: visible; }
+.db-fact { margin: 0 0 8px; font-size: 14px; line-height: 1.4; }
+.db-fact ul { margin: 4px 0 0; padding: 0; list-style: none; }
+.db-fact li { padding: 2px 0; }
+.db-fact .is-in { color: #b6ffb0; }
+.db-fact .is-own { color: #ffe08a; }
+.db-fact .is-miss { color: #8d8d96; }
+.db-badge { display: inline-block; margin-right: 4px; padding: 1px 6px; border-radius: 999px; background: #ff7a00; color: #1a0d00; font-size: 11px; font-weight: 800; letter-spacing: .06em; }
+.db-rowtools, .db-tools { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 12px 12px; }
+.db-detail, .db-deckcol { display: none; }
+.db-sheet { display: none; }
+.db-sheet.open { display: block; position: fixed; left: 0; right: 0; bottom: 0; max-height: 78vh; overflow: auto; z-index: 80; background: #141417; border-top: 2px solid #ff7a00; padding: 12px; box-shadow: 0 -12px 30px rgba(0,0,0,.45); }
+.db-tray { display: flex; position: sticky; bottom: 0; z-index: 6; width: 100%; border: 0; border-top: 1px solid #ff7a00; background: linear-gradient(180deg, #ffa733, #ff7a00); color: #1a0d00; font: 800 16px/1.2 Inter, "Segoe UI", system-ui, sans-serif; padding: 14px; }
+.db-deckcol.open { display: block; position: fixed; left: 0; right: 0; bottom: 0; max-height: 72vh; overflow: auto; z-index: 70; padding: 12px; border-top: 2px solid #ff7a00; }
+.db-deckhead { font-weight: 800; letter-spacing: .04em; margin-bottom: 8px; }
+.db-colors { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; font-size: 14px; }
+.db-colors i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; }
+.db-slots { list-style: none; margin: 0 0 10px; padding: 0; }
+.db-slots li { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid #2a2a2e; font-size: 14px; }
+.db-slots li span { flex: 1; }
+.db-slots button { background: transparent; color: #ffa733; border: 0; font-size: 18px; cursor: pointer; }
+.db-active { margin: 8px 0; font-size: 14px; line-height: 1.4; }
+.db-active b { display: block; color: #ffa733; letter-spacing: .06em; margin-bottom: 4px; }
+.db-active p { margin: 0 0 4px; }
+@media (min-width: 900px) {
+  #overlay:has(#deckBuilder) { overflow: hidden; }
+  #deckBuilder { height: 100vh; display: flex; flex-direction: column; }
+  .db-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(280px, 360px) minmax(0, 1fr) minmax(260px, 320px); }
+  .db-listcol, .db-detail, .db-deckcol { display: block; overflow: auto; min-height: 0; }
+  .db-detail, .db-deckcol { padding: 14px; border-left: 1px solid #2a2a2e; }
+  .db-filters { position: sticky; top: 0; }
+  .db-tray, #btnCloseDeck { display: none; }
+  .db-sheet { display: none !important; }
+  .db-power { font-size: 15px; }
 }
