@@ -1071,32 +1071,108 @@
       : `<button type="button" class="btn" id="btnBuild">Build it</button>`;
     return `<section class="deckblock"><div class="deckhead"><div><div class="dname">${name}</div><div class="dsum">${pts} base pts</div><div class="dcolors">${dots}</div></div>${play}</div><div class="deckgrid">${cards}</div></section>`;
   }
+  let homeClock = null;
+  function stopHomeClock() {
+    if (homeClock) clearInterval(homeClock);
+    homeClock = null;
+  }
+  function dailyClockText() {
+    if (packState.lastDaily !== todayKey()) return 'READY';
+    const now = new Date();
+    const mid = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    let ms = Math.max(0, mid - now);
+    const h = Math.floor(ms / 3600000);
+    const m = Math.floor((ms % 3600000) / 60000);
+    const s = Math.floor((ms % 60000) / 1000);
+    return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  }
   function showHome() {
     stopTimer();
     hidePreview();
     closeUserMenu();
+    stopHomeClock();
     const user = window.TOB_AUTH.currentUser();
     if (!user) return showAuth('signup');
     const ov = $('#overlay');
     ov.classList.remove('hidden');
-    const admin = packState.role === 'admin';
-    ov.innerHTML = `<div class="panel home" id="homeScreen">
-      <div class="big-logo"><span class="ring"></span>TOON ORBIT <b>BATTLE</b></div>
-      <div class="homewho">${user.username || 'Player'}</div>
-      <div class="homestats"><span class="coinicon" aria-hidden="true"></span> ${packState.coins | 0} <span class="homepacks">${packState.packs | 0} packs</span></div>
-      <div class="homebtns">
-        <button type="button" class="btn go" id="btnPlay">PLAY</button>
-        <button type="button" class="btn" id="btnPacks">PACKS <span class="packbadge${packState.packs ? ' on' : ''}" data-packbadge>${packState.packs || ''}</span></button>
-        <button type="button" class="btn" id="btnHomeCollection">MY COLLECTION</button>
-        <button type="button" class="btn" id="btnCollection">CARD GALLERY</button>
-        <button type="button" class="btn" id="btnRules2">HOW TO PLAY</button>
-        ${admin ? '<button type="button" class="btn" id="btnHomeAdmin">ADMIN</button>' : ''}
-      </div>
-      <div class="homecorner">
-        <button type="button" class="btn small" id="btnHomeSound">Sound: ${soundOn ? 'On' : 'Off'}</button>
-        <button type="button" class="btn small" id="btnHomeOut">Log out</button>
-      </div>
-    </div>`;
+    const draw = async () => {
+      const profile = await window.TOB_AUTH.loadProfile();
+      if (!window.TOB_AUTH.currentUser()) return;
+      const owned = (profile && profile.collection) || [];
+      let feat = null;
+      if (owned.length) {
+        const rec = owned[Math.floor(Math.random() * owned.length)];
+        feat = {id: rec.id, gold: !!rec.gold, owned: owned.filter(c => c.id === rec.id).length};
+      } else {
+        const c = CARD_LIST[Math.floor(Math.random() * CARD_LIST.length)];
+        feat = {id: c.id, gold: false, owned: 0};
+      }
+      const def = CARDS[feat.id];
+      const copy = COPIES.makeCopy(feat.id, {gold: feat.gold});
+      const pulls = owned.length > 12 ? owned.slice(12).slice(-4).reverse() : [];
+      const pullList = pulls.length
+        ? pulls.map(p => `<li>${CARDS[p.id] ? CARDS[p.id].name : p.id}${p.gold ? ' · GOLD' : ''}</li>`).join('')
+        : '<li>No pulls yet. Open a pack!</li>';
+      const ready = packState.lastDaily !== todayKey();
+      const admin = packState.role === 'admin';
+      const tab = (id, label) => `<button type="button" class="portal-tab" id="${id}"><span>${label}</span><span class="chev" aria-hidden="true">&gt;</span></button>`;
+      ov.innerHTML = `<div id="homeScreen" class="portal">
+        <div class="portal-top">
+          <div class="portal-brand"><span class="ring"></span><span class="portal-word">TOON ORBIT <b>TRADING CARDS</b></span></div>
+          <div class="portal-greet">HI, ${(user.username || 'PLAYER').toUpperCase()}!</div>
+          <div class="portal-tools">
+            <div class="portal-pill"><span class="coinicon" aria-hidden="true"></span> YOU HAVE ${packState.coins | 0} ORBIT COINS</div>
+            <button type="button" class="portal-logout" id="btnHomeOut">LOGOUT</button>
+            <button type="button" class="portal-sound" id="btnHomeSound">SOUND ${soundOn ? 'ON' : 'OFF'}</button>
+            <div class="portal-daily">${ready ? 'DAILY PACK READY' : 'DAILY PACK CLAIMED'}</div>
+          </div>
+        </div>
+        <div class="portal-body">
+          <nav class="portal-tabs">
+            ${tab('btnGetCards', 'GET CARDS')}
+            ${tab('btnPlayTab', 'PLAY')}
+            ${tab('btnHomeCollection', 'MY COLLECTION')}
+            ${tab('btnOpenPacks', 'OPEN PACKS')}
+            ${admin ? tab('btnHomeAdmin', 'ADMIN') : ''}
+            ${tab('btnCollection', 'CARD GALLERY')}
+            ${tab('btnRules2', 'HOW TO PLAY')}
+          </nav>
+          <section class="portal-main">
+            <div class="portal-frame">
+              <div class="portal-framehead"><span class="portal-badge" aria-hidden="true"></span> FEATURED CARD</div>
+              <div class="portal-feature">
+                <div class="portal-info">
+                  <div class="portal-cardname">${def.name}</div>
+                  <div>${def.pts} PTS · ${cap(def.color)}</div>
+                  <div>${feat.gold ? 'GOLD' : 'STANDARD'} · YOU OWN ${feat.owned}</div>
+                  <div class="portal-power">${def.power}</div>
+                  ${ready ? `<button type="button" class="portal-clock" id="btnDaily"><span>DAILY PACK</span><b id="homeClock">${dailyClockText()}</b></button>` : `<div class="portal-clock"><span>TIME REMAINING</span><b id="homeClock">${dailyClockText()}</b></div>`}
+                </div>
+                <div class="portal-stage">${cardHTML(copy, null, true)}</div>
+              </div>
+              <button type="button" class="portal-cta" id="btnPlay">PLAY NOW</button>
+              <button type="button" class="portal-cta" id="btnPacks">OPEN PACK</button>
+            </div>
+          </section>
+        </div>
+        <div class="portal-bottom">
+          <div class="portal-box">
+            <div class="portal-boxhead">RECENT PULLS</div>
+            <ul class="portal-pulls">${pullList}</ul>
+          </div>
+          <div class="portal-box">
+            <div class="portal-boxhead">TOON TIPS</div>
+            <p>Match both goal colors to win outright. Gold copies are just for show, and they score the same.</p>
+          </div>
+        </div>
+      </div>`;
+      homeClock = setInterval(() => {
+        const node = document.getElementById('homeClock');
+        if (!node) { stopHomeClock(); return; }
+        node.textContent = dailyClockText();
+      }, 1000);
+    };
+    draw();
   }
   function showDeckSelect() {
     stopTimer();
@@ -1187,7 +1263,7 @@
       if (!window.TOB_AUTH.currentUser()) return showAuth('signup');
       return showHome();
     }
-    if (t.id === 'btnPlay') return showDeckSelect();
+    if (t.id === 'btnPlay' || t.id === 'btnPlayTab') return showDeckSelect();
     if (t.id === 'btnPick' || t.id === 'btnNew') {
       if (!window.TOB_AUTH.currentUser()) return showAuth('signup');
       return showDeckSelect();
@@ -1208,7 +1284,7 @@
       t.setAttribute('aria-expanded', open ? 'true' : 'false');
       return;
     }
-    if (t.id === 'btnPacks' || t.id === 'btnPacksMenu') return showPacks();
+    if (t.id === 'btnPacks' || t.id === 'btnPacksMenu' || t.id === 'btnGetCards' || t.id === 'btnOpenPacks') return showPacks();
     if (t.id === 'btnHomeCollection') return showMyCollection();
     if (t.id === 'btnAdmin' || t.id === 'btnHomeAdmin') return showAdmin();
     if (t.id === 'btnHomeOut') { doLogOut(); return; }
