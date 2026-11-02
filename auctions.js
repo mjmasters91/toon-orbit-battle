@@ -176,7 +176,8 @@
         let custom = [];
         try { custom = JSON.parse(localStorage.getItem('tob_custom') || '[]'); } catch (e) { custom = []; }
         const still = (profile.collection || []).some(c => c && c.id === rec.id);
-        if (!still && custom.indexOf(rec.id) !== -1) {
+        const deckIds = custom.map(entry => typeof entry === 'string' ? entry : entry && entry.id);
+        if (!still && deckIds.indexOf(rec.id) !== -1) {
           profile.collection = (profile.collection || []).concat([rec]);
           return {ok: false, error: 'That is the only copy in your custom deck. Take it out of the deck first.'};
         }

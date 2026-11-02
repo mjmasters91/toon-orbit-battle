@@ -119,10 +119,18 @@
 
   /* ---------- game state ---------- */
   let G = null, timerId = null, lastPlace = 0;
-  function buildDeck(ids) {
-    const copies = ids.map(id => COPIES.makeCopy(id, {gold: false})).filter(Boolean);
-    const n = 1 + (Math.random() < 0.5 ? 1 : 0);
-    COPIES.stampGold(copies, n);
+  function buildDeck(entries) {
+    const explicit = (entries || []).some(e => e && typeof e === 'object');
+    const copies = (entries || []).map(entry => {
+      const id = typeof entry === 'string' ? entry : entry && entry.id;
+      const gold = !!(entry && typeof entry === 'object' && entry.gold);
+      const uid = entry && typeof entry === 'object' ? entry.uid : null;
+      return COPIES.makeCopy(id, {gold, uid: uid || undefined});
+    }).filter(Boolean);
+    if (!explicit) {
+      const n = 1 + (Math.random() < 0.5 ? 1 : 0);
+      COPIES.stampGold(copies, n);
+    }
     return E.shuffle(copies);
   }
   function newState(pIds, oIds, oName) {
@@ -1288,35 +1296,113 @@
   /* ---------- deck selection / builder ---------- */
   let lastDeck = null;
   const OPP_NAMES = {galaxy: 'Commander Kix', spooky: 'Baron Boo', barnyard: 'Farmer Fizz', sprout: 'Professor Sprig', batch1: 'Captain Crumble', custom: 'Mystery Rival'};
-  function customDeck() { try { const d = JSON.parse(localStorage.getItem('tob_custom') || '[]'); return d.filter(id => CARDS[id]); } catch (e) { return []; } }
+  function readRawDeck() {
+    try { const d = JSON.parse(localStorage.getItem('tob_custom') || '[]'); return Array.isArray(d) ? d : []; }
+    catch (e) { return []; }
+  }
+  function entryId(entry) { return typeof entry === 'string' ? entry : entry && entry.id; }
+  function escrowUids() {
+    const house = window.TOB_AUCTIONS;
+    const me = window.TOB_AUTH.currentUser && window.TOB_AUTH.currentUser();
+    if (!house || !house.list || !me) return new Set();
+    const mine = String(me.username || '').toLowerCase();
+    const set = new Set();
+    house.list().forEach(lot => {
+      if (lot && lot.status === 'open' && String(lot.seller || '').toLowerCase() === mine && lot.card && lot.card.uid) set.add(lot.card.uid);
+    });
+    return set;
+  }
+  function ownedBags(profile) {
+    const skip = escrowUids();
+    const by = new Map();
+    ((profile && profile.collection) || []).forEach(rec => {
+      if (!rec || !CARDS[rec.id] || skip.has(rec.uid)) return;
+      let bag = by.get(rec.id);
+      if (!bag) { bag = {standard: null, gold: null}; by.set(rec.id, bag); }
+      if (rec.gold) { if (!bag.gold) bag.gold = rec; }
+      else if (!bag.standard) bag.standard = rec;
+    });
+    return by;
+  }
+  function resolveEntry(entry, bags) {
+    const id = entryId(entry);
+    if (!id || !CARDS[id]) return null;
+    const bag = bags && bags.get(id);
+    const askedGold = !!(entry && typeof entry === 'object' && entry.gold);
+    const askedUid = entry && typeof entry === 'object' ? entry.uid : null;
+    if (bag && askedUid) {
+      if (bag.gold && bag.gold.uid === askedUid) return {id, gold: true, uid: bag.gold.uid};
+      if (bag.standard && bag.standard.uid === askedUid) return {id, gold: false, uid: bag.standard.uid};
+    }
+    if (bag) {
+      if (askedGold && bag.gold) return {id, gold: true, uid: bag.gold.uid};
+      if (!askedGold && bag.standard) return {id, gold: false, uid: bag.standard.uid};
+      if (bag.gold && !bag.standard) return {id, gold: true, uid: bag.gold.uid};
+      if (bag.standard) return {id, gold: false, uid: bag.standard.uid};
+    }
+    return {id, gold: false, uid: null};
+  }
+  function resolveDeck(raw, bags) {
+    const out = [];
+    const seen = new Set();
+    (raw || []).forEach(entry => {
+      const row = resolveEntry(entry, bags);
+      if (!row || seen.has(row.id) || (row.uid && out.some(x => x.uid && x.uid === row.uid))) return;
+      seen.add(row.id);
+      out.push(row);
+    });
+    return out.slice(0, 12);
+  }
+  function customDeck(bags) { return resolveDeck(readRawDeck(), bags); }
   function playerDecks() { return Object.keys(DECKS).filter(k => !DECKS[k].ai); }
-  function quickStart(key) {
+  async function quickStart(key) {
     const playable = playerDecks();
     key = key || lastDeck || playable[Math.floor(Math.random() * playable.length)];
     if (key !== 'custom' && !DECKS[key]) key = playable[0];
     lastDeck = key;
-    const pIds = key === 'custom' ? customDeck() : DECKS[key].cards;
+    let pIds = DECKS[key] ? DECKS[key].cards : [];
+    if (key === 'custom') {
+      const profile = await window.TOB_AUTH.loadProfile();
+      pIds = customDeck(ownedBags(profile));
+    }
     const others = Object.keys(DECKS).filter(k => k !== key);
     const ok = others[Math.floor(Math.random() * others.length)];
     startGame(pIds, DECKS[ok].cards, OPP_NAMES[ok] || DECKS[ok].name);
   }
-  function deckBlock(key, name, ids, playable) {
+  let deckFinish = 'all', deckColor = '', deckArch = '', deckQ = '';
+  function deckMatch(entry) {
+    const id = entryId(entry);
+    const c = CARDS[id];
+    if (!c) return false;
+    if (deckQ && c.name.toLowerCase().indexOf(deckQ.trim().toLowerCase()) === -1) return false;
+    if (deckColor && c.color !== deckColor) return false;
+    if (deckArch && (c.archetype || '') !== deckArch) return false;
+    const gold = !!(entry && typeof entry === 'object' && entry.gold);
+    if (deckFinish === 'gold' && !gold) return false;
+    if (deckFinish === 'standard' && gold) return false;
+    return true;
+  }
+  function deckBlock(key, name, entries, playable) {
+    const list = (entries || []).filter(deckMatch);
     let pts = 0;
     const colors = {};
-    ids.forEach(id => {
-      const c = CARDS[id];
+    (entries || []).forEach(entry => {
+      const c = CARDS[entryId(entry)];
       if (!c) return;
       pts += c.pts;
       colors[c.color] = (colors[c.color] || 0) + 1;
     });
     const dots = Object.entries(colors).map(([c, n]) => `<span class="cdot"><span class="gem" style="background:${COLORS[c]}"></span>${n} ${cap(c)}</span>`).join('');
-    const cards = ids.map(id => {
+    const cards = list.map(entry => {
+      const id = entryId(entry);
       const c = CARDS[id];
       if (!c) return '';
-      return `<button type="button" class="deckcard" data-cid="${c.id}"><img src="assets/cards/${encodeURIComponent(c.id)}.webp" alt="" data-id="${c.id}" loading="lazy" decoding="async"><span class="dinfo"><b>${c.name}</b><span class="dmeta"><span class="gem" style="background:${COLORS[c.color]}"></span>${c.pts} pts · ${cap(c.color)}</span><span class="dpower">${c.power}</span></span></button>`;
+      const gold = !!(entry && typeof entry === 'object' && entry.gold);
+      const copy = COPIES.makeCopy(id, {gold, uid: entry && entry.uid});
+      return `<button type="button" class="deckcard" data-cid="${c.id}" data-gold="${gold ? '1' : '0'}"><span class="dthumb">${cardHTML(copy, null, true)}</span><span class="dinfo"><b>${c.name}</b><span class="dmeta"><span class="gem" style="background:${COLORS[c.color]}"></span>${c.pts} pts · ${cap(c.color)}${gold ? ' · GOLD' : ''}</span><span class="dpower">${c.power}</span></span></button>`;
     }).join('');
     const play = playable
-      ? `<button type="button" class="btn go deckplay" data-deck="${key}">Play</button>`
+      ? `<button type="button" class="btn go deckplay" data-deck="${key}">Play</button>${key === 'custom' ? '<button type="button" class="btn" id="btnBuild">Edit</button>' : ''}`
       : `<button type="button" class="btn" id="btnBuild">Build it</button>`;
     return `<section class="deckblock"><div class="deckhead"><div><div class="dname">${name}</div><div class="dsum">${pts} base pts</div><div class="dcolors">${dots}</div></div>${play}</div><div class="deckgrid">${cards}</div></section>`;
   }
@@ -1428,22 +1514,36 @@
     };
     draw();
   }
-  function showDeckSelect() {
+  async function showDeckSelect() {
     stopTimer();
     hidePreview();
     const ov = $('#overlay'); ov.classList.remove('hidden');
-    const cd = customDeck();
+    const profile = await window.TOB_AUTH.loadProfile();
+    const cd = customDeck(ownedBags(profile));
+    const arches = [...new Set(CARD_LIST.map(c => c.archetype).filter(Boolean))].sort();
     const blocks = Object.entries(DECKS).filter(([, d]) => !d.ai).map(([k, d]) => deckBlock(k, d.name, d.cards, true)).join('');
     const custom = cd.length === 12 ? deckBlock('custom', 'My Deck', cd, true) : `<section class="deckblock"><div class="deckhead"><div><div class="dname">My Deck</div><div class="dsum">${cd.length}/12 cards</div></div><button type="button" class="btn" id="btnBuild">Build it</button></div></section>`;
+    const chip = (id, label) => `<button type="button" class="btn filter${deckFinish === id ? ' on' : ''}" data-dfinish="${id}">${label}</button>`;
     ov.innerHTML = `<div class="panel select deckscreen">
       <div class="sb-title">Choose a deck</div>
-      <div class="tag">Every card is listed in full. Tap one for the complete preview.</div>
+      <div class="tag">Gold copies are cosmetic. Tap a card for the full preview.</div>
+      <div class="bfilters">
+        <input id="deckQ" value="${deckQ.replace(/"/g, '&quot;')}" placeholder="Search name" aria-label="Search cards">
+        ${chip('all', 'All')}${chip('gold', 'Gold')}${chip('standard', 'Standard')}
+        <select id="deckColor" aria-label="Color"><option value="">All colors</option>${Object.keys(COLORS).map(c => `<option value="${c}"${deckColor === c ? ' selected' : ''}>${cap(c)}</option>`).join('')}</select>
+        <select id="deckArch" aria-label="Archetype"><option value="">All types</option>${arches.map(a => `<option value="${a}"${deckArch === a ? ' selected' : ''}>${a}</option>`).join('')}</select>
+      </div>
       ${blocks}${custom}
       <div class="go-btns"><button class="btn" id="btnDeckHome">HOME</button></div>
     </div>`;
     ov.querySelectorAll('.deckcard').forEach(btn => {
-      btn.onclick = (ev) => { ev.stopPropagation(); inspect(CARDS[btn.dataset.cid], null, true); };
+      btn.onclick = (ev) => { ev.stopPropagation(); inspect(COPIES.makeCopy(btn.dataset.cid, {gold: btn.dataset.gold === '1'}), null, true); };
     });
+    ov.querySelectorAll('[data-dfinish]').forEach(btn => { btn.onclick = () => { deckFinish = btn.dataset.dfinish; showDeckSelect(); }; });
+    const q = $('#deckQ');
+    if (q) q.onchange = () => { deckQ = q.value; showDeckSelect(); };
+    $('#deckColor').onchange = () => { deckColor = $('#deckColor').value; showDeckSelect(); };
+    $('#deckArch').onchange = () => { deckArch = $('#deckArch').value; showDeckSelect(); };
   }
   let collectionGold = false;
   function showCollection() {
@@ -1474,17 +1574,87 @@
     };
     draw();
   }
-  function showBuilder() {
-    let sel = customDeck();
+  let buildFinish = 'all', buildColor = '', buildArch = '', buildQ = '';
+  async function showBuilder() {
+    const profile = await window.TOB_AUTH.loadProfile();
+    const bags = ownedBags(profile);
+    let sel = customDeck(bags);
     const ov = $('#overlay'); ov.classList.remove('hidden');
+    const arches = [...new Set(CARD_LIST.map(c => c.archetype).filter(Boolean))].sort();
     const draw = () => {
-      ov.innerHTML = `<div class="panel builder"><div class="sb-title">DECK BUILDER — pick 12 different cards (${sel.length}/12)</div>
-      <div class="bgrid">${CARD_LIST.map(c => `<div class="bcard ${sel.includes(c.id) ? 'in' : ''}" data-bid="${c.id}">${cardHTML(c)}</div>`).join('')}</div>
-      <div class="go-btns"><button class="btn go" id="btnSaveDeck" ${sel.length === 12 ? '' : 'disabled'}>SAVE & PLAY</button><button class="btn" id="btnBack">BACK</button></div></div>`;
-      ov.querySelectorAll('.bcard').forEach(b => {
-        b.onclick = () => { const id = b.dataset.bid; if (sel.includes(id)) sel = sel.filter(x => x !== id); else if (sel.length < 12) sel.push(id); draw(); inspect(CARDS[id]); };
-        b.onmouseenter = () => inspect(CARDS[b.dataset.bid]);
+      const chosen = id => sel.find(row => row.id === id);
+      const cards = CARD_LIST.filter(c => {
+        const bag = bags.get(c.id);
+        if (buildQ && c.name.toLowerCase().indexOf(buildQ.trim().toLowerCase()) === -1) return false;
+        if (buildColor && c.color !== buildColor) return false;
+        if (buildArch && (c.archetype || '') !== buildArch) return false;
+        if (buildFinish === 'gold') return !!(bag && bag.gold);
+        if (buildFinish === 'standard') return !!(bag && bag.standard) || !bag;
+        return true;
       });
+      const chip = (id, label) => `<button type="button" class="btn filter${buildFinish === id ? ' on' : ''}" data-bfinish="${id}">${label}</button>`;
+      ov.innerHTML = `<div class="panel builder"><div class="sb-title">DECK BUILDER — pick 12 different cards (${sel.length}/12)</div>
+      <div class="bfilters">
+        <input id="buildQ" value="${buildQ.replace(/"/g, '&quot;')}" placeholder="Search name" aria-label="Search cards">
+        ${chip('all', 'All')}${chip('gold', 'Gold')}${chip('standard', 'Standard')}
+        <select id="buildColor" aria-label="Color"><option value="">All colors</option>${Object.keys(COLORS).map(c => `<option value="${c}"${buildColor === c ? ' selected' : ''}>${cap(c)}</option>`).join('')}</select>
+        <select id="buildArch" aria-label="Archetype"><option value="">All types</option>${arches.map(a => `<option value="${a}"${buildArch === a ? ' selected' : ''}>${a}</option>`).join('')}</select>
+        <button type="button" class="btn" id="btnAutoGold">Auto-use gold copies</button>
+      </div>
+      <div class="bgrid">${cards.map(c => {
+        const bag = bags.get(c.id);
+        const row = chosen(c.id);
+        const faceGold = buildFinish === 'gold' ? !!(bag && bag.gold) : !!(row ? row.gold : bag && bag.gold && !bag.standard);
+        const copy = COPIES.makeCopy(c.id, {gold: faceGold, uid: row && row.uid});
+        const both = bag && bag.gold && bag.standard;
+        const toggle = both ? `<button type="button" class="goldpick" data-goldpick="${c.id}">${row && row.gold ? 'GOLD' : 'STD'}</button>` : '';
+        return `<div class="bcard ${row ? 'in' : ''}" data-bid="${c.id}">${cardHTML(copy, null, true)}${toggle}</div>`;
+      }).join('')}</div>
+      <div class="go-btns"><button class="btn go" id="btnSaveDeck" ${sel.length === 12 ? '' : 'disabled'}>SAVE & PLAY</button><button class="btn" id="btnBack">BACK</button></div></div>`;
+      const pickGold = (id) => {
+        const bag = bags.get(id);
+        if (buildFinish === 'gold' && bag && bag.gold) return {id, gold: true, uid: bag.gold.uid};
+        if (bag && bag.gold && !bag.standard) return {id, gold: true, uid: bag.gold.uid};
+        if (bag && bag.standard) return {id, gold: false, uid: bag.standard.uid};
+        return {id, gold: false, uid: null};
+      };
+      ov.querySelectorAll('.bcard').forEach(b => {
+        b.onclick = (ev) => {
+          if (ev.target.closest('.goldpick')) return;
+          const id = b.dataset.bid;
+          if (chosen(id)) sel = sel.filter(row => row.id !== id);
+          else if (sel.length < 12) sel.push(pickGold(id));
+          draw();
+          const row = chosen(id);
+          inspect(COPIES.makeCopy(id, {gold: !!(row && row.gold)}));
+        };
+      });
+      ov.querySelectorAll('[data-goldpick]').forEach(btn => {
+        btn.onclick = (ev) => {
+          ev.stopPropagation();
+          const id = btn.dataset.goldpick;
+          const bag = bags.get(id);
+          if (!bag || !bag.gold || !bag.standard) return;
+          const row = chosen(id);
+          const next = row && row.gold ? {id, gold: false, uid: bag.standard.uid} : {id, gold: true, uid: bag.gold.uid};
+          if (row) sel = sel.map(item => item.id === id ? next : item);
+          else if (sel.length < 12) sel.push(next);
+          draw();
+        };
+      });
+      ov.querySelectorAll('[data-bfinish]').forEach(btn => { btn.onclick = () => { buildFinish = btn.dataset.bfinish; draw(); }; });
+      const q = $('#buildQ');
+      if (q) q.onchange = () => { buildQ = q.value; draw(); };
+      $('#buildColor').onchange = () => { buildColor = $('#buildColor').value; draw(); };
+      $('#buildArch').onchange = () => { buildArch = $('#buildArch').value; draw(); };
+      $('#btnAutoGold').onclick = () => {
+        sel = sel.map(row => {
+          const bag = bags.get(row.id);
+          if (bag && bag.gold) return {id: row.id, gold: true, uid: bag.gold.uid};
+          return row;
+        });
+        draw();
+      };
       $('#btnSaveDeck').onclick = () => { localStorage.setItem('tob_custom', JSON.stringify(sel)); quickStart('custom'); };
       $('#btnBack').onclick = showDeckSelect;
     };

@@ -211,8 +211,16 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
 .rules li::marker { color: #f0c14a; font-weight: 700; }
 .rules .go-btns { margin-top: 0; padding-top: 12px; position: sticky; bottom: 0; background: rgba(14, 18, 36, .96); }
 .bgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 10px; justify-content: center; margin: 10px auto; max-width: 920px; }
-.bcard { cursor: pointer; opacity: .55; min-height: 44px; transition: opacity .15s ease; } .bcard.in { opacity: 1; } .bcard.in .card { box-shadow: 0 0 0 2px #9dffb0, 0 0 16px rgba(157, 255, 176, .45); }
+.bcard { position: relative; cursor: pointer; opacity: .55; min-height: 44px; transition: opacity .15s ease; } .bcard.in { opacity: 1; } .bcard.in .card { box-shadow: 0 0 0 2px #9dffb0, 0 0 16px rgba(157, 255, 176, .45); }
+.bcard.in .card.gold { box-shadow: 0 0 0 2px #ffd56a, 0 0 16px rgba(255, 196, 64, .55); }
 .bgrid .card { width: 100%; height: auto; aspect-ratio: 1; }
+.bfilters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0; }
+.bfilters input, .bfilters select { background: rgba(0,0,0,.28); color: #fff; border: 1px solid rgba(255,255,255,.2); border-radius: 999px; padding: 8px 10px; font: 600 14px Inter, "Segoe UI", system-ui, sans-serif; min-width: 0; }
+.bfilters input { flex: 1 1 140px; }
+.goldpick { position: absolute; z-index: 6; left: 6px; top: 6px; border: 0; border-radius: 999px; padding: 3px 6px; background: linear-gradient(#fff6d0, #e8b23a); color: #3a2504; font: 800 10px/1 Inter, "Segoe UI", system-ui, sans-serif; cursor: pointer; }
+.dthumb { width: 72px; flex: none; }
+.dthumb .card { width: 72px; height: 72px; }
+.deckcard { align-items: center; }
 .gameover { min-width: 0; width: min(520px, 100%); animation: rise .4s ease; }
 .go-title { font: 800 clamp(36px, 8vw, 56px)/.95 "Outfit", system-ui, sans-serif; letter-spacing: .02em; margin: 0; }
 .go-scores { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin: 12px 0; }
