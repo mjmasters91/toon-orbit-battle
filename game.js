@@ -102,7 +102,10 @@
     let inner = '';
     if (card) {
       if (G.shown[side][i]) inner = cardHTML(card, ev.cells[side][i]);
-      else if (side === 'p') inner = `<div class="pending">${cardHTML(card)}<div class="pend-tag">${i === 6 && G.phase !== 'PLAY_2' ? 'FACE DOWN' : 'READY?'}</div></div>`;
+      else if (side === 'p') {
+        const faceDown = i === 6 && !G.phase.startsWith('PLAY');
+        inner = `<div class="pending">${cardHTML(card)}${faceDown ? '<div class="pend-tag">Face down</div>' : ''}</div>`;
+      }
       else inner = backHTML();
     } else inner = `<div class="slotnum">${i + 1}</div>`;
     return `<div class="slot ${isActive && !card ? 'open' : ''} ${hidden ? 'locked' : ''} ${G.swapMode && side === 'p' && i === 6 ? 'swaptarget' : ''}" data-side="${side}" data-slot="${i}">${inner}</div>`;
@@ -194,8 +197,10 @@
   }
 
   /* ---------- flow ---------- */
+  function hidePreview() { const p = $('#preview'); if (p) p.classList.add('hidden'); }
   function startGame(pIds, oIds, oName) {
     $('#overlay').classList.add('hidden');
+    hidePreview();
     G = newState(pIds, oIds, oName);
     draw(G.pDeck, G.pHand); draw(G.oDeck, G.oHand);
     render(); setActions('');
@@ -330,6 +335,7 @@
   }
   function gameOver() {
     G.phase = 'OVER';
+    hidePreview();
     const ev = evalNow(true); render();
     const r = ev.result; G.result = r;
     results.push({winner: r.winner, reason: r.reason, score: ev.score, total: ev.total, counts: ev.counts, targets: ev.targets});
@@ -363,6 +369,7 @@
   }
   function showDeckSelect() {
     stopTimer();
+    hidePreview();
     const ov = $('#overlay'); ov.classList.remove('hidden');
     const cd = customDeck();
     ov.innerHTML = `<div class="panel select">
@@ -409,11 +416,14 @@
 
   /* ---------- events ---------- */
   document.addEventListener('click', e => {
+    const pop = $('#preview');
+    const outsideSheet = pop && !pop.classList.contains('hidden') && !e.target.closest('.preview-sheet');
+    if (outsideSheet && e.target.id !== 'previewBackdrop') pop.classList.add('hidden');
     const t = e.target.closest('button, .handcard, .slot, .deckpick, .goalcard');
     if (!t) return;
     if (t.id === 'btnReady') return finishPlay(false);
     if (t.id === 'btnDiscard') return finishDiscard();
-    if (t.id === 'btnPreviewClose') { $('#preview').classList.add('hidden'); return; }
+    if (t.id === 'btnPreviewClose' || t.id === 'previewBackdrop') { $('#preview').classList.add('hidden'); return; }
     if (t.id === 'btnSwapYes') { G.swapMode = true; setMsg('Tap a card in your hand to put in your last slot (−10).'); setActions('<button class="btn" id="btnSwapNo">CANCEL – NO SWAP</button>'); render(); return; }
     if (t.id === 'btnSwapNo') return afterSwap(null);
     if (t.classList.contains('colorbtn')) return finishSilver(t.dataset.color, G.pendingSilver);
@@ -469,6 +479,7 @@
   document.addEventListener('dragleave', e => { const s = e.target.closest('.slot'); if (s) s.classList.remove('hover'); });
   document.addEventListener('drop', e => { const s = e.target.closest('.slot.open'); if (!s) return; e.preventDefault(); placeCard(+e.dataTransfer.getData('text/plain'), +s.dataset.slot); });
   document.addEventListener('mouseover', e => {
+    if (narrow()) return;
     const c = e.target.closest('.card[data-id]'); if (!c) return;
     const slot = c.closest('.slot'); let info = null;
     if (slot && G && G.lastEv) { const side = slot.dataset.side, i = +slot.dataset.slot; if (G.shown[side][i]) info = G.lastEv.cells[side][i]; }

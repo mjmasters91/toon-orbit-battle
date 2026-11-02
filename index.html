@@ -32,13 +32,15 @@
       <div class="box tv"><div class="tv-title">Preview</div><div id="inspector"></div></div>
     </aside>
     <section class="arena">
-      <div class="ohandrow"><div id="o-hand"></div></div>
+      <div class="ohandrow"><span class="ohandlabel">Their hand</span><div id="o-hand"></div></div>
       <div class="side opp">
+        <div class="sidelabel">Opponent</div>
         <div class="row outer" id="o-outer"></div>
         <div class="row inner" id="o-inner"></div>
       </div>
       <div class="midline"><div id="phaseMsg">Welcome to Toon Orbit Battle!</div><div id="timer"></div></div>
       <div class="side me">
+        <div class="sidelabel">You</div>
         <div class="row inner" id="p-inner"></div>
         <div class="row outer" id="p-outer"></div>
       </div>
@@ -51,9 +53,12 @@
     <div id="actions"></div>
   </footer>
   <div id="overlay" class="hidden"></div>
-  <div id="preview" class="preview hidden" role="dialog" aria-label="Card preview">
-    <button type="button" class="btn preview-close" id="btnPreviewClose">Close</button>
-    <div id="previewBody"></div>
+  <div id="preview" class="preview hidden" role="dialog" aria-modal="true" aria-label="Card preview">
+    <button type="button" class="preview-backdrop" id="previewBackdrop" aria-label="Close preview"></button>
+    <div class="preview-sheet">
+      <button type="button" class="btn preview-close" id="btnPreviewClose">Close</button>
+      <div id="previewBody"></div>
+    </div>
   </div>
 </div>
 <script src="cards.js"></script>
