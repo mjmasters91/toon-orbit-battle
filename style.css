@@ -131,9 +131,11 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
 .recolor { position: absolute; z-index: 3; left: 8%; top: 34%; width: 16%; height: 16%; border-radius: 50%; box-shadow: 0 0 0 1px rgba(0,0,0,.4); }
 .kostamp { position: absolute; z-index: 4; left: 8%; right: 8%; top: 40%; transform: rotate(-10deg); background: rgba(214, 54, 54, .94); color: #fff; font: 700 10px/1.2 "Outfit", system-ui, sans-serif;
   letter-spacing: .04em; text-align: center; border-radius: 999px; padding: 2px 0; animation: stamp .32s ease-out; }
-.card.back { --cc: #e8942a; background: radial-gradient(circle at 50% 42%, #2a3878 0 34%, transparent 35%), repeating-conic-gradient(#ffb24a 0 12deg, #d87816 12deg 24deg);
-  box-shadow: inset 0 0 0 1px rgba(255,255,255,.25), 0 8px 16px rgba(0,0,0,.28); display: flex; align-items: center; justify-content: center; }
-.backlogo { background: rgba(18, 28, 78, .9); border-radius: 50%; width: 54%; height: 54%; display: flex; flex-direction: column; align-items: center; justify-content: center; font: 700 9px/1.1 "Outfit", system-ui, sans-serif; letter-spacing: .06em; color: #fff; }
+.card.back { --cc: #e8942a; background: repeating-conic-gradient(#ffb24a 0 12deg, #d87816 12deg 24deg);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.25), 0 8px 16px rgba(0,0,0,.28);
+  display: grid; place-items: center; transform-style: flat; }
+.backlogo { position: absolute; left: 50%; top: 50%; width: 54%; height: 54%; margin: 0; transform: translate(-50%, -50%);
+  background: #121c4e; border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center; font: 700 9px/1.1 "Outfit", system-ui, sans-serif; letter-spacing: .06em; color: #fff; }
 .backlogo b { color: #f0c14a; }
 .pending { position: absolute; inset: 0; }
 .slot { perspective: 700px; overflow: visible; }
