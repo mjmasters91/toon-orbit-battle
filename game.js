@@ -1127,7 +1127,7 @@
         : '<li>No pulls yet. Open a pack!</li>';
       const ready = packState.lastDaily !== todayKey();
       const admin = packState.role === 'admin';
-      const tab = (id, label) => `<button type="button" class="portal-tab" id="${id}"><span>${label}</span><span class="chev" aria-hidden="true">&gt;</span></button>`;
+      const tab = (id, label, short) => `<button type="button" class="portal-tab" id="${id}"><span class="tab-ico" aria-hidden="true"></span><span class="tab-label"><span class="tab-long">${label}</span><span class="tab-short">${short}</span></span><span class="chev" aria-hidden="true">&gt;</span></button>`;
       ov.innerHTML = `<div id="homeScreen" class="portal">
         <div class="portal-top">
           <div class="portal-brand"><span class="ring"></span><span class="portal-word">TOON ORBIT <b>TRADING CARDS</b></span></div>
@@ -1139,16 +1139,17 @@
             <div class="portal-daily">${ready ? 'DAILY PACK READY' : 'DAILY PACK CLAIMED'}</div>
           </div>
         </div>
-        <div class="portal-body">
+        <div class="portal-shell">
           <nav class="portal-tabs">
-            ${tab('btnGetCards', 'GET CARDS')}
-            ${tab('btnPlayTab', 'PLAY')}
-            ${tab('btnHomeCollection', 'MY COLLECTION')}
-            ${tab('btnOpenPacks', 'OPEN PACKS')}
-            ${admin ? tab('btnHomeAdmin', 'ADMIN') : ''}
-            ${tab('btnCollection', 'CARD GALLERY')}
-            ${tab('btnRules2', 'HOW TO PLAY')}
+            ${tab('btnGetCards', 'GET CARDS', 'CARDS')}
+            ${tab('btnPlayTab', 'PLAY', 'PLAY')}
+            ${tab('btnHomeCollection', 'MY COLLECTION', 'BINDER')}
+            ${tab('btnOpenPacks', 'OPEN PACKS', 'PACKS')}
+            ${admin ? tab('btnHomeAdmin', 'ADMIN', 'ADMIN') : ''}
+            ${tab('btnCollection', 'CARD GALLERY', 'GALLERY')}
+            ${tab('btnRules2', 'HOW TO PLAY', 'HELP')}
           </nav>
+          <div class="portal-content">
           <section class="portal-main">
             <div class="portal-frame">
               <div class="portal-framehead"><span class="portal-badge" aria-hidden="true"></span> FEATURED CARD</div>
@@ -1166,15 +1167,16 @@
               <button type="button" class="portal-cta" id="btnPacks">OPEN PACK</button>
             </div>
           </section>
-        </div>
-        <div class="portal-bottom">
-          <div class="portal-box">
-            <div class="portal-boxhead">RECENT PULLS</div>
-            <ul class="portal-pulls">${pullList}</ul>
+          <div class="portal-bottom">
+            <div class="portal-box">
+              <div class="portal-boxhead">RECENT PULLS</div>
+              <ul class="portal-pulls">${pullList}</ul>
+            </div>
+            <div class="portal-box">
+              <div class="portal-boxhead">TOON TIPS</div>
+              <p>Match both goal colors to win outright. Gold copies are just for show, and they score the same.</p>
+            </div>
           </div>
-          <div class="portal-box">
-            <div class="portal-boxhead">TOON TIPS</div>
-            <p>Match both goal colors to win outright. Gold copies are just for show, and they score the same.</p>
           </div>
         </div>
       </div>`;
