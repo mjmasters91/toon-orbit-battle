@@ -180,4 +180,112 @@ create policy "remove own friends"
   using (auth.uid() = user_id);
 ```
 
-The view is owned by the database owner, so logged-in players can read public profile rows without a select policy on `profiles` itself. Avatar, showcase, streaks, and deck counts travel inside `stats`. There is no delete policy on profiles: a player cannot delete another row, and client code does not delete profiles. After the table exists, set `url` and `anonKey` in `supabase-config.js` and reload. Local accounts are not copied to Supabase.
+The view is owned by the database owner, so logged-in players can read public profile rows without a select policy on `profiles` itself. Avatar, showcase, streaks, and deck counts travel inside `stats`. There is no delete policy on profiles: a player cannot delete another row, and client code does not delete profiles.
+
+Auctions use the same split. On this device they live in `localStorage` under `tob_auctions`, so every account in the browser can bid. `SupabaseAuctionHouse` calls the RPCs below, which lock the auction and the profiles so a coin or a card copy cannot be applied twice.
+
+```sql
+create table if not exists public.auctions (
+  id uuid primary key default gen_random_uuid(),
+  seller uuid not null references public.profiles (id),
+  card jsonb not null,
+  start_price integer not null check (start_price > 0),
+  high_bid integer,
+  high_bidder uuid references public.profiles (id),
+  ends_at timestamptz not null,
+  status text not null default 'open' check (status in ('open', 'sold', 'unsold', 'cancelled')),
+  fee_pct integer not null default 0,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.bids (
+  id bigint generated always as identity primary key,
+  auction_id uuid not null references public.auctions (id) on delete cascade,
+  bidder uuid not null references public.profiles (id),
+  amount integer not null check (amount > 0),
+  created_at timestamptz not null default now()
+);
+
+alter table public.auctions enable row level security;
+alter table public.bids enable row level security;
+
+create policy "read auctions" on public.auctions for select to authenticated using (true);
+create policy "read bids" on public.bids for select to authenticated using (true);
+
+create or replace function public.place_bid(lot uuid, amount integer)
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  a public.auctions%rowtype;
+  prev uuid;
+  prev_amt integer;
+begin
+  select * into a from public.auctions where id = lot for update;
+  if not found or a.status <> 'open' or a.ends_at <= now() then
+    raise exception 'closed';
+  end if;
+  if a.seller = auth.uid() then raise exception 'own lot'; end if;
+  if a.high_bidder is null and amount < a.start_price then raise exception 'too low'; end if;
+  if a.high_bidder is not null and amount < a.high_bid + greatest(10, ceil(a.high_bid * 0.05)) then
+    raise exception 'too low';
+  end if;
+  perform 1 from public.profiles where id = auth.uid() for update;
+  if coalesce((select (stats->>'coins')::int from public.profiles where id = auth.uid()), 0) < amount then
+    raise exception 'poor';
+  end if;
+  prev := a.high_bidder;
+  prev_amt := a.high_bid;
+  update public.profiles
+     set stats = jsonb_set(stats, '{coins}', to_jsonb(coalesce((stats->>'coins')::int, 0) - amount))
+   where id = auth.uid();
+  if prev is not null then
+    update public.profiles
+       set stats = jsonb_set(stats, '{coins}', to_jsonb(coalesce((stats->>'coins')::int, 0) + prev_amt))
+     where id = prev;
+  end if;
+  update public.auctions
+     set high_bid = amount,
+         high_bidder = auth.uid(),
+         ends_at = case when ends_at - now() < interval '60 seconds' then ends_at + interval '60 seconds' else ends_at end
+   where id = lot;
+  insert into public.bids (auction_id, bidder, amount) values (lot, auth.uid(), amount);
+end;
+$$;
+
+create or replace function public.settle_auction()
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  a public.auctions%rowtype;
+  net integer;
+begin
+  for a in select * from public.auctions where status = 'open' and ends_at <= now() for update loop
+    if a.high_bidder is not null then
+      net := a.high_bid - floor(a.high_bid * a.fee_pct / 100.0);
+      update public.profiles
+         set collection = collection || jsonb_build_array(a.card),
+             stats = jsonb_set(stats, '{auctionsWon}', to_jsonb(coalesce((stats->>'auctionsWon')::int, 0) + 1))
+       where id = a.high_bidder
+         and not collection @> jsonb_build_array(a.card);
+      update public.profiles
+         set stats = jsonb_set(
+               jsonb_set(stats, '{coins}', to_jsonb(coalesce((stats->>'coins')::int, 0) + net)),
+               '{auctionsSold}', to_jsonb(coalesce((stats->>'auctionsSold')::int, 0) + 1))
+       where id = a.seller;
+      update public.auctions set status = 'sold' where id = a.id;
+    else
+      update public.profiles
+         set collection = collection || jsonb_build_array(a.card)
+       where id = a.seller
+         and not collection @> jsonb_build_array(a.card);
+      update public.auctions set status = 'unsold' where id = a.id;
+    end if;
+  end loop;
+end;
+$$;
+
+revoke all on function public.place_bid(uuid, integer) from public;
+revoke all on function public.settle_auction() from public;
+grant execute on function public.place_bid(uuid, integer) to authenticated;
+grant execute on function public.settle_auction() to authenticated;
+```
+
+After the tables exist, set `url` and `anonKey` in `supabase-config.js` and reload. Local accounts are not copied to Supabase.

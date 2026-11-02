@@ -46,6 +46,8 @@
       wins, losses, games, streak,
       bestStreak: best,
       packsOpened: Math.max(0, stats.packsOpened | 0),
+      auctionsSold: Math.max(0, stats.auctionsSold | 0),
+      auctionsWon: Math.max(0, stats.auctionsWon | 0),
       decks: normMap(stats.decks),
       archetypes: normMap(stats.archetypes),
     };
@@ -471,6 +473,7 @@
         stats: {
           wins: packed.stats.wins, losses: packed.stats.losses, games: packed.stats.games,
           streak: packed.stats.streak, bestStreak: packed.stats.bestStreak, packsOpened: packed.stats.packsOpened,
+          auctionsSold: packed.stats.auctionsSold, auctionsWon: packed.stats.auctionsWon,
           decks: packed.stats.decks, archetypes: packed.stats.archetypes,
           avatar: packed.avatar, showcase: packed.showcase,
           packs: packed.packs, coins: packed.coins, role: packed.role, welcomeGranted: true, lastDaily: packed.lastDaily,

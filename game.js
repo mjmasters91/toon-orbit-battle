@@ -7,15 +7,16 @@
   const AUTO = qs.has('auto'); let autoGames = Math.max(1, parseInt(qs.get('auto') || '1', 10) || 1);
   // ===== CONFIG: seconds on the countdown for every timed phase (placement, discard, swap, silver). =====
   const PHASE_SECONDS = 30;
-  const ECONOMY_DEFAULTS = {winCoins: 100, lossCoins: 25, packPrice: 300};
+  const ECONOMY_DEFAULTS = {winCoins: 100, lossCoins: 25, packPrice: 300, auctionFee: 0};
   function readEconomy() {
     const base = {winCoins: ECONOMY_DEFAULTS.winCoins, lossCoins: ECONOMY_DEFAULTS.lossCoins, packPrice: ECONOMY_DEFAULTS.packPrice};
     try {
       const saved = JSON.parse(localStorage.getItem('tob_economy') || 'null');
       if (!saved) return base;
-      ['winCoins', 'lossCoins', 'packPrice'].forEach(k => {
+      ['winCoins', 'lossCoins', 'packPrice', 'auctionFee'].forEach(k => {
         const n = Math.round(Number(saved[k]));
-        if (Number.isFinite(n) && n >= 0 && n <= 1000000) base[k] = n;
+        const capN = k === 'auctionFee' ? 50 : 1000000;
+        if (Number.isFinite(n) && n >= 0 && n <= capN) base[k] = n;
       });
     } catch (e) { /* keep defaults */ }
     return base;
@@ -638,6 +639,8 @@
             profile.stats.losses += (guestSnap.stats && guestSnap.stats.losses) || 0;
             profile.stats.games += (guestSnap.stats && guestSnap.stats.games) || 0;
             profile.stats.packsOpened = (guestSnap.stats && guestSnap.stats.packsOpened) || 0;
+            profile.stats.auctionsSold = (guestSnap.stats && guestSnap.stats.auctionsSold) || 0;
+            profile.stats.auctionsWon = (guestSnap.stats && guestSnap.stats.auctionsWon) || 0;
             profile.stats.streak = (guestSnap.stats && guestSnap.stats.streak) || 0;
             profile.stats.bestStreak = (guestSnap.stats && guestSnap.stats.bestStreak) || 0;
             profile.stats.decks = (guestSnap.stats && guestSnap.stats.decks) || {};
@@ -1016,6 +1019,8 @@
               <div><b>${col.unique}/${col.total}</b><span>Collection</span></div>
               <div><b>${favoriteArchetype(profile)}</b><span>Favorite type</span></div>
               <div><b>${favoriteDeck(profile)}</b><span>Most-used deck</span></div>
+              <div><b>${s.auctionsSold | 0}</b><span>Auctions sold</span></div>
+              <div><b>${s.auctionsWon | 0}</b><span>Auctions won</span></div>
             </div>
           </section>
           <div class="go-btns"><button type="button" class="btn" id="btnProfileBack">BACK</button></div>
@@ -1109,6 +1114,7 @@
         <label>Win <input id="ecoWin" type="number" min="0" value="${ECONOMY.winCoins}"></label>
         <label>Loss <input id="ecoLoss" type="number" min="0" value="${ECONOMY.lossCoins}"></label>
         <label>Pack <input id="ecoPrice" type="number" min="0" value="${ECONOMY.packPrice}"></label>
+        <label>Auction fee % <input id="ecoFee" type="number" min="0" max="50" value="${ECONOMY.auctionFee | 0}"></label>
         <button type="button" class="btn go" id="btnSaveEcon">Save economy</button>
       </div>
       <div class="adminlist">${rows}</div>
@@ -1120,6 +1126,7 @@
         winCoins: clampInt($('#ecoWin').value, ECONOMY.winCoins),
         lossCoins: clampInt($('#ecoLoss').value, ECONOMY.lossCoins),
         packPrice: clampInt($('#ecoPrice').value, ECONOMY.packPrice),
+        auctionFee: Math.min(50, clampInt($('#ecoFee').value, ECONOMY.auctionFee | 0)),
       });
       toast('Saved economy');
       showAdmin();
@@ -1329,6 +1336,7 @@
     return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
   }
   function showHome() {
+    auctionNotices();
     stopTimer();
     hidePreview();
     closeUserMenu();
@@ -1374,6 +1382,7 @@
             ${tab('btnGetCards', 'GET CARDS', 'CARDS')}
             ${tab('btnPlayTab', 'PLAY', 'PLAY')}
             ${tab('btnProfile', 'PROFILE', 'PROFILE')}
+            ${tab('btnAuctions', 'AUCTIONS', 'BIDS')}
             ${tab('btnHomeCollection', 'MY COLLECTION', 'BINDER')}
             ${tab('btnOpenPacks', 'OPEN PACKS', 'PACKS')}
             ${admin ? tab('btnHomeAdmin', 'ADMIN', 'ADMIN') : ''}
@@ -1481,9 +1490,167 @@
     };
     draw();
   }
+  let aucTab = 'browse', aucLot = null, aucQ = '', aucArch = '', aucGold = '', aucSort = 'ending', aucTimer = null;
+  function aucClock(ends) {
+    let ms = Math.max(0, ends - Date.now());
+    const s = Math.floor(ms / 1000);
+    const d = Math.floor(s / 86400);
+    const h = Math.floor((s % 86400) / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    const pad = n => String(n).padStart(2, '0');
+    return (d ? d + 'd ' : '') + pad(h) + ':' + pad(m) + ':' + pad(sec);
+  }
+  function auctionNotices() {
+    const house = window.TOB_AUCTIONS;
+    if (!house || !house.settle) return;
+    try { house.settle(); } catch (e) { /* ignore */ }
+    const notes = house.pullNotices ? house.pullNotices() : [];
+    if (notes && notes.length) toast(notes.map(n => n.text).join(' '));
+  }
+  async function showAuctions() {
+    stopHomeClock();
+    stopTimer();
+    hidePreview();
+    closeUserMenu();
+    const profile = await liveProfile();
+    if (!profile) return showAuth('login');
+    auctionNotices();
+    const house = window.TOB_AUCTIONS;
+    const me = profile.username;
+    const admin = packState.role === 'admin';
+    const all = house.list();
+    const active = all.filter(lot => lot.status === 'open' && lot.ends > Date.now());
+    const mineName = String(me || '').toLowerCase();
+    const q = aucQ.trim().toLowerCase();
+    let rows = active.filter(lot => {
+      if (q && String(lot.card.name || '').toLowerCase().indexOf(q) === -1) return false;
+      if (aucArch && lot.card.archetype !== aucArch) return false;
+      if (aucGold === 'gold' && !lot.card.gold) return false;
+      if (aucGold === 'standard' && lot.card.gold) return false;
+      return true;
+    });
+    rows.sort((a, b) => aucSort === 'high' ? (b.bid || b.start) - (a.bid || a.start) : aucSort === 'low' ? (a.bid || a.start) - (b.bid || b.start) : a.ends - b.ends);
+    const feature = aucLot ? all.find(lot => lot.id === aucLot) : rows[0];
+    const arches = [...new Set(CARD_LIST.map(c => c.archetype).filter(Boolean))].sort();
+    const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+    const thumb = lot => {
+      const copy = COPIES.makeCopy(lot.card.id, {gold: !!lot.card.gold, uid: lot.card.uid});
+      return copy ? cardHTML(copy, null, true) : '';
+    };
+    const priceLine = lot => lot.bidder ? lot.bid + ' by ' + lot.bidder : 'No bids yet';
+    let body = '';
+    if (aucTab === 'detail' && feature) {
+      const floor = house.minBid(feature);
+      const open = feature.status === 'open' && feature.ends > Date.now();
+      const history = (feature.bids || []).slice().reverse().map(b => `<li><b>${esc(b.user)}</b> bid ${b.amount}</li>`).join('') || '<li>No bids yet.</li>';
+      body = `<section class="auc-feature">
+        <div class="auc-copy">
+          <div class="auc-kicker">LOT ${esc(feature.id)}</div>
+          <div class="auc-name">${esc(feature.card.name)}</div>
+          <div class="auc-meta">Seller <b>${esc(feature.seller)}</b></div>
+          <div class="auc-meta">Starting price <b>${feature.start}</b></div>
+          <div class="auc-meta">High bid <b>${feature.bidder ? feature.bid : '—'}</b></div>
+          <div class="auc-meta">High bidder <b>${feature.bidder ? esc(feature.bidder) : '—'}</b></div>
+          <div class="portal-clock"><span>TIME REMAINING</span><b class="auc-digits"${open ? ` data-ends="${feature.ends}"` : ''}>${open ? aucClock(feature.ends) : feature.status.toUpperCase()}</b></div>
+          ${open && mineName !== String(feature.seller).toLowerCase() ? `<div class="auc-bidrow"><input id="aucAmount" type="number" min="${floor}" value="${floor}" aria-label="Your bid"><button type="button" class="portal-cta" id="btnPlaceBid">BID NOW</button></div><p class="prof-note">Minimum ${floor}. A bid in the last 60 seconds adds 60 seconds.</p>` : ''}
+          ${open && mineName === String(feature.seller).toLowerCase() && !feature.bidder ? `<button type="button" class="btn" id="btnAucCancel">Cancel listing</button>` : ''}
+          ${admin && open ? `<div class="prof-actions"><button type="button" class="btn" id="btnAucForce">Force end</button><button type="button" class="btn" id="btnAucAdminCancel">Admin cancel</button></div>` : ''}
+          <p class="prof-err" id="aucErr"></p>
+          <div class="auc-kicker">BID HISTORY</div>
+          <ul class="auc-history">${history}</ul>
+        </div>
+        <div class="auc-stage">${thumb(feature)}</div>
+      </section>`;
+    } else if (aucTab === 'listings' || aucTab === 'bids' || aucTab === 'history') {
+      const source = aucTab === 'history' ? all.filter(lot => lot.status !== 'open')
+        : aucTab === 'bids' ? all.filter(lot => (lot.bids || []).some(b => String(b.user).toLowerCase() === mineName) || String(lot.bidder || '').toLowerCase() === mineName)
+        : active.filter(lot => String(lot.seller).toLowerCase() === mineName);
+      const durs = house.durations().concat(admin ? house.adminDurations() : []);
+      const owned = aucTab === 'listings' ? (profile.collection || []).filter(rec => rec && CARDS[rec.id]) : [];
+      body = `${aucTab === 'listings' ? `<form class="auc-form" id="aucListForm">
+          <select id="aucUid" aria-label="Card to list">${owned.map(rec => `<option value="${esc(rec.uid)}">${esc(CARDS[rec.id].name)}${rec.gold ? ' · GOLD' : ''}</option>`).join('') || '<option value="">No cards to list</option>'}</select>
+          <input id="aucStart" type="number" min="1" value="50" aria-label="Starting price">
+          <select id="aucDur" aria-label="Duration">${durs.map(d => `<option value="${d.ms}">${d.label}</option>`).join('')}</select>
+          <button type="submit" class="btn go">List card</button>
+        </form><p class="prof-note">House cut is ${house.feePct()}% of the winning bid. The copy leaves your collection until the auction ends.</p><p class="prof-err" id="aucErr"></p>` : ''}
+        <div class="auc-list">${source.map(lot => `<button type="button" class="auc-row" data-lot="${esc(lot.id)}"><span class="auc-mini">${thumb(lot)}</span><span><b>${esc(lot.card.name)}</b><span>${lot.status === 'open' ? priceLine(lot) : lot.status} · ${esc(lot.seller)}</span></span><span class="auc-digits">${lot.status === 'open' ? aucClock(lot.ends) : ''}</span></button>`).join('') || '<p class="prof-note">Nothing here yet.</p>'}</div>`;
+    } else {
+      const feat = rows[0];
+      body = `${feat ? `<section class="auc-feature">
+          <div class="auc-copy">
+            <div class="auc-kicker">FEATURED LOT</div>
+            <div class="auc-name">${esc(feat.card.name)}</div>
+            <div class="auc-meta">Seller <b>${esc(feat.seller)}</b></div>
+            <div class="auc-meta">Starting price <b>${feat.start}</b></div>
+            <div class="auc-meta">High bid <b>${feat.bidder ? feat.bid : '—'}</b></div>
+            <div class="auc-meta">High bidder <b>${feat.bidder ? esc(feat.bidder) : '—'}</b></div>
+            <div class="portal-clock"><span>TIME REMAINING</span><b class="auc-digits" data-ends="${feat.ends}">${aucClock(feat.ends)}</b></div>
+            <button type="button" class="portal-cta" id="btnBidNow" data-lot="${esc(feat.id)}">BID NOW</button>
+          </div>
+          <div class="auc-stage">${thumb(feat)}</div>
+        </section>` : '<p class="prof-note">No live auctions. List a card from My Listings.</p>'}
+        <div class="auc-filters">
+          <input id="aucQ" value="${esc(aucQ)}" placeholder="Search name" aria-label="Search auctions">
+          <select id="aucArch" aria-label="Archetype"><option value="">All types</option>${arches.map(a => `<option value="${esc(a)}"${aucArch === a ? ' selected' : ''}>${esc(a)}</option>`).join('')}</select>
+          <select id="aucGold" aria-label="Finish"><option value="">Any finish</option><option value="gold"${aucGold === 'gold' ? ' selected' : ''}>Gold</option><option value="standard"${aucGold === 'standard' ? ' selected' : ''}>Standard</option></select>
+          <select id="aucSort" aria-label="Sort"><option value="ending"${aucSort === 'ending' ? ' selected' : ''}>Ending soon</option><option value="high"${aucSort === 'high' ? ' selected' : ''}>Highest price</option><option value="low"${aucSort === 'low' ? ' selected' : ''}>Lowest price</option></select>
+        </div>
+        <div class="auc-list">${rows.slice(feat ? 1 : 0).map(lot => `<button type="button" class="auc-row" data-lot="${esc(lot.id)}"><span class="auc-mini">${thumb(lot)}</span><span><b>${esc(lot.card.name)}</b><span>${priceLine(lot)}</span></span><span class="auc-digits" data-ends="${lot.ends}">${aucClock(lot.ends)}</span></button>`).join('')}</div>`;
+    }
+    const tabs = [['browse', 'Browse'], ['listings', 'My Listings'], ['bids', 'My Bids'], ['history', 'Ended']];
+    const ov = $('#overlay');
+    ov.classList.remove('hidden');
+    ov.innerHTML = `<div id="auctionScreen"><div class="auc-wrap">
+      <div class="auc-title">AUCTION HOUSE</div>
+      <div class="auc-tabs">${tabs.map(([id, label]) => `<button type="button" class="btn${aucTab === id ? ' go' : ''}" data-auctab="${id}">${label}</button>`).join('')}</div>
+      ${body}
+      <div class="go-btns"><button type="button" class="btn" id="btnAucHome">BACK</button></div>
+    </div></div>`;
+    const say = msg => { const node = $('#aucErr'); if (node) node.textContent = msg || ''; else if (msg) toast(msg); };
+    $('#btnAucHome').onclick = () => { if (aucTab === 'detail') { aucTab = 'browse'; aucLot = null; showAuctions(); } else showHome(); };
+    ov.querySelectorAll('[data-auctab]').forEach(btn => { btn.onclick = () => { aucTab = btn.dataset.auctab; aucLot = null; showAuctions(); }; });
+    ov.querySelectorAll('[data-lot]').forEach(btn => { btn.onclick = () => { aucLot = btn.dataset.lot; aucTab = 'detail'; showAuctions(); }; });
+    const bidBtn = $('#btnPlaceBid');
+    if (bidBtn) bidBtn.onclick = async () => {
+      const res = await Promise.resolve(house.bid(feature.id, $('#aucAmount').value));
+      if (!res || !res.ok) { say((res && res.error) || 'Bid failed.'); return; }
+      const fresh = await liveProfile();
+      if (fresh) rememberPacks(fresh);
+      toast('Bid placed.');
+      showAuctions();
+    };
+    const cancelBtn = $('#btnAucCancel');
+    if (cancelBtn) cancelBtn.onclick = () => { const res = house.cancel(feature.id); say(res.ok ? '' : res.error); if (res.ok) { aucTab = 'listings'; aucLot = null; liveProfile().then(showAuctions); } };
+    const forceBtn = $('#btnAucForce');
+    if (forceBtn) forceBtn.onclick = () => { house.adminEnd(feature.id); aucTab = 'history'; aucLot = null; showAuctions(); };
+    const adminCancel = $('#btnAucAdminCancel');
+    if (adminCancel) adminCancel.onclick = () => { house.adminCancel(feature.id); aucTab = 'history'; aucLot = null; showAuctions(); };
+    const form = $('#aucListForm');
+    if (form) form.onsubmit = (ev) => {
+      ev.preventDefault();
+      const res = house.create({uid: $('#aucUid').value, start: $('#aucStart').value, ms: $('#aucDur').value});
+      if (!res || !res.ok) { say((res && res.error) || 'Could not list that card.'); return; }
+      toast('Listed ' + res.lot.card.name + '.');
+      liveProfile().then(() => showAuctions());
+    };
+    ['aucQ', 'aucArch', 'aucGold', 'aucSort'].forEach(id => {
+      const node = document.getElementById(id);
+      if (!node) return;
+      node.onchange = () => { aucQ = ($('#aucQ') && $('#aucQ').value) || ''; aucArch = $('#aucArch').value; aucGold = $('#aucGold').value; aucSort = $('#aucSort').value; showAuctions(); };
+    });
+    clearInterval(aucTimer);
+    aucTimer = setInterval(() => {
+      if (!$('#auctionScreen')) { clearInterval(aucTimer); return; }
+      const ended = house.settle();
+      if (ended) { showAuctions(); return; }
+      document.querySelectorAll('[data-ends]').forEach(node => { node.textContent = aucClock(Number(node.dataset.ends)); });
+    }, 1000);
+  }
   function showRules(tab) {
     const ov = $('#overlay'); ov.classList.remove('hidden');
-    const combosOn = tab === 'combos';
+    const which = tab === 'combos' ? 'combos' : tab === 'auctions' ? 'auctions' : 'rules';
+    const combosOn = which === 'combos';
     const book = window.TOB_COMBOS || {pairs: [], sets: []};
     const comboBody = `<div class="tag">Combos score when the pieces are face-up on your side. Color goals are unchanged.</div>
       <ul class="combolist">
@@ -1495,9 +1662,16 @@
         <li><b>Enablers.</b> Glorbina counts as any archetype. Madame Moonquill, Bud Buddy, and Bleep-O make neighbors count as their ally type.</li>
       </ul>
       <div class="combolist">${book.sets.map(s => `<div class="combochip"><b>${s.name}</b> +${s.bonus} · ${s.ids.map(id => CARDS[id] ? CARDS[id].name : id).join(', ')}</div>`).join('')}</div>`;
+    const auctionBody = `<div class="tag">List a copy you own. While it is up, it is not in your collection. A bid locks the bidder’s coins until someone bids higher.</div>
+      <ul class="combolist">
+        <li><b>Starting price.</b> The first bid must meet it. Later bids must beat the high bid by 5% or 10 coins, whichever is more.</li>
+        <li><b>Time.</b> Choose 1 hour, 6 hours, 24 hours, or 3 days. A bid in the last 60 seconds adds 60 seconds.</li>
+        <li><b>End.</b> The winner gets that exact copy, gold included. The seller gets the coins, minus the house cut. No bids, and the card comes back. Cancel only before the first bid.</li>
+        <li>You can’t bid on your own lot. On this device, only players saved in this browser can bid.</li>
+      </ul>`;
     ov.innerHTML = `<div class="panel rules"><div class="sb-title">HOW TO PLAY</div>
-      <div class="auth-tabs"><button type="button" class="btn${combosOn ? '' : ' go'}" id="btnRulesTab">Rules</button><button type="button" class="btn${combosOn ? ' go' : ''}" id="btnCombosTab">Combos</button></div>
-      ${combosOn ? comboBody : `<ol>
+      <div class="auth-tabs"><button type="button" class="btn${which === 'rules' ? ' go' : ''}" id="btnRulesTab">Rules</button><button type="button" class="btn${combosOn ? ' go' : ''}" id="btnCombosTab">Combos</button><button type="button" class="btn${which === 'auctions' ? ' go' : ''}" id="btnAuctionsTab">Auctions</button></div>
+      ${which === 'combos' ? comboBody : which === 'auctions' ? auctionBody : `<ol>
       <li><b>Decks:</b> 12 different cards each. Every card has a color, points, a power (or none) and features. Both decks are shuffled and each deck's <b>bottom card</b> is shown: its color is a <b>goal color</b>. Black and Silver are not goal colors; if both bottom cards share a color there is just one goal color.</li>
       <li><b>Round 1:</b> You draw 6. Put 4 cards in the 4 inner slots and press READY. Cards flip one by one and are scored.</li>
       <li><b>Cancel-outs:</b> If the same character is in play twice (either board, even your own), the lower-value version survives and the others are cancelled. The exact same card on both boards cancels both.</li>
@@ -1507,7 +1681,7 @@
       <li><b>Swap:</b> You may trade your face-down card for one in your hand for −10 points.</li>
       <li><b>Silver:</b> If you have Silver cards in play, choose one color they all count as.</li>
       <li><b>Winning:</b> With 2 goal colors, having more cards of <b>both</b> colors wins outright. With 1 goal color, whoever has more of it gets +15. Then the higher score wins. Equal scores = tie.</li>
-      <li><b>Combos</b> are on the Combos tab: archetype pairs, named crews, all-in, rivalry, and enablers. They add points on top of color goals.</li>
+      <li><b>Combos</b> are on the Combos tab. <b>Auctions</b> are on the Auctions tab.</li>
       <li>Every phase has a ${PHASE_SECONDS}-second countdown. If it hits zero, the game finishes the phase for you: empty slots get filled with the best cards from your hand, and you discard nothing.</li></ol>`}
       <div class="go-btns"><button class="btn go" id="btnClose">GOT IT!</button></div></div>`;
   }
@@ -1541,6 +1715,8 @@
     if (t.id === 'btnCollection') return showCollection();
     if (t.id === 'btnRules' || t.id === 'btnRules2' || t.id === 'btnRulesTab') return showRules('rules');
     if (t.id === 'btnCombosTab') return showRules('combos');
+    if (t.id === 'btnAuctionsTab') return showRules('auctions');
+    if (t.id === 'btnAuctions') return showAuctions();
     if (t.id === 'btnClose') {
       if (G && G.phase !== 'OVER') $('#overlay').classList.add('hidden');
       else if (!window.TOB_AUTH.currentUser()) showAuth('signup');
