@@ -540,7 +540,7 @@
     const signup = authMode !== 'login';
     const guest = window.TOB_AUTH.peekGuest();
     const claim = !!(guest && ((guest.collection && guest.collection.length) || (guest.stats && (guest.stats.games || guest.stats.wins || guest.stats.losses))));
-    const decks = Object.entries(DECKS).map(([k, d]) => {
+    const decks = Object.entries(DECKS).filter(([, d]) => !d.ai).map(([k, d]) => {
       const gems = [...new Set(d.cards.map(id => CARDS[id].color))].map(c => `<span class="gem" style="background:${COLORS[c]}"></span>`).join('');
       return `<button type="button" class="starterpick${starterPick === k ? ' on' : ''}" data-starter="${k}"><span class="dname">${d.name}</span><span class="dcolors">${gems}</span></button>`;
     }).join('');
@@ -672,7 +672,7 @@
         }
         const copy = COPIES.makeCopy(group.sample.id, {gold: group.gold > 0, uid: group.sample.uid});
         const badge = group.count > 1 ? `<div class="copycount">${group.count}</div>` : '';
-        return `<div class="ccard" data-cid="${c.id}" data-gold="${copy.gold ? '1' : '0'}">${badge}${cardHTML(copy, null, true)}</div>`;
+        return `<div class="ccard" data-cid="${c.id}" data-gold="${copy.gold ? '1' : '0'}">${badge}${cardHTML(copy)}</div>`;
       }).join('');
       ov.innerHTML = `<div class="panel mine">
         <div class="sb-title">My Collection</div>
@@ -1064,13 +1064,16 @@
   let lastDeck = null;
   const OPP_NAMES = {galaxy: 'Commander Kix', spooky: 'Baron Boo', barnyard: 'Farmer Fizz', sprout: 'Professor Sprig', batch1: 'Captain Crumble', custom: 'Mystery Rival'};
   function customDeck() { try { const d = JSON.parse(localStorage.getItem('tob_custom') || '[]'); return d.filter(id => CARDS[id]); } catch (e) { return []; } }
+  function playerDecks() { return Object.keys(DECKS).filter(k => !DECKS[k].ai); }
   function quickStart(key) {
-    key = key || lastDeck || Object.keys(DECKS)[Math.floor(Math.random() * 4)];
+    const playable = playerDecks();
+    key = key || lastDeck || playable[Math.floor(Math.random() * playable.length)];
+    if (key !== 'custom' && !DECKS[key]) key = playable[0];
     lastDeck = key;
     const pIds = key === 'custom' ? customDeck() : DECKS[key].cards;
     const others = Object.keys(DECKS).filter(k => k !== key);
     const ok = others[Math.floor(Math.random() * others.length)];
-    startGame(pIds, DECKS[ok].cards, OPP_NAMES[ok]);
+    startGame(pIds, DECKS[ok].cards, OPP_NAMES[ok] || DECKS[ok].name);
   }
   function deckBlock(key, name, ids, playable) {
     let pts = 0;
@@ -1085,7 +1088,7 @@
     const cards = ids.map(id => {
       const c = CARDS[id];
       if (!c) return '';
-      return `<button type="button" class="deckcard" data-cid="${c.id}"><img src="assets/cards/${encodeURIComponent(c.id)}.webp" alt="" data-id="${c.id}"><span class="dinfo"><b>${c.name}</b><span class="dmeta"><span class="gem" style="background:${COLORS[c.color]}"></span>${c.pts} pts · ${cap(c.color)}</span><span class="dpower">${c.power}</span></span></button>`;
+      return `<button type="button" class="deckcard" data-cid="${c.id}"><img src="assets/cards/${encodeURIComponent(c.id)}.webp" alt="" data-id="${c.id}" loading="lazy" decoding="async"><span class="dinfo"><b>${c.name}</b><span class="dmeta"><span class="gem" style="background:${COLORS[c.color]}"></span>${c.pts} pts · ${cap(c.color)}</span><span class="dpower">${c.power}</span></span></button>`;
     }).join('');
     const play = playable
       ? `<button type="button" class="btn go deckplay" data-deck="${key}">Play</button>`
@@ -1202,7 +1205,7 @@
     hidePreview();
     const ov = $('#overlay'); ov.classList.remove('hidden');
     const cd = customDeck();
-    const blocks = Object.entries(DECKS).map(([k, d]) => deckBlock(k, d.name, d.cards, true)).join('');
+    const blocks = Object.entries(DECKS).filter(([, d]) => !d.ai).map(([k, d]) => deckBlock(k, d.name, d.cards, true)).join('');
     const custom = cd.length === 12 ? deckBlock('custom', 'My Deck', cd, true) : `<section class="deckblock"><div class="deckhead"><div><div class="dname">My Deck</div><div class="dsum">${cd.length}/12 cards</div></div><button type="button" class="btn" id="btnBuild">Build it</button></div></section>`;
     ov.innerHTML = `<div class="panel select deckscreen">
       <div class="sb-title">Choose a deck</div>
@@ -1223,10 +1226,10 @@
       const cards = CARD_LIST.filter(c => !archFilter || c.archetype === archFilter).map(c => COPIES.makeCopy(c.id, {gold: collectionGold}));
       ov.innerHTML = `<div class="panel collection">
         <div class="sb-title">Card Gallery</div>
-        <div class="tag">Gold copies are cosmetic. Every toon can have one, and they play the same.</div>
+        <div class="tag">${CARD_LIST.length} toons. Gold copies are cosmetic. Every toon can have one, and they play the same.</div>
         <label class="goldtoggle"><input type="checkbox" id="goldView" ${collectionGold ? 'checked' : ''}> View gold copies</label>
         ${archOptions()}
-        <div class="cgrid">${cards.map(c => `<div class="ccard" data-cid="${c.id}">${cardHTML(c, null, true)}</div>`).join('')}</div>
+        <div class="cgrid">${cards.map(c => `<div class="ccard" data-cid="${c.id}">${cardHTML(c)}</div>`).join('')}</div>
         <div class="go-btns"><button class="btn" id="btnBack">BACK</button></div></div>`;
       $('#goldView').onchange = () => { collectionGold = $('#goldView').checked; draw(); };
       const archPick = $('#archPick');
