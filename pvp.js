@@ -115,6 +115,7 @@
     }
     shell(`<header class="pvp-top"><div class="pvp-title">PVP</div><button type="button" class="btn" id="pvpHome">Home</button></header>
       <section class="pvp-card"><h2>Play a friend</h2><p>Share a room code or open the link. Rooms expire in 10 minutes.</p>
+        <label class="pvp-private"><input type="checkbox" id="pvpPrivate"> Private match</label>
         <button type="button" class="btn go" id="pvpRoom">Create room</button>
         <form class="pvp-join" id="pvpJoin"><input id="pvpCode" maxlength="5" placeholder="Room code" aria-label="Room code"><button class="btn" type="submit">Join</button></form>
       </section>
@@ -320,7 +321,10 @@
   async function createRoom() {
     const deck = await myDeck();
     if (!deck.ok) { toast(deck.error); return; }
-    const res = await rpc('create_room', {p_deck: deck.deck});
+    const priv = document.getElementById('pvpPrivate');
+    const args = {p_deck: deck.deck};
+    if (priv && priv.checked) args.p_private = true;
+    const res = await rpc('create_room', args);
     if (!res.ok) { toast(res.error || 'Could not create a room.'); return; }
     openMatch(res.data.id);
   }
@@ -343,7 +347,7 @@
       if (cancel) cancel.onclick = async () => { await rpc('dequeue_pvp'); paintHub(); };
     }
   }
-  async function challenge(name) {
+  async function challenge(name, priv) {
     const user = me();
     if (!user || user.guest || (root.TOB_AUTH && root.TOB_AUTH.mode !== 'supabase')) {
       toast('Sign in to play friends.');
@@ -353,7 +357,11 @@
     if (mode !== 'on') { toast('PvP coming soon.'); return; }
     const deck = await myDeck();
     if (!deck.ok) { toast(deck.error); return; }
-    const res = await rpc('create_challenge', {p_username: name, p_deck: deck.deck});
+    const box = document.getElementById('pvpPrivate') || document.getElementById('friendPrivate');
+    const isPrivate = typeof priv === 'boolean' ? priv : !!(box && box.checked);
+    const args = {p_username: name, p_deck: deck.deck};
+    if (isPrivate) args.p_private = true;
+    const res = await rpc('create_challenge', args);
     if (!res.ok) { toast(res.error || 'Could not send the challenge.'); return; }
     toast('Challenge sent to ' + name + '.');
     openMatch(res.data.id);
@@ -410,6 +418,78 @@
     if (code && mode === 'on') joinCode(code);
     if (mode === 'on') setInterval(pollInvites, 8000);
   }
+  function viewerKey() {
+    let key = sessionStorage.getItem('tob_viewer');
+    if (!key) {
+      key = 'v' + Math.random().toString(36).slice(2, 10);
+      sessionStorage.setItem('tob_viewer', key);
+    }
+    return key;
+  }
+  function safeAvatar(id) {
+    if (!id || String(id).indexOf('ob_') === 0) return 'zoomer';
+    const cards = root.TOB_CARDS && root.TOB_CARDS.CARDS;
+    if (cards && cards[id] && cards[id].adminOnly) return 'zoomer';
+    return id;
+  }
+  function paintSpectate(data) {
+    const cards = root.TOB_CARDS.CARDS;
+    const face = (entry) => {
+      if (!entry || !entry.id || !cards[entry.id] || String(entry.id).indexOf('ob_') === 0 || cards[entry.id].adminOnly) return '';
+      return ui().card(Object.assign({}, cards[entry.id], {gold: !!entry.gold}), null, true);
+    };
+    const row = (seat) => (seat.board || []).map(card => `<div class="pvp-slot${card ? ' filled' : ''}">${face(card)}</div>`).join('');
+    const score = () => {
+      try {
+        const ev = scoreOf({
+          phase: 'score',
+          host: {board: data.host.board, goal: {color: data.host.goalColor}, silver: data.host.silver},
+          guest: {board: data.guest.board, goal: {color: data.guest.goalColor}, silver: data.guest.silver},
+        });
+        return `${data.host.name} ${ev.score.p} · ${data.guest.name} ${ev.score.o}`;
+      } catch (e) { return data.phase || 'Live'; }
+    };
+    shell(`<header class="pvp-top">
+        <button type="button" class="btn" id="pvpHome">Back</button>
+        <div class="pvp-title">WATCHING</div>
+        <div class="pvp-turn">${data.spectators || 1} watching</div>
+      </header>
+      <section class="pvp-card pvp-spec">
+        <div class="pvp-vs"><img src="assets/cards/${encodeURIComponent(safeAvatar(data.host.avatar))}.webp" alt=""><b>${esc(data.host.name)}</b><span>vs</span><b>${esc(data.guest.name)}</b><img src="assets/cards/${encodeURIComponent(safeAvatar(data.guest.avatar))}.webp" alt=""></div>
+        <div class="pvp-board"><div class="pvp-row">${row(data.host)}</div><div class="pvp-row">${row(data.guest)}</div></div>
+        <p class="pvp-score">${esc(score())}</p>
+        <p class="pvp-note">Spectators see the revealed board only. Hands and decks stay hidden.</p>
+      </section>`);
+    const home = $('#pvpHome');
+    if (home) home.onclick = () => { stopWatch(); if (root.TOB_GAME && root.TOB_GAME.showHome) root.TOB_GAME.showHome(); };
+  }
+  async function refreshSpectate(id) {
+    const res = await rpc('spectate_match', {p_match: id, p_viewer: viewerKey()});
+    if (!res.ok || !res.data) return;
+    if (!document.getElementById('pvpScreen')) { stopWatch(); return; }
+    paintSpectate(res.data);
+  }
+  async function spectate(id) {
+    const db = client();
+    if (!db) { toast('Spectating is not available right now.'); return; }
+    const res = await rpc('spectate_match', {p_match: id, p_viewer: viewerKey()});
+    if (!res.ok || !res.data) { toast((res && res.error) || 'That match is not open to spectators.'); return; }
+    paintSpectate(res.data);
+    stopWatch();
+    activeId = id;
+    poll = setInterval(() => refreshSpectate(id), 2000);
+    channel = db.channel('spec-' + id)
+      .on('postgres_changes', {event: '*', schema: 'public', table: 'match_public', filter: 'id=eq.' + id}, () => refreshSpectate(id))
+      .subscribe();
+  }
+  function previewSpectate() {
+    const take = (id) => ({id, gold: false});
+    paintSpectate({
+      phase: 'place1', spectators: 3,
+      host: {name: 'Nova', avatar: 'ember', board: [take('ember'), take('glimmer'), null, null, null, null, null], silver: null, goalColor: 'red'},
+      guest: {name: 'Pip', avatar: 'twinkle', board: [take('twinkle'), null, null, null, null, null, null], silver: null, goalColor: 'purple'},
+    });
+  }
   function previewLobby() {
     mode = 'on';
     paintLobby({id: 'preview', code: 'DRAGN', guest: null, status: 'lobby'});
@@ -427,5 +507,5 @@
     seat = 'host';
     paintMatch({id: 'preview', host_name: 'You', guest_name: 'Nova', host_avatar: 'ember', guest_avatar: 'twinkle', state, turn_deadline: new Date(Date.now() + 45000).toISOString()});
   }
-  root.TOB_PVP = {show, boot, challenge, previewLobby, previewMatch, probe};
+  root.TOB_PVP = {show, boot, challenge, spectate, previewLobby, previewMatch, previewSpectate, probe};
 })(window);

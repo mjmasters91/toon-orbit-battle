@@ -476,6 +476,23 @@
       if (!res.ok || !Array.isArray(res.data)) return [];
       return res.data.map(row => row.username);
     }
+    async listFriendRequests() {
+      if (!this.client || !this.user) return [];
+      const {data, error} = await this.client.from('friend_requests').select('id, from_id, to_id, status, created_at').eq('status', 'pending');
+      if (error || !data) return [];
+      const ids = [...new Set(data.flatMap(row => [row.from_id, row.to_id]).filter(Boolean))];
+      let names = {};
+      if (ids.length) {
+        const people = await this.client.from('public_profiles').select('id, username').in('id', ids);
+        (people.data || []).forEach(row => { names[row.id] = row.username; });
+      }
+      return data.map(row => ({
+        id: row.id,
+        username: names[row.from_id === this.user.id ? row.to_id : row.from_id] || 'Player',
+        direction: row.to_id === this.user.id ? 'in' : 'out',
+        createdAt: row.created_at,
+      }));
+    }
     addFriend(username) { return this._rpc('send_friend_request', {p_username: username}); }
     removeFriend(username) { return this._rpc('remove_friend', {p_username: username}); }
     async saveProfile(profile) {
@@ -618,6 +635,13 @@
       }
       return provider.listFriends();
     },
+    listFriendRequests() {
+      if (guestOn || modeName !== 'supabase' || !provider.listFriendRequests) return Promise.resolve([]);
+      return provider.listFriendRequests();
+    },
+    acceptFriend(id) { return this.rpc('accept_friend_request', {p_id: id}); },
+    declineFriend(id) { return this.rpc('decline_friend_request', {p_id: id}); },
+    cancelFriend(id) { return this.rpc('cancel_friend_request', {p_id: id}); },
     async addFriend(username) {
       if (!guestOn) return provider.addFriend(username);
       const found = await provider.searchUsers(username);

@@ -452,6 +452,22 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
 .pvp-score, .pvp-clock { text-align: center; color: #ffb15a; font-weight: 800; }
 .pvp-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; padding: 8px 12px 16px; }
 .pvp-invite { position: fixed; left: 12px; right: 12px; bottom: 16px; z-index: 90; display: flex; gap: 8px; align-items: center; padding: 10px 12px; background: #141417; border: 1px solid #ff7a00; border-radius: 14px; box-shadow: 0 12px 28px rgba(0,0,0,.45); }
+.pvp-private { display: flex; gap: 8px; align-items: center; margin: 8px 0; color: #ffb15a; font-weight: 700; }
+.pvp-vs { display: flex; gap: 8px; align-items: center; justify-content: center; }
+.pvp-vs img { width: 42px; height: 42px; border-radius: 50%; object-fit: cover; border: 1px solid #ff7a00; }
+.pvp-note { color: #c8c8ce; text-align: center; }
+.live-grid { display: grid; gap: 12px; }
+.live-grid h3 { margin: 0 0 6px; color: #ffa733; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; }
+.live-row, .live-empty { display: flex; gap: 8px; align-items: center; width: 100%; text-align: left; margin: 0 0 6px; padding: 6px; border-radius: 12px; border: 1px solid #2a2a2e; background: #0b0b0d; color: #f4f4f6; cursor: pointer; }
+.live-empty { justify-content: center; color: #ffb15a; font-weight: 800; }
+.live-puck .card, .live-avatars img { width: 48px; height: 48px; }
+.live-avatars { display: flex; }
+.live-avatars img { border-radius: 50%; object-fit: cover; border: 1px solid #ff7a00; }
+.live-avatars img + img { margin-left: -10px; }
+.live-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.live-copy b { font-size: 14px; }
+.live-copy span, .live-time { color: #ffb15a; font-size: 12px; font-weight: 700; }
+@media (min-width: 900px) { .live-grid { grid-template-columns: 1fr 1fr; } }
 @media (min-width: 900px) {
   .pvp-slot .card { width: 84px; height: 84px; }
   .pvp-row { grid-template-columns: repeat(7, minmax(0, 92px)); justify-content: center; }
@@ -740,6 +756,8 @@ button.portal-greet:hover { color: #ffa733; }
 .prof-friends { list-style: none; margin: 8px 0 0; padding: 0; }
 .prof-friends li { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,.08); }
 .prof-friends li span { flex: 1; font-weight: 700; }
+.prof-pending { flex: none; color: #ffb15a; font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.portal-tab .packbadge { margin-left: 0; }
 #overlay:has(#auctionScreen) { padding: 0; display: block; overflow: auto; background: #0b0b0d; align-items: stretch; justify-content: stretch; }
 #auctionScreen { min-height: 100%; box-sizing: border-box; color: #f2f2f4; text-align: left; padding: 16px;
   font-family: Inter, "Segoe UI", system-ui, sans-serif;

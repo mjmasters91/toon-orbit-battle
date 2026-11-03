@@ -823,6 +823,26 @@
     if (count && user) count.textContent = String(packState.coins);
     const adminBtn = $('#btnAdmin');
     if (adminBtn) adminBtn.classList.toggle('hidden', !user || packState.role !== 'admin');
+    paintFriendBadge();
+  }
+  let friendIncoming = 0;
+  function paintFriendBadge() {
+    document.querySelectorAll('[data-friendbadge]').forEach(el => {
+      el.textContent = friendIncoming ? String(friendIncoming) : '';
+      el.classList.toggle('on', friendIncoming > 0);
+    });
+  }
+  async function refreshFriendBadge() {
+    const user = window.TOB_AUTH.currentUser();
+    if (!user || user.guest || window.TOB_AUTH.mode !== 'supabase' || !window.TOB_AUTH.listFriendRequests) {
+      friendIncoming = 0;
+      paintFriendBadge();
+      return 0;
+    }
+    const rows = await window.TOB_AUTH.listFriendRequests();
+    friendIncoming = rows.filter(row => row.direction === 'in').length;
+    paintFriendBadge();
+    return friendIncoming;
   }
   async function liveProfile() {
     let profile = await window.TOB_AUTH.loadProfile();
@@ -1123,8 +1143,13 @@
     });
     return by;
   }
+  function isPublicCard(id) {
+    if (!id || String(id).indexOf('ob_') === 0) return false;
+    const card = CARDS[id];
+    return !!(card && !card.adminOnly);
+  }
   function autoShowcase(profile) {
-    return [...ownedIndex(profile).values()].sort((a, b) => (b.gold - a.gold) || (a.count - b.count) || ((CARDS[b.id].pts | 0) - (CARDS[a.id].pts | 0)) || a.id.localeCompare(b.id)).slice(0, 6);
+    return [...ownedIndex(profile).values()].filter(row => isPublicCard(row.id)).sort((a, b) => (b.gold - a.gold) || (a.count - b.count) || ((CARDS[b.id].pts | 0) - (CARDS[a.id].pts | 0)) || a.id.localeCompare(b.id)).slice(0, 6);
   }
   function topKey(map) {
     let best = '', n = 0;
@@ -1161,12 +1186,14 @@
     const editable = mine;
     let picking = false;
     let avatarPick = false;
+    let friendNote = '';
+    let friendNoteBad = false;
     const draw = async () => {
       if (mine) profile = await window.TOB_AUTH.loadProfile();
       if (!profile) return showHome();
       const owned = ownedIndex(profile);
-      const avatarId = (profile.avatar && owned.has(profile.avatar) && CARDS[profile.avatar]) ? profile.avatar : ((autoShowcase(profile)[0] && autoShowcase(profile)[0].id) || 'zoomer');
-      const pinned = (profile.showcase || []).filter(id => owned.has(id));
+      const avatarId = (profile.avatar && isPublicCard(profile.avatar) && owned.has(profile.avatar)) ? profile.avatar : ((autoShowcase(profile)[0] && autoShowcase(profile)[0].id) || 'zoomer');
+      const pinned = (profile.showcase || []).filter(id => isPublicCard(id) && (owned.has(id) || !mine));
       const shown = pinned.length ? pinned.slice(0, 6) : autoShowcase(profile).map(c => c.id);
       const s = profile.stats || {};
       const wins = s.wins | 0, losses = s.losses | 0, games = s.games | 0;
@@ -1179,15 +1206,27 @@
         const copy = COPIES.makeCopy(id, {gold: !!rec.gold});
         return copy ? `<button type="button" class="prof-card${on ? ' on' : ''}" data-id="${id}">${cardHTML(copy, null, true)}</button>` : '';
       };
-      const showcase = (picking ? [...owned.keys()] : shown).map(id => stage(id, picking && (profile.showcase || []).includes(id))).join('') || '<p class="prof-note">No cards yet. Open a pack to fill this shelf.</p>';
-      const avatars = avatarPick ? `<div class="prof-avatars">${[...owned.keys()].map(id => `<button type="button" class="prof-mini${id === profile.avatar ? ' on' : ''}" data-ava="${id}"><img src="assets/cards/${encodeURIComponent(id)}.webp" alt=""></button>`).join('')}</div>` : '';
+      const showcase = (picking ? [...owned.keys()].filter(isPublicCard) : shown.filter(isPublicCard)).map(id => stage(id, picking && (profile.showcase || []).includes(id))).join('') || '<p class="prof-note">No cards yet. Open a pack to fill this shelf.</p>';
+      const avatars = avatarPick ? `<div class="prof-avatars">${[...owned.keys()].filter(isPublicCard).map(id => `<button type="button" class="prof-mini${id === profile.avatar ? ' on' : ''}" data-ava="${id}"><img src="assets/cards/${encodeURIComponent(id)}.webp" alt=""></button>`).join('')}</div>` : '';
       const friends = editable ? await window.TOB_AUTH.listFriends() : [];
+      const onlineFriends = editable && window.TOB_AUTH.mode === 'supabase' && !me.guest;
+      let requests = [];
+      if (onlineFriends && window.TOB_AUTH.listFriendRequests) requests = await window.TOB_AUTH.listFriendRequests();
+      const incoming = requests.filter(row => row.direction === 'in');
+      const outgoing = requests.filter(row => row.direction === 'out');
+      if (onlineFriends) { friendIncoming = incoming.length; paintFriendBadge(); }
+      const requestHtml = onlineFriends ? `<div class="prof-h">INCOMING REQUESTS</div>
+          <ul class="prof-friends">${incoming.map(row => `<li><span>${liveEsc(row.username)}</span><button type="button" class="btn go" data-accept="${row.id}">Accept</button><button type="button" class="btn" data-decline="${row.id}">Decline</button></li>`).join('') || '<li class="prof-note">No incoming requests.</li>'}</ul>
+          <div class="prof-h">SENT REQUESTS</div>
+          <ul class="prof-friends">${outgoing.map(row => `<li><span>${liveEsc(row.username)}</span><span class="prof-pending">Pending</span><button type="button" class="btn" data-cancel="${row.id}">Cancel</button></li>`).join('') || '<li class="prof-note">No sent requests.</li>'}</ul>` : '';
       const friendHtml = editable ? `<section class="prof-block prof-friendsblock">
           <div class="prof-h">FRIENDS</div>
           <form class="prof-add" id="friendForm"><input id="friendName" maxlength="16" placeholder="Username" aria-label="Friend username"><button type="submit" class="btn go">Add</button></form>
-          <p class="prof-err" id="friendErr"></p>
-          <ul class="prof-friends">${friends.map(name => `<li><span>${name}</span><button type="button" class="btn" data-challenge="${name}">Challenge</button><button type="button" class="btn" data-view="${name}">View</button><button type="button" class="btn" data-drop="${name}">Remove</button></li>`).join('') || '<li class="prof-note">No friends yet.</li>'}</ul>
-          <p class="prof-note">Online friends coming when online accounts launch. On this device, only usernames registered here can be found.</p>
+          <p class="${friendNoteBad ? 'prof-err' : 'prof-note'}" id="friendErr">${liveEsc(friendNote)}</p>
+          ${requestHtml}
+          ${onlineFriends ? '<label class="pvp-private"><input type="checkbox" id="friendPrivate"> Private match</label>' : ''}
+          <ul class="prof-friends">${friends.map(name => `<li><span>${liveEsc(name)}</span><button type="button" class="btn" data-challenge="${liveEsc(name)}">Challenge</button><button type="button" class="btn" data-view="${liveEsc(name)}">View</button><button type="button" class="btn" data-drop="${liveEsc(name)}">Remove</button></li>`).join('') || '<li class="prof-note">No friends yet.</li>'}</ul>
+          ${onlineFriends ? '' : '<p class="prof-note">Friend requests use an online account. On this device, only usernames registered here can be found.</p>'}
         </section>` : '';
       let pvpHist = '';
       if (editable && window.TOB_AUTH.mode === 'supabase' && window.TOB_AUTH.rpc) {
@@ -1279,13 +1318,44 @@
         const form = $('#friendForm');
         form.onsubmit = async (ev) => {
           ev.preventDefault();
-          const res = await window.TOB_AUTH.addFriend($('#friendName').value);
-          const err = $('#friendErr');
-          if (!res || !res.ok) { if (err) err.textContent = (res && res.error) || 'Could not add that friend.'; return; }
+          const name = ($('#friendName').value || '').trim();
+          const res = await window.TOB_AUTH.addFriend(name);
+          if (!res || !res.ok) {
+            friendNoteBad = true;
+            friendNote = (res && res.error) || 'Could not add that friend.';
+            const err = $('#friendErr');
+            if (err) { err.className = 'prof-err'; err.textContent = friendNote; }
+            return;
+          }
+          const accepted = !!(res.data && res.data.accepted);
+          friendNoteBad = false;
+          friendNote = accepted ? "You're now friends with " + name + '!' : 'Request sent';
+          toast(friendNote);
           draw();
         };
+        const friendAct = async (fn, okText) => {
+          const res = await fn();
+          if (!res || !res.ok) {
+            friendNoteBad = true;
+            friendNote = (res && res.error) || 'Could not update that request.';
+            toast(friendNote);
+            draw();
+            return;
+          }
+          friendNoteBad = false;
+          friendNote = okText;
+          toast(okText);
+          refreshFriendBadge();
+          draw();
+        };
+        ov.querySelectorAll('[data-accept]').forEach(btn => { btn.onclick = () => friendAct(() => window.TOB_AUTH.acceptFriend(btn.dataset.accept), "You're now friends!"); });
+        ov.querySelectorAll('[data-decline]').forEach(btn => { btn.onclick = () => friendAct(() => window.TOB_AUTH.declineFriend(btn.dataset.decline), 'Request declined'); });
+        ov.querySelectorAll('[data-cancel]').forEach(btn => { btn.onclick = () => friendAct(() => window.TOB_AUTH.cancelFriend(btn.dataset.cancel), 'Request cancelled'); });
         ov.querySelectorAll('[data-view]').forEach(btn => { btn.onclick = () => showProfile(btn.dataset.view, {back: 'profile'}); });
-        ov.querySelectorAll('[data-challenge]').forEach(btn => { btn.onclick = () => window.TOB_PVP && window.TOB_PVP.challenge(btn.dataset.challenge); });
+        ov.querySelectorAll('[data-challenge]').forEach(btn => { btn.onclick = () => {
+          const box = document.getElementById('friendPrivate');
+          if (window.TOB_PVP) window.TOB_PVP.challenge(btn.dataset.challenge, !!(box && box.checked));
+        }; });
         ov.querySelectorAll('[data-drop]').forEach(btn => { btn.onclick = async () => { await window.TOB_AUTH.removeFriend(btn.dataset.drop); draw(); }; });
       } else {
         ov.querySelectorAll('.prof-card').forEach(btn => { btn.onclick = () => inspect(COPIES.makeCopy(btn.dataset.id, {gold: !!(owned.get(btn.dataset.id) || {}).gold}), null, true); });
@@ -1887,6 +1957,7 @@
     return `<section class="deckblock${key === 'obsidian' ? ' obsidian' : ''}"><div class="deckhead"><div><div class="dname">${badge}${name}</div><div class="dsum">${pts} base pts</div><div class="dcolors">${dots}</div></div>${play}</div><div class="deckgrid">${cards}</div></section>`;
   }
   let homeClock = null;
+  let livePreview = null;
   function stopHomeClock() {
     if (homeClock) clearInterval(homeClock);
     homeClock = null;
@@ -1900,6 +1971,106 @@
     const m = Math.floor((ms % 3600000) / 60000);
     const s = Math.floor((ms % 60000) / 1000);
     return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  }
+  function liveEsc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  }
+  async function homeAuctions() {
+    if (livePreview) return livePreview.lots.filter(lot => lot && lot.card && isPublicCard(lot.card.id)).slice(0, 5);
+    const house = window.TOB_AUCTIONS;
+    if (house && house.refresh) { try { await house.refresh(); } catch (e) { /* local list still works */ } }
+    const all = house && house.list ? house.list() : [];
+    return all.filter(lot => lot && lot.status === 'open' && lot.ends > Date.now() && lot.card && isPublicCard(lot.card.id))
+      .sort((a, b) => a.ends - b.ends).slice(0, 5);
+  }
+  async function homeMatches() {
+    if (livePreview) return livePreview.games.slice(0, 5);
+    if (!window.TOB_AUTH || window.TOB_AUTH.mode !== 'supabase' || !window.TOB_AUTH.rpc) return [];
+    const res = await window.TOB_AUTH.rpc('list_live_matches');
+    if (!res || !res.ok || !Array.isArray(res.data)) return [];
+    return res.data.slice(0, 5);
+  }
+  function livePhase(phase) {
+    return {place1: 'Round 1', discard: 'Discard', place2: 'Round 2', silver: 'Silver', score: 'Final'}[phase] || 'Live';
+  }
+  function liveMatchMeta(match) {
+    const round = livePhase(match.phase);
+    if (match.host_score != null && match.guest_score != null) return round + ' · ' + match.host_score + '–' + match.guest_score;
+    const placed = (board) => (board || []).filter(card => card && card.id && isPublicCard(card.id)).length;
+    if (match.phase === 'score' && window.TOB_ENGINE && match.host_board) {
+      try {
+        const asBoard = (entries) => {
+          const row = (entries || []).map(entry => (!entry || !entry.id || !isPublicCard(entry.id) || !CARDS[entry.id]) ? null : Object.assign({}, CARDS[entry.id], {gold: !!entry.gold}));
+          while (row.length < 7) row.push(null);
+          return row.slice(0, 7);
+        };
+        const boards = {p: asBoard(match.host_board), o: asBoard(match.guest_board)};
+        const shown = {p: boards.p.map(Boolean), o: boards.o.map(Boolean)};
+        const ev = window.TOB_ENGINE.evaluate(boards, shown, {
+          goals: [match.host_goal || null, match.guest_goal || null],
+          silver: {p: match.host_silver || null, o: match.guest_silver || null},
+          penalty: {p: 0, o: 0},
+          final: true,
+        });
+        return round + ' · ' + ev.score.p + '–' + ev.score.o;
+      } catch (e) { /* the round label still shows */ }
+    }
+    if (match.host_board || match.guest_board) return round + ' · ' + placed(match.host_board) + '–' + placed(match.guest_board);
+    return round;
+  }
+  function liveNowMarkup(lots, games) {
+    const auc = lots.length ? lots.map(lot => {
+      const copy = COPIES.makeCopy(lot.card.id, {gold: !!lot.card.gold, uid: lot.card.uid});
+      return `<button type="button" class="live-row" data-live-auction="${liveEsc(lot.id)}">
+        <span class="live-puck">${copy ? cardHTML(copy) : ''}</span>
+        <span class="live-copy"><b>${liveEsc(lot.card.name)}</b><span>${lot.card.gold ? 'GOLD · ' : ''}${lot.bidder ? lot.bid + ' bid' : lot.start + ' start'}</span></span>
+        <span class="live-time" data-live-ends="${lot.ends}">${aucClock(lot.ends)}</span>
+      </button>`;
+    }).join('') : '<button type="button" class="live-empty" id="btnLiveAuc">No live auctions. Start one!</button>';
+    const mats = games.length ? games.map(match => `<button type="button" class="live-row" data-live-watch="${liveEsc(match.id)}">
+        <span class="live-avatars"><img src="assets/cards/${encodeURIComponent(isPublicCard(match.host_avatar) ? match.host_avatar : 'zoomer')}.webp" alt=""><img src="assets/cards/${encodeURIComponent(isPublicCard(match.guest_avatar) ? match.guest_avatar : 'zoomer')}.webp" alt=""></span>
+        <span class="live-copy"><b>${liveEsc(match.host_name)} vs ${liveEsc(match.guest_name)}</b><span>${liveEsc(liveMatchMeta(match))}</span></span>
+        <span class="live-time">Watch</span>
+      </button>`).join('') : '<button type="button" class="live-empty" id="btnLivePvp">No matches right now. Play a friend!</button>';
+    return `<div class="live-grid"><section><h3>Live auctions</h3>${auc}</section><section><h3>Live matches</h3>${mats}</section></div>`;
+  }
+  function bindLive(root) {
+    root.querySelectorAll('[data-live-auction]').forEach(btn => { btn.onclick = () => openAuction(btn.dataset.liveAuction); });
+    const liveAuc = root.querySelector('#btnLiveAuc');
+    if (liveAuc) liveAuc.onclick = () => {
+      const userNow = window.TOB_AUTH.currentUser();
+      if (!userNow || userNow.guest) return showAuth('login');
+      showAuctions();
+    };
+    root.querySelectorAll('[data-live-watch]').forEach(btn => { btn.onclick = () => window.TOB_PVP && window.TOB_PVP.spectate(btn.dataset.liveWatch); });
+    const livePvp = root.querySelector('#btnLivePvp');
+    if (livePvp) livePvp.onclick = () => {
+      const userNow = window.TOB_AUTH.currentUser();
+      if (!userNow || userNow.guest) return showAuth('login');
+      if (window.TOB_PVP) window.TOB_PVP.show();
+    };
+  }
+  let liveRefresh = null;
+  async function refreshLivePanel() {
+    const screen = document.getElementById('homeScreen');
+    if (!screen || livePreview || liveRefresh) return;
+    const grid = screen.querySelector('.live-grid');
+    if (!grid) return;
+    liveRefresh = (async () => {
+      const lots = await homeAuctions();
+      const games = await homeMatches();
+      const next = screen.querySelector('.live-grid');
+      if (next) next.outerHTML = liveNowMarkup(lots, games);
+      bindLive(screen);
+    })();
+    try { await liveRefresh; } finally { liveRefresh = null; }
+  }
+  function openAuction(id) {
+    const user = window.TOB_AUTH.currentUser();
+    if (!user || user.guest) return showAuth('login');
+    aucLot = id;
+    aucTab = 'detail';
+    showAuctions();
   }
   function showHome() {
     auctionNotices();
@@ -1915,23 +2086,15 @@
       const profile = await window.TOB_AUTH.loadProfile();
       if (!window.TOB_AUTH.currentUser()) return;
       const owned = (profile && profile.collection) || [];
-      let feat = null;
-      if (owned.length) {
-        const rec = owned[Math.floor(Math.random() * owned.length)];
-        feat = {id: rec.id, gold: !!rec.gold, owned: owned.filter(c => c.id === rec.id).length};
-      } else {
-        const c = CARD_LIST[Math.floor(Math.random() * CARD_LIST.length)];
-        feat = {id: c.id, gold: false, owned: 0};
-      }
-      const def = CARDS[feat.id];
-      const copy = COPIES.makeCopy(feat.id, {gold: feat.gold});
-      const pulls = owned.length > 12 ? owned.slice(12).slice(-4).reverse() : [];
+      const pulls = owned.filter(p => p && isPublicCard(p.id)).slice(-4).reverse();
+      const liveLots = await homeAuctions();
+      const liveGames = await homeMatches();
       const pullList = pulls.length
         ? pulls.map(p => `<li>${CARDS[p.id] ? CARDS[p.id].name : p.id}${p.gold ? ' · GOLD' : ''}</li>`).join('')
         : '<li>No pulls yet. Open a pack!</li>';
       const ready = packState.lastDaily !== todayKey();
       const admin = packState.role === 'admin';
-      const tab = (id, label, short) => `<button type="button" class="portal-tab" id="${id}"><span class="tab-ico" aria-hidden="true"></span><span class="tab-label"><span class="tab-long">${label}</span><span class="tab-short">${short}</span></span><span class="chev" aria-hidden="true">&gt;</span></button>`;
+      const tab = (id, label, short) => `<button type="button" class="portal-tab" id="${id}"><span class="tab-ico" aria-hidden="true"></span><span class="tab-label"><span class="tab-long">${label}</span><span class="tab-short">${short}</span></span>${id === 'btnProfile' ? '<span class="packbadge" data-friendbadge></span>' : ''}<span class="chev" aria-hidden="true">&gt;</span></button>`;
       ov.innerHTML = `<div id="homeScreen" class="portal">
         <div class="portal-top">
           <div class="portal-brand"><span class="ring"></span><span class="portal-word">TOON ORBIT <b>TRADING CARDS</b></span></div>
@@ -1961,17 +2124,9 @@
           <div class="portal-content">
           <section class="portal-main">
             <div class="portal-frame">
-              <div class="portal-framehead"><span class="portal-badge" aria-hidden="true"></span> FEATURED CARD</div>
-              <div class="portal-feature">
-                <div class="portal-info">
-                  <div class="portal-cardname">${def.name}</div>
-                  <div>${def.pts} PTS · ${cap(def.color)}</div>
-                  <div>${feat.gold ? 'GOLD' : 'STANDARD'} · YOU OWN ${feat.owned}</div>
-                  <div class="portal-power">${def.power}</div>
-                  ${ready ? `<button type="button" class="portal-clock" id="btnDaily"><span>DAILY PACK</span><b id="homeClock">${dailyClockText()}</b></button>` : `<div class="portal-clock"><span>TIME REMAINING</span><b id="homeClock">${dailyClockText()}</b></div>`}
-                </div>
-                <div class="portal-stage">${cardHTML(copy, null, true)}</div>
-              </div>
+              <div class="portal-framehead"><span class="portal-badge" aria-hidden="true"></span> LIVE NOW</div>
+              ${liveNowMarkup(liveLots, liveGames)}
+              ${ready ? `<button type="button" class="portal-clock" id="btnDaily"><span>DAILY PACK</span><b id="homeClock">${dailyClockText()}</b></button>` : `<div class="portal-clock"><span>TIME REMAINING</span><b id="homeClock">${dailyClockText()}</b></div>`}
               <button type="button" class="portal-cta" id="btnPlay">PLAY NOW</button>
               <button type="button" class="portal-cta" id="btnPacks">OPEN PACK</button>
             </div>
@@ -1989,11 +2144,20 @@
           </div>
         </div>
       </div>`;
+      bindLive(ov);
+      let liveTick = 0;
       homeClock = setInterval(() => {
         const node = document.getElementById('homeClock');
-        if (!node) { stopHomeClock(); return; }
-        node.textContent = dailyClockText();
+        document.querySelectorAll('[data-live-ends]').forEach(el => { el.textContent = aucClock(+el.dataset.liveEnds); });
+        if (!node && !document.querySelector('[data-live-ends]')) { stopHomeClock(); return; }
+        if (node) node.textContent = dailyClockText();
+        liveTick += 1;
+        if (!livePreview && liveTick % 5 === 0) refreshLivePanel();
       }, 1000);
+      paintFriendBadge();
+      refreshFriendBadge();
+      watchHomeLive();
+      watchFriendRequests();
     };
     draw();
   }
@@ -2034,7 +2198,7 @@
     hidePreview();
     const ov = $('#overlay'); ov.classList.remove('hidden');
     const draw = () => {
-      const galleryPool = (packState.role === 'admin' && window.TOB_OBSIDIAN) ? CARD_LIST.concat(window.TOB_OBSIDIAN) : CARD_LIST;
+      const galleryPool = (packState.role === 'admin' && window.TOB_OBSIDIAN) ? CARD_LIST.concat(window.TOB_OBSIDIAN) : CARD_LIST.filter(c => isPublicCard(c.id));
       const cards = galleryPool.filter(c => (!archFilter || c.archetype === archFilter) && (!comboOnly || (window.TOB_COMBOS && window.TOB_COMBOS.cardInCombo(c)))).map(c => COPIES.makeCopy(c.id, {gold: collectionGold}));
       const crewList = comboOnly && window.TOB_COMBOS ? window.TOB_COMBOS.sets.map(s => `<div class="combochip"><b>${s.name}</b> +${s.bonus} · ${s.ids.map(id => CARDS[id] ? CARDS[id].name : id).join(', ')}</div>`).join('') : '';
       ov.innerHTML = `<div class="panel collection">
@@ -3110,6 +3274,52 @@
     render();
     announceCombos();
   }
+  let homeLiveChannel = null;
+  let friendChannel = null;
+  function watchHomeLive() {
+    const db = window.TOB_AUTH && window.TOB_AUTH.client && window.TOB_AUTH.client();
+    if (!db || homeLiveChannel) return;
+    const poke = () => { if (document.getElementById('homeScreen')) refreshLivePanel(); };
+    homeLiveChannel = db.channel('home-live')
+      .on('postgres_changes', {event: '*', schema: 'public', table: 'auctions'}, poke)
+      .on('postgres_changes', {event: '*', schema: 'public', table: 'bids'}, poke)
+      .on('postgres_changes', {event: '*', schema: 'public', table: 'match_public'}, poke)
+      .subscribe();
+  }
+  function watchFriendRequests() {
+    const db = window.TOB_AUTH && window.TOB_AUTH.client && window.TOB_AUTH.client();
+    const user = window.TOB_AUTH.currentUser();
+    if (!db || !user || user.guest || friendChannel) return;
+    friendChannel = db.channel('friend-requests')
+      .on('postgres_changes', {event: '*', schema: 'public', table: 'friend_requests'}, () => {
+        refreshFriendBadge();
+        if (document.getElementById('profileScreen')) showProfile();
+      })
+      .subscribe();
+  }
+  async function previewHomeLive() {
+    if (!window.TOB_AUTH.currentUser()) await window.TOB_AUTH.playAsGuest();
+    const lot = (id, name, gold, bid, start, mins) => ({
+      id: 'lot-' + id, status: 'open', ends: Date.now() + mins * 60000,
+      bidder: bid ? 'Nova' : '', bid: bid || 0, start,
+      card: {id, name, gold, uid: id + (gold ? ':g:0' : ':s:0')},
+    });
+    livePreview = {
+      lots: [
+        lot('zoomer', 'Captain Zoomer', true, 180, 100, 4),
+        lot('nell', 'Nova Nell', false, 0, 50, 18),
+        lot('bleep', 'Bleep-O', false, 40, 20, 40),
+        lot('daisy', 'Daisy Dynamo', true, 90, 60, 75),
+        lot('ob_onyxion', 'Onyxion', false, 10, 10, 5),
+      ],
+      games: [
+        {id: 'm1', host_name: 'Nova', guest_name: 'Pip', host_avatar: 'nell', guest_avatar: 'zoomer', phase: 'place1', host_board: [{id: 'nell'}, {id: 'bleep'}, null, null, null, null, null], guest_board: [{id: 'zoomer'}, null, null, null, null, null, null]},
+        {id: 'm2', host_name: 'Hank', guest_name: 'Daisy', host_avatar: 'daisy', guest_avatar: 'cometkid', phase: 'place2', host_board: [{id: 'daisy'}, {id: 'nell'}, {id: 'bleep'}, {id: 'zoomer'}, null, null, null], guest_board: [{id: 'cometkid'}, {id: 'lunara'}, {id: 'nell'}, {id: 'daisy'}, {id: 'bleep'}, null, null]},
+        {id: 'm3', host_name: 'Comet', guest_name: 'Lunara', host_avatar: 'cometkid', guest_avatar: 'lunara', phase: 'score', host_score: 18, guest_score: 12},
+      ],
+    };
+    showHome();
+  }
   window.TOB_UI = {card: cardHTML};
-  window.TOB_GAME = {demoCombo, showRules, showHome, showAuth};
+  window.TOB_GAME = {demoCombo, showRules, showHome, showAuth, openAuction, liveNowMarkup, previewHomeLive};
 })();
