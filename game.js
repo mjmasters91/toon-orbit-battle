@@ -9,12 +9,24 @@
   const PHASE_SECONDS = 90;
   function clockText(left) {
     left = Math.max(0, left | 0);
-    if (left >= 60) {
-      const m = Math.floor(left / 60);
-      const s = left % 60;
-      return m + ':' + (s < 10 ? '0' : '') + s;
+    const m = Math.floor(left / 60);
+    const s = left % 60;
+    return m + ':' + (s < 10 ? '0' : '') + s;
+  }
+  function paintClock(node, left, total) {
+    if (!node) return;
+    if (left == null || total == null) {
+      node.textContent = '';
+      node.className = 'idle';
+      node.style.setProperty('--p', '0');
+      node.removeAttribute('aria-label');
+      return;
     }
-    return String(left);
+    const secs = Math.max(0, left | 0);
+    node.textContent = clockText(secs);
+    node.style.setProperty('--p', String(Math.max(0, secs) / Math.max(1, total)));
+    node.setAttribute('aria-label', secs + ' seconds left');
+    node.className = (secs < 10 ? 'warn' : secs < 20 ? 'low' : '');
   }
   const GOLD_CHANCE = 0.03;
   const ECONOMY_DEFAULTS = {winCoins: 100, lossCoins: 25, packPrice: 300, themePrice: 400, themeWeekPrice: 350, auctionFee: 0};
@@ -53,7 +65,7 @@
   const el = (tag, cls, html) => { const d = document.createElement(tag); if (cls) d.className = cls; if (html != null) d.innerHTML = html; return d; };
   const cap = s => s ? s[0].toUpperCase() + s.slice(1) : s;
   const results = [];
-  window.TOB = {results, get G() { return G; }, clockText, phaseSeconds: PHASE_SECONDS};
+  window.TOB = {results, get G() { return G; }, clockText, paintClock, phaseSeconds: PHASE_SECONDS};
 
   /* ---------- sound (tiny WebAudio blips, early-2000s web style) ---------- */
   let soundOn = !AUTO, actx = null;
@@ -265,17 +277,14 @@
     let left = secs; const t = $('#timer');
     const tick = () => {
       if (window.TOB.battleLock) return;
-      t.textContent = clockText(left);
-      t.style.setProperty('--p', String(Math.max(0, left) / secs));
-      t.setAttribute('aria-label', left + ' seconds left');
-      t.className = (left >= 60 ? 'wide' : '') + (left <= 10 ? ' warn' : '');
+      paintClock(t, left, secs);
     };
     tick();
     timerId = setInterval(() => { left--; tick(); if (left <= 0) { stopTimer(); onTimeout(); } }, 1000);
   }
   function stopTimer() {
     if (timerId) clearInterval(timerId); timerId = null;
-    const t = $('#timer'); t.textContent = ''; t.style.removeProperty('--p'); t.removeAttribute('aria-label');
+    paintClock($('#timer'), null, null);
   }
   const wait = ms => new Promise(r => setTimeout(r, ms));
   function announceCombos() {

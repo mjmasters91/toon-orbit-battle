@@ -4,7 +4,31 @@
 <meta charset="utf-8">
 <title>Toon Orbit Battle</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <meta name="theme-color" content="#0c1228">
+<script>
+(function () {
+  var here = '30.13';
+  var params;
+  try { params = new URLSearchParams(location.search); }
+  catch (e) { return; }
+  var jumped = '';
+  try { jumped = sessionStorage.getItem('tob_cv') || ''; } catch (e) {}
+  if (params.get('cv') && params.get('cv') === jumped) return;
+  fetch('version.txt?t=' + Date.now(), {cache: 'no-store'}).then(function (res) {
+    return res.ok ? res.text() : '';
+  }).then(function (raw) {
+    var live = String(raw || '').trim();
+    if (!/^[\d.]+$/.test(live) || live === here) return;
+    try { sessionStorage.setItem('tob_cv', live); } catch (e) {}
+    var url = new URL(location.href);
+    url.searchParams.set('cv', live);
+    location.replace(url.toString());
+  }).catch(function () {});
+})();
+</script>
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Toon Orbit">
@@ -12,7 +36,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="stylesheet" href="style.css?v=30.12">
+<link rel="stylesheet" href="style.css?v=30.13">
 <link rel="icon" href="icon-192.png" sizes="192x192">
 <link rel="apple-touch-icon" href="icon-192.png">
 </head>
@@ -129,20 +153,20 @@
     </div>
   </div>
 </div>
-<script src="cards.js?v=30.12"></script>
-<script src="cards-set2.js?v=30.12"></script>
-<script src="combos.js?v=30.12"></script>
-<script src="cards-obsidian.js?v=30.12"></script>
-<script src="copies.js?v=30.12"></script>
-<script src="engine.js?v=30.12"></script>
-<script src="ai.js?v=30.12"></script>
-<script src="art.js?v=30.12"></script>
+<script src="cards.js?v=30.13"></script>
+<script src="cards-set2.js?v=30.13"></script>
+<script src="combos.js?v=30.13"></script>
+<script src="cards-obsidian.js?v=30.13"></script>
+<script src="copies.js?v=30.13"></script>
+<script src="engine.js?v=30.13"></script>
+<script src="ai.js?v=30.13"></script>
+<script src="art.js?v=30.13"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
-<script src="supabase-config.js?v=30.12"></script>
-<script src="auth.js?v=30.12"></script>
-<script src="auctions.js?v=30.12"></script>
-<script src="game.js?v=30.12"></script>
-<script src="pvp.js?v=30.12"></script>
-<script src="trades.js?v=30.12"></script>
+<script src="supabase-config.js?v=30.13"></script>
+<script src="auth.js?v=30.13"></script>
+<script src="auctions.js?v=30.13"></script>
+<script src="game.js?v=30.13"></script>
+<script src="pvp.js?v=30.13"></script>
+<script src="trades.js?v=30.13"></script>
 </body>
 </html>

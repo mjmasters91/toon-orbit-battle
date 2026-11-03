@@ -135,22 +135,20 @@
   function startBattleClock(deadline) {
     stopClock();
     const total = (root.TOB && root.TOB.phaseSeconds) || 90;
-    const text = (left) => (root.TOB && root.TOB.clockText) ? root.TOB.clockText(left) : String(left);
+    const paint = (root.TOB && root.TOB.paintClock) || function (node, left, secs) {
+      if (!node) return;
+      if (left == null) { node.textContent = ''; node.className = 'idle'; return; }
+      const m = Math.floor(left / 60);
+      const s = left % 60;
+      node.textContent = m + ':' + (s < 10 ? '0' : '') + s;
+      node.style.setProperty('--p', String(left / Math.max(1, secs)));
+      node.className = left < 10 ? 'warn' : left < 20 ? 'low' : '';
+    };
     const tick = () => {
       const node = document.getElementById('timer');
-      if (!node) return;
-      if (!deadline) {
-        node.textContent = '';
-        node.className = '';
-        node.style.removeProperty('--p');
-        node.removeAttribute('aria-label');
-        return;
-      }
+      if (!deadline) { paint(node, null, null); return; }
       const left = Math.max(0, Math.ceil((new Date(deadline).getTime() - Date.now()) / 1000));
-      node.textContent = text(left);
-      node.style.setProperty('--p', String(left / total));
-      node.className = (left >= 60 ? 'wide' : '') + (left <= 10 ? ' warn' : '');
-      node.setAttribute('aria-label', left + ' seconds left');
+      paint(node, left, total);
     };
     tick();
     clockTimer = setInterval(tick, 250);

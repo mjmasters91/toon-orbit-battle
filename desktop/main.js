@@ -43,6 +43,7 @@ async function createWindow() {
     height: 800,
     minWidth: 1024,
     minHeight: 640,
+    show: false,
     title: 'Toon Orbit Battle',
     autoHideMenuBar: true,
     icon: path.join(__dirname, 'build', 'icon.ico'),
@@ -54,8 +55,23 @@ async function createWindow() {
   });
   win.setMenuBarVisibility(false);
   wire(win);
-  await win.webContents.session.clearCache();
-  win.loadURL(SITE);
+  const ses = win.webContents.session;
+  await ses.clearCache();
+  let revealed = false;
+  const reveal = () => {
+    if (revealed || win.isDestroyed()) return;
+    revealed = true;
+    win.show();
+  };
+  win.webContents.once('did-finish-load', () => {
+    win.webContents.once('did-finish-load', reveal);
+    win.webContents.once('did-fail-load', reveal);
+    win.webContents.reloadIgnoringCache();
+  });
+  win.webContents.once('did-fail-load', reveal);
+  await win.loadURL(SITE, {
+    extraHeaders: 'Cache-Control: no-cache\r\nPragma: no-cache\r\n',
+  });
 }
 
 function checkWrapperUpdate() {
