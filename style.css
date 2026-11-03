@@ -654,17 +654,54 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
     radial-gradient(90% 80% at 50% 120%, rgba(0,0,0,.72), transparent 46%),
     linear-gradient(118deg, rgba(255,167,51,.08), transparent 32%, transparent 68%, rgba(255,122,0,.05)); }
 .deckscreen { text-align: left; }
-.deckblock { margin: 0 0 18px; }
-.deckhead { display: flex; justify-content: space-between; gap: 10px; align-items: center; margin-bottom: 8px; }
-.dsum { font-weight: 800; color: #f0c14a; }
-.cdot { display: inline-flex; align-items: center; margin: 2px 8px 0 0; font-size: 12px; color: #d5def5; }
-.deckgrid { display: flex; flex-direction: column; gap: 8px; }
-.deckcard { display: flex; gap: 10px; align-items: flex-start; width: 100%; text-align: left; color: inherit; cursor: pointer; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.14); border-radius: 16px; padding: 8px; filter: none; backdrop-filter: none; }
-.deckcard img { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; flex: none; background: #10131c; }
-.dinfo { min-width: 0; }
-.dinfo b { display: block; font-size: 15px; }
-.dmeta { display: block; font-size: 13px; color: #d5def5; margin: 2px 0; }
-.dpower { display: block; font-size: 13px; line-height: 1.35; color: #eef2ff; }
+#overlay:has(.deckscreen) { overflow: hidden; display: flex; }
+.panel.deckscreen {
+  width: 100%; max-width: none; height: 100%; max-height: none; margin: 0; overflow: hidden;
+  display: flex; flex-direction: column; gap: 8px; padding: 10px 12px;
+}
+.deckscreen-bar { display: flex; align-items: center; gap: 8px; flex: none; }
+.deckscreen-bar .sb-title { margin: 0; flex: none; }
+.deckscreen-bar input {
+  flex: 1; min-width: 0; height: 36px; border-radius: 999px; border: 2px solid #4fa3e0;
+  background: #082448; color: #fff; padding: 0 12px; font: 800 14px Nunito, sans-serif;
+}
+.deck-grid {
+  flex: 1; min-height: 0; overflow: auto; display: grid;
+  grid-template-columns: 1fr 1fr; gap: 8px; align-content: start;
+}
+.decktile {
+  background: #082448; border: 2px solid #1d4f86; border-radius: 10px; padding: 8px;
+  display: flex; flex-direction: column; gap: 6px; min-width: 0;
+}
+.decktile-top { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; }
+.decktile-copy { min-width: 0; }
+.decktile .dname { margin: 0; color: #fff; font-size: 16px; }
+.decktile .dsum { font-weight: 800; color: #ffe56a; font-size: 13px; }
+.deck-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.deck-chip { display: inline-flex; align-items: center; gap: 3px; font: 800 11px/1 Nunito, sans-serif; color: #d7ecff; }
+.deck-chip i { width: 10px; height: 10px; border-radius: 50%; box-shadow: 0 0 0 1px rgba(0,0,0,.35); }
+.decktile-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex: none; }
+.decktile-actions .btn { margin: 0; min-height: 32px; padding: 6px 12px; }
+.deck-reason { margin: 0; max-width: 180px; text-align: right; color: #ffd2a8; font: 800 12px/1.3 Nunito, sans-serif; }
+.deck-pucks { display: flex; gap: 3px; min-width: 0; }
+.deck-puck { flex: 1 1 0; width: 34px; max-width: 36px; height: 34px; padding: 0; border: 0; background: transparent; cursor: pointer; }
+.deck-puck .card { width: 100%; height: 100%; }
+.deck-puck .cname, .deck-puck .pstar, .deck-puck .goldtag { display: none; }
+.deck-puck .cpts { font-size: 7px; min-width: 0; padding: 0 2px; }
+.deck-view {
+  align-self: flex-start; border: 0; background: transparent; color: #9fd6fb; cursor: pointer;
+  font: 800 12px/1 Nunito, sans-serif; padding: 0; text-decoration: underline;
+}
+.deck-detail { display: none; }
+.decktile.open .deck-detail { display: flex; flex-direction: column; gap: 3px; }
+.deck-line { display: grid; grid-template-columns: minmax(0, 1.1fr) auto minmax(0, 1.4fr); gap: 6px; font-size: 12px; color: #d7ecff; }
+.deck-line b { color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.deck-line span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 800px) {
+  #overlay:has(.deckscreen) { overflow: auto; }
+  .panel.deckscreen { height: auto; overflow: visible; }
+  .deck-grid { grid-template-columns: 1fr; overflow: visible; }
+}
 @media (min-width: 1100px) {
   .foilpack { width: 280px; }
 }

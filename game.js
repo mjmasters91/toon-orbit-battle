@@ -1996,43 +1996,64 @@
     const ok = others[Math.floor(Math.random() * others.length)];
     startGame(pIds, DECKS[ok].cards, OPP_NAMES[ok] || DECKS[ok].name);
   }
-  let deckFinish = 'all', deckColor = '', deckArch = '', deckQ = '';
-  function deckMatch(entry) {
-    const id = entryId(entry);
-    const c = CARDS[id];
-    if (!c) return false;
-    if (deckQ && c.name.toLowerCase().indexOf(deckQ.trim().toLowerCase()) === -1) return false;
-    if (deckColor && c.color !== deckColor) return false;
-    if (deckArch && (c.archetype || '') !== deckArch) return false;
-    const gold = !!(entry && typeof entry === 'object' && entry.gold);
-    if (deckFinish === 'gold' && !gold) return false;
-    if (deckFinish === 'standard' && gold) return false;
-    return true;
+  function deckKnown(entries) {
+    return (entries || []).filter(entry => CARDS[entryId(entry)]);
   }
-  function deckBlock(key, name, entries, playable) {
-    const list = (entries || []).filter(deckMatch);
+  function deckHasObsidian(entries) {
+    return deckKnown(entries).some(entry => {
+      const id = entryId(entry);
+      const card = CARDS[id];
+      return String(id).indexOf('ob_') === 0 || !!(card && card.adminOnly);
+    });
+  }
+  function deckBlockReason(entries) {
+    const list = deckKnown(entries);
+    const reasons = [];
+    if (list.length < 12) reasons.push('Needs 12 cards (' + list.length + '/12).');
+    if (deckHasObsidian(list) && packState.role !== 'admin') reasons.push('Obsidian cards are not allowed in ranked.');
+    return reasons.join(' ');
+  }
+  function deckTile(key, name, entries) {
+    const list = deckKnown(entries);
     let pts = 0;
     const colors = {};
-    (entries || []).forEach(entry => {
-      const c = CARDS[entryId(entry)];
-      if (!c) return;
-      pts += c.pts;
-      colors[c.color] = (colors[c.color] || 0) + 1;
+    list.forEach(entry => {
+      const card = CARDS[entryId(entry)];
+      pts += card.pts;
+      colors[card.color] = (colors[card.color] || 0) + 1;
     });
-    const dots = Object.entries(colors).map(([c, n]) => `<span class="cdot"><span class="gem" style="background:${COLORS[c]}"></span>${n} ${cap(c)}</span>`).join('');
-    const cards = list.map(entry => {
+    const chips = Object.entries(colors).map(([c, n]) => `<span class="deck-chip" title="${n} ${cap(c)}"><i style="background:${COLORS[c]}"></i>${n}</span>`).join('');
+    const pucks = list.map(entry => {
       const id = entryId(entry);
-      const c = CARDS[id];
-      if (!c) return '';
+      const card = CARDS[id];
       const gold = !!(entry && typeof entry === 'object' && entry.gold);
       const copy = COPIES.makeCopy(id, {gold, uid: entry && entry.uid});
-      return `<button type="button" class="deckcard" data-cid="${c.id}" data-gold="${gold ? '1' : '0'}"><span class="dthumb">${cardHTML(copy, null, true)}</span><span class="dinfo"><b>${c.name}</b><span class="dmeta"><span class="gem" style="background:${COLORS[c.color]}"></span>${c.pts} pts · ${cap(c.color)}${gold ? ' · GOLD' : ''}</span><span class="dpower">${c.power}</span></span></button>`;
+      return `<button type="button" class="deck-puck" data-cid="${card.id}" data-gold="${gold ? '1' : '0'}" aria-label="${card.name}">${cardHTML(copy, null, true)}</button>`;
     }).join('');
-    const play = playable
-      ? `<button type="button" class="btn go deckplay" data-deck="${key}">Play</button>${key === 'custom' ? '<button type="button" class="btn" id="btnBuild">Build / Edit deck</button>' : ''}`
-      : `<button type="button" class="btn" id="btnBuild">Build / Edit deck</button>`;
+    const reason = deckBlockReason(list);
+    const edit = key === 'custom' ? `<button type="button" class="btn deck-build" id="btnBuild">${list.length === 12 ? 'Edit' : 'Build deck'}</button>` : '';
+    const play = reason
+      ? `<p class="deck-reason">${reason}</p>${edit}`
+      : `<button type="button" class="btn go deckplay" data-deck="${key}">Choose deck</button>${edit}`;
     const badge = key === 'obsidian' ? '<span class="adminbadge">ADMIN</span>' : '';
-    return `<section class="deckblock${key === 'obsidian' ? ' obsidian' : ''}"><div class="deckhead"><div><div class="dname">${badge}${name}</div><div class="dsum">${pts} base pts</div><div class="dcolors">${dots}</div></div>${play}</div><div class="deckgrid">${cards}</div></section>`;
+    const detail = list.map(entry => {
+      const card = CARDS[entryId(entry)];
+      const gold = !!(entry && typeof entry === 'object' && entry.gold);
+      return `<div class="deck-line"><b>${card.name}</b><span>${card.pts} pts · ${cap(card.color)}${gold ? ' · Gold' : ''}</span><span>${card.power}</span></div>`;
+    }).join('');
+    return `<article class="decktile${key === 'obsidian' ? ' obsidian' : ''}" data-deckname="${name.toLowerCase()}">
+      <div class="decktile-top">
+        <div class="decktile-copy">
+          <div class="dname">${badge}${name}</div>
+          <div class="dsum">${pts} base pts · ${list.length}/12</div>
+          <div class="deck-chips">${chips}</div>
+        </div>
+        <div class="decktile-actions">${play}</div>
+      </div>
+      <div class="deck-pucks">${pucks}</div>
+      <button type="button" class="deck-view" data-viewcards aria-expanded="false">View cards</button>
+      <div class="deck-detail">${detail}</div>
+    </article>`;
   }
   let homeClock = null;
   let livePreview = null;
@@ -2302,30 +2323,42 @@
     const ov = $('#overlay'); ov.classList.remove('hidden');
     const profile = await window.TOB_AUTH.loadProfile();
     const cd = customDeck(ownedBags(profile));
-    const arches = [...new Set(CARD_LIST.map(c => c.archetype).filter(Boolean))].sort();
-    const blocks = Object.entries(DECKS).filter(([, d]) => !d.ai && (!d.adminOnly || packState.role === 'admin')).map(([k, d]) => deckBlock(k, d.name, d.cards, true)).join('');
-    const custom = cd.length === 12 ? deckBlock('custom', 'My Deck', cd, true) : `<section class="deckblock"><div class="deckhead"><div><div class="dname">My Deck</div><div class="dsum">${cd.length}/12 cards</div></div><button type="button" class="btn" id="btnBuild">Build it</button></div></section>`;
-    const chip = (id, label) => `<button type="button" class="btn filter${deckFinish === id ? ' on' : ''}" data-dfinish="${id}">${label}</button>`;
+    const premade = Object.entries(DECKS).filter(([, d]) => !d.ai && (!d.adminOnly || packState.role === 'admin')).map(([k, d]) => deckTile(k, d.name, d.cards)).join('');
     ov.innerHTML = `<div class="panel select deckscreen">
-      <div class="sb-title">Choose a deck</div>
-      <div class="tag">Gold copies are cosmetic. Tap a card for the full preview.</div>
-      <div class="bfilters">
-        <input id="deckQ" value="${deckQ.replace(/"/g, '&quot;')}" placeholder="Search name" aria-label="Search cards">
-        ${chip('all', 'All')}${chip('gold', 'Gold')}${chip('standard', 'Standard')}
-        <select id="deckColor" aria-label="Color"><option value="">All colors</option>${Object.keys(COLORS).map(c => `<option value="${c}"${deckColor === c ? ' selected' : ''}>${cap(c)}</option>`).join('')}</select>
-        <select id="deckArch" aria-label="Archetype"><option value="">All types</option>${arches.map(a => `<option value="${a}"${deckArch === a ? ' selected' : ''}>${a}</option>`).join('')}</select>
+      <div class="deckscreen-bar">
+        <div class="sb-title">Choose a deck</div>
+        <input id="deckQ" placeholder="Search decks" aria-label="Search decks">
+        <button type="button" class="btn" id="btnDeckHome">Home</button>
       </div>
-      ${blocks}${custom}
-      <div class="go-btns"><button class="btn" id="btnDeckHome">HOME</button></div>
+      <div class="deck-grid">${deckTile('custom', 'My Deck', cd)}${premade}</div>
     </div>`;
-    ov.querySelectorAll('.deckcard').forEach(btn => {
-      btn.onclick = (ev) => { ev.stopPropagation(); inspect(COPIES.makeCopy(btn.dataset.cid, {gold: btn.dataset.gold === '1'}), null, true); };
-    });
-    ov.querySelectorAll('[data-dfinish]').forEach(btn => { btn.onclick = () => { deckFinish = btn.dataset.dfinish; showDeckSelect(); }; });
     const q = $('#deckQ');
-    if (q) q.onchange = () => { deckQ = q.value; showDeckSelect(); };
-    $('#deckColor').onchange = () => { deckColor = $('#deckColor').value; showDeckSelect(); };
-    $('#deckArch').onchange = () => { deckArch = $('#deckArch').value; showDeckSelect(); };
+    if (q) q.oninput = () => {
+      const v = q.value.trim().toLowerCase();
+      ov.querySelectorAll('.decktile').forEach(tile => {
+        tile.hidden = !!(v && tile.dataset.deckname.indexOf(v) === -1);
+      });
+    };
+    ov.querySelectorAll('[data-viewcards]').forEach(btn => {
+      btn.onclick = () => {
+        const tile = btn.closest('.decktile');
+        const open = tile.classList.toggle('open');
+        btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        btn.textContent = open ? 'Hide cards' : 'View cards';
+      };
+    });
+    ov.querySelectorAll('.deck-puck').forEach(btn => {
+      const show = () => showPackTip(btn, {
+        id: btn.dataset.cid,
+        gold: btn.dataset.gold === '1',
+        uid: 'deckpick:' + btn.dataset.cid + (btn.dataset.gold === '1' ? ':g' : ''),
+        plain: true,
+        ownedIds: new Set(),
+      });
+      btn.onmouseenter = show;
+      btn.onmouseleave = () => hidePackTip();
+      btn.onclick = (ev) => { ev.stopPropagation(); show(); };
+    });
   }
   let collectionGold = false;
   function showCollection() {
