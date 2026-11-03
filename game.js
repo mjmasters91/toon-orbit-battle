@@ -729,6 +729,7 @@
     const ov = $('#overlay');
     ov.classList.remove('hidden');
     const draw = async () => {
+      hidePackTip();
       const profile = await window.TOB_AUTH.loadProfile();
       if (!profile) { showAuth('login'); return; }
       const byId = new Map();
@@ -739,6 +740,7 @@
         group.count++;
         if (rec.gold) { group.gold++; group.sample = rec; }
       });
+      tipOwnedIds = new Set(byId.keys());
       const stats = collectionStats(profile);
       const since = profile.createdAt ? new Date(profile.createdAt) : null;
       const sinceTxt = since && !Number.isNaN(since.getTime())
@@ -782,6 +784,7 @@
         node.onclick = (ev) => {
           ev.stopPropagation();
           if (node.classList.contains('locked')) return;
+          if (!packCanHover()) showCollectionTip(node);
           const group = byId.get(node.dataset.cid);
           if (!group) return;
           inspect(COPIES.makeCopy(group.sample.id, {gold: group.gold > 0, uid: group.sample.uid}));
@@ -1609,11 +1612,13 @@
       </span>
     </button>`;
   }
-  function pullComboFacts(card, ownedBefore, pullIds) {
+  function cardComboFacts(card, ownedIds, pullIds) {
     const book = window.TOB_COMBOS;
     if (!book || !card) return [];
+    const owned = ownedIds || new Set();
+    const pulled = pullIds || new Set();
     const facts = [];
-    const idState = id => pullIds.has(id) ? 'pack' : ownedBefore.has(id) ? 'own' : 'miss';
+    const idState = id => pulled.has(id) ? 'pack' : owned.has(id) ? 'own' : 'miss';
     (book.sets || []).filter(s => s.ids.includes(card.id)).forEach(s => {
       facts.push({
         name: s.name,
@@ -1623,18 +1628,23 @@
     });
     (book.pairs || []).filter(p => card.archetype && (p.a === card.archetype || p.b === card.archetype)).forEach(p => {
       const other = p.a === card.archetype ? p.b : p.a;
-      const inPull = [...pullIds].some(id => CARDS[id] && CARDS[id].archetype === other);
-      const had = [...ownedBefore].some(id => CARDS[id] && CARDS[id].archetype === other);
+      const inPull = [...pulled].some(id => CARDS[id] && CARDS[id].archetype === other);
+      const had = [...owned].some(id => CARDS[id] && CARDS[id].archetype === other);
       facts.push({name: p.name, bonus: p.bonus, partners: [{name: other, state: inPull ? 'pack' : had ? 'own' : 'miss'}]});
     });
     return facts;
+  }
+  function pullComboFacts(card, ownedBefore, pullIds) {
+    return cardComboFacts(card, ownedBefore, pullIds);
   }
   function statsHTML(pull, withPuck) {
     const card = CARDS[pull.id];
     if (!card) return '';
     const copy = COPIES.makeCopy(pull.id, {gold: !!pull.gold, uid: pull.uid});
-    const pullIds = new Set((currentPulls || []).map(item => item.id));
-    const facts = pullComboFacts(card, pullOwnedBefore, pullIds);
+    const plain = !!pull.plain;
+    const ownedIds = plain ? (pull.ownedIds || new Set()) : pullOwnedBefore;
+    const pullIds = plain ? new Set() : new Set((currentPulls || []).map(item => item.id));
+    const facts = cardComboFacts(card, ownedIds, pullIds);
     const mark = state => state === 'pack' ? 'is-pack' : state === 'own' ? 'is-own' : 'is-miss';
     const markText = state => state === 'pack' ? 'In this pack' : state === 'own' ? 'Owned' : 'Not owned';
     const factHtml = facts.length ? facts.map(fact => `<div class="ps-fact"><span class="db-badge">COMBO</span> <b>${escPack(fact.name)}</b> +${fact.bonus}<ul>${fact.partners.map(p => `<li class="${mark(p.state)}">${markText(p.state)} · ${escPack(p.name)}</li>`).join('')}</ul></div>`).join('') : '<p class="ps-skill">No named crew or archetype pair on this card.</p>';
@@ -1793,6 +1803,26 @@
     if (place === 'above') tip.classList.add('from-top');
     requestAnimationFrame(() => tip.classList.add('open'));
   }
+  let tipOwnedIds = null;
+  function collectionCard(node) {
+    if (!node || !node.closest) return null;
+    const card = node.closest('.ccard');
+    if (!card || card.classList.contains('locked')) return null;
+    if (!card.closest('.panel.collection, .panel.mine')) return null;
+    return card;
+  }
+  function showCollectionTip(card) {
+    const id = card.dataset.cid;
+    if (!id || !CARDS[id]) return;
+    const gold = card.dataset.gold === '1' || (!card.dataset.gold && collectionGold);
+    showPackTip(card, {
+      id,
+      gold: !!gold,
+      uid: 'collection:' + id + (gold ? ':g' : ':s'),
+      plain: true,
+      ownedIds: tipOwnedIds,
+    });
+  }
   if (!openPack._tip) {
     openPack._tip = true;
     document.addEventListener('mouseover', e => {
@@ -1806,6 +1836,20 @@
     document.addEventListener('mouseout', e => {
       if (!packCanHover()) return;
       const card = e.target.closest && e.target.closest('.pullslot, .stagecard.flipped, .thumb');
+      if (!card) return;
+      const next = e.relatedTarget;
+      if (next && card.contains(next)) return;
+      hidePackTip();
+    });
+    document.addEventListener('mouseover', e => {
+      if (!packCanHover()) return;
+      const card = collectionCard(e.target);
+      if (!card) return;
+      showCollectionTip(card);
+    });
+    document.addEventListener('mouseout', e => {
+      if (!packCanHover()) return;
+      const card = collectionCard(e.target);
       if (!card) return;
       const next = e.relatedTarget;
       if (next && card.contains(next)) return;
@@ -2198,6 +2242,8 @@
     hidePreview();
     const ov = $('#overlay'); ov.classList.remove('hidden');
     const draw = () => {
+      hidePackTip();
+      tipOwnedIds = null;
       const galleryPool = (packState.role === 'admin' && window.TOB_OBSIDIAN) ? CARD_LIST.concat(window.TOB_OBSIDIAN) : CARD_LIST.filter(c => isPublicCard(c.id));
       const cards = galleryPool.filter(c => (!archFilter || c.archetype === archFilter) && (!comboOnly || (window.TOB_COMBOS && window.TOB_COMBOS.cardInCombo(c)))).map(c => COPIES.makeCopy(c.id, {gold: collectionGold}));
       const crewList = comboOnly && window.TOB_COMBOS ? window.TOB_COMBOS.sets.map(s => `<div class="combochip"><b>${s.name}</b> +${s.bonus} · ${s.ids.map(id => CARDS[id] ? CARDS[id].name : id).join(', ')}</div>`).join('') : '';
@@ -2217,7 +2263,11 @@
       if (comboBtn) comboBtn.onclick = () => { comboOnly = !comboOnly; draw(); };
       $('#btnBack').onclick = showHome;
       ov.querySelectorAll('.ccard').forEach(node => {
-        node.onclick = (ev) => { ev.stopPropagation(); inspect(COPIES.makeCopy(node.dataset.cid, {gold: collectionGold})); };
+        node.onclick = (ev) => {
+          ev.stopPropagation();
+          if (!packCanHover()) showCollectionTip(node);
+          inspect(COPIES.makeCopy(node.dataset.cid, {gold: collectionGold}));
+        };
       });
     };
     draw();
@@ -3072,7 +3122,12 @@
   /* ---------- events ---------- */
   document.addEventListener('click', e => {
     if (!e.target.closest('.usermenu')) closeUserMenu();
-    if (!packCanHover() && !e.target.closest('.pullslot, .stagecard, .thumb, #packTip')) hidePackTip();
+    const keepTip = e.target.closest('.pullslot, .stagecard, .thumb, #packTip, .panel.collection .ccard, .panel.mine .ccard');
+    if (!packCanHover() && !keepTip) hidePackTip();
+    if (!packCanHover()) {
+      const held = collectionCard(e.target);
+      if (held) showCollectionTip(held);
+    }
     const pop = $('#preview');
     const keep = e.target.closest('.preview-sheet, .handcard, .ccard, .card, .goalcard, .deckcard');
     if (pop && !pop.classList.contains('hidden') && !keep) { pop.classList.add('hidden'); pop.classList.remove('force'); }
