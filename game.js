@@ -2137,8 +2137,7 @@
       const liveGames = await homeMatches();
       const pullList = pulls.length
         ? pulls.map(p => `<li>${CARDS[p.id] ? CARDS[p.id].name : p.id}${p.gold ? ' · GOLD' : ''}</li>`).join('')
-        : '<li>No pulls yet. Open a pack!</li>';
-      const ready = packState.lastDaily !== todayKey();
+        : '<li>No pulls yet.</li>';
       const admin = packState.role === 'admin';
       const tab = (id, label, short) => `<button type="button" class="portal-tab" id="${id}"><span class="tab-ico" aria-hidden="true"></span><span class="tab-label"><span class="tab-long">${label}</span><span class="tab-short">${short}</span></span>${id === 'btnProfile' ? '<span class="packbadge" data-friendbadge></span>' : ''}<span class="chev" aria-hidden="true">&gt;</span></button>`;
       ov.innerHTML = `<div id="homeScreen" class="portal">
@@ -2150,19 +2149,16 @@
             <div class="portal-pill"><span class="coinicon" aria-hidden="true"></span> YOU HAVE ${packState.coins | 0} ORBIT COINS</div>
             <button type="button" class="portal-logout" id="btnHomeOut">LOGOUT</button>
             <button type="button" class="portal-sound" id="btnHomeSound">SOUND ${soundOn ? 'ON' : 'OFF'}</button>
-            <div class="portal-daily">${ready ? 'DAILY PACK READY' : 'DAILY PACK CLAIMED'}</div>
           </div>
         </div>
         <div class="portal-shell">
           <nav class="portal-tabs">
-            ${tab('btnGetCards', 'GET CARDS', 'CARDS')}
             ${tab('btnPlayTab', 'PLAY', 'PLAY')}
             ${tab('btnPvp', 'PVP', 'PVP')}
             ${tab('btnDecks', 'DECKS', 'DECKS')}
             ${tab('btnProfile', 'PROFILE', 'PROFILE')}
             ${tab('btnAuctions', 'AUCTIONS', 'BIDS')}
             ${tab('btnHomeCollection', 'MY COLLECTION', 'BINDER')}
-            ${tab('btnOpenPacks', 'OPEN PACKS', 'PACKS')}
             ${admin ? tab('btnHomeAdmin', 'ADMIN', 'ADMIN') : ''}
             ${tab('btnCollection', 'CARD GALLERY', 'GALLERY')}
             ${tab('btnRules2', 'HOW TO PLAY', 'HELP')}
@@ -2171,11 +2167,7 @@
           <section class="portal-main">
             ${liveNowMarkup(liveLots, liveGames)}
             <div class="home-actions">
-              ${ready ? `<button type="button" class="home-chip" id="btnDaily"><span>Daily pack</span><b id="homeClock">${dailyClockText()}</b></button>` : `<div class="home-chip"><span>Time remaining</span><b id="homeClock">${dailyClockText()}</b></div>`}
-              <div class="home-pills">
-                <button type="button" class="btn go home-pill" id="btnPlay">Play now</button>
-                <button type="button" class="btn home-pill" id="btnPacks">Open pack</button>
-              </div>
+              <button type="button" class="btn go home-pill" id="btnPlay">Play now</button>
             </div>
           </section>
           <div class="portal-bottom">
