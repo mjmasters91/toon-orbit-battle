@@ -7,6 +7,9 @@
   let poll = null;
   let activeId = null;
   let seat = 'host';
+  let searching = false;
+  let queuePoll = null;
+  let queueChannel = null;
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -71,24 +74,36 @@
         }
       });
     }
-    return out.length === 12 ? out : null;
+    return out;
   }
   async function myDeck() {
     const profile = await root.TOB_AUTH.loadProfile();
+    if (!profile) return {ok: false, error: 'Could not load your account.'};
     const deck = deckFromProfile(profile);
-    if (!deck) {
-      const admin = profile && profile.role === 'admin';
-      return {ok: false, error: admin ? 'Build a 12-card deck first.' : 'Build a 12-card deck without Obsidian cards first.'};
+    if (!deck || deck.length !== 12) {
+      const n = deck ? deck.length : 0;
+      const admin = profile.role === 'admin';
+      const error = admin
+        ? 'Your deck has ' + n + ' of 12 cards. Add cards you own. Obsidian cards count for admins.'
+        : 'Your deck has ' + n + ' of 12 cards. Build one without Obsidian cards.';
+      return {ok: false, error};
     }
     return {ok: true, deck, profile};
   }
-  function toast(msg) {
+  function toast(msg, bad) {
     const node = document.getElementById('toast');
-    if (!node) return;
-    node.textContent = msg;
-    node.classList.remove('hidden');
-    clearTimeout(toast._t);
-    toast._t = setTimeout(() => node.classList.add('hidden'), 2600);
+    if (node && msg) {
+      node.textContent = msg;
+      node.classList.remove('hidden');
+      clearTimeout(toast._t);
+      toast._t = setTimeout(() => node.classList.add('hidden'), 3200);
+    }
+    const line = document.getElementById('pvpStatus');
+    if (line && msg) {
+      line.textContent = msg;
+      line.classList.toggle('bad', !!bad);
+    }
+    if (bad) console.error('PvP', msg);
   }
   function shell(inner) {
     const ov = document.getElementById('overlay');
@@ -118,6 +133,7 @@
       return;
     }
     shell(`<header class="pvp-top"><div class="pvp-title">PVP</div><button type="button" class="btn" id="pvpHome">Home</button></header>
+      <p class="pvp-status" id="pvpStatus" role="status">${esc(extra || '')}</p>
       <section class="pvp-card"><h2>Play a friend</h2><p>Share a room code or open the link. Rooms expire in 10 minutes.</p>
         <label class="pvp-private"><input type="checkbox" id="pvpPrivate"> Private match</label>
         <button type="button" class="btn go" id="pvpRoom">Create room</button>
@@ -126,7 +142,13 @@
       <section class="pvp-card"><h2>Quick match</h2><p>Wait for the next player with a 12-card deck.</p>
         <button type="button" class="btn go" id="pvpQueue">Join queue</button>
       </section>
-      <div id="pvpExtra">${extra || ''}</div>`);
+      <div id="pvpExtra"></div>`);
+    if (extra) { const line = document.getElementById('pvpStatus'); if (line) line.classList.add('bad'); }
+  }
+  function showHub(note) {
+    stopWatch();
+    paintHub(note);
+    bindHub();
   }
   function paintLobby(match) {
     const code = match.code || '';
@@ -140,7 +162,7 @@
         <p id="pvpWait">${match.guest ? 'Starting…' : 'Waiting for an opponent…'}</p>
       </section>`);
     const cancel = $('#pvpCancel');
-    if (cancel) cancel.onclick = async () => { await rpc('cancel_lobby', {p_match: match.id}); stopWatch(); paintHub(); };
+    if (cancel) cancel.onclick = async () => { await rpc('cancel_lobby', {p_match: match.id}); showHub(); };
   }
   function scoreOf(state) {
     const cards = root.TOB_CARDS.CARDS;
@@ -315,44 +337,151 @@
       }
     } else if (match.status === 'finished') {
       toast(match.result === 'forfeit' ? 'Match ended by forfeit.' : 'Match finished.');
-      stopWatch();
-      paintHub();
+      showHub();
     }
   }
   async function openMatch(id) {
     const match = await loadMatch(id);
-    if (!match) { toast('Match not found.'); return; }
+    if (!match) { toast('Match not found.', true); return; }
     watch(id);
     if (match.status === 'lobby') paintLobby(match);
     else paintMatch(match);
   }
   async function createRoom() {
     const deck = await myDeck();
-    if (!deck.ok) { toast(deck.error); return; }
+    if (!deck.ok) { toast(deck.error, true); return; }
     const priv = document.getElementById('pvpPrivate');
     const args = {p_deck: deck.deck};
     if (priv && priv.checked) args.p_private = true;
     const res = await rpc('create_room', args);
-    if (!res.ok) { toast(res.error || 'Could not create a room.'); return; }
+    if (!res.ok) { toast(res.error || 'Could not create a room.', true); return; }
     openMatch(res.data.id);
   }
   async function joinCode(code) {
     const deck = await myDeck();
-    if (!deck.ok) { toast(deck.error); return; }
+    if (!deck.ok) { toast(deck.error, true); return; }
     const res = await rpc('join_room', {p_code: code, p_deck: deck.deck});
-    if (!res.ok) { toast(res.error || 'Could not join that room.'); return; }
+    if (!res.ok) { toast(res.error || 'Could not join that room.', true); return; }
     openMatch(res.data.id);
   }
+  function rpcBody(res) {
+    if (!res) return {};
+    let data = res.data != null ? res.data : res;
+    if (typeof data === 'string') {
+      try { data = JSON.parse(data); } catch (e) { return {}; }
+    }
+    return data && typeof data === 'object' ? data : {};
+  }
+  function stopQueue() {
+    searching = false;
+    if (queuePoll) clearInterval(queuePoll);
+    queuePoll = null;
+    const db = client();
+    if (queueChannel && db) db.removeChannel(queueChannel);
+    queueChannel = null;
+  }
+  function keepaliveDequeue() {
+    if (!searching) return;
+    searching = false;
+    const cfg = root.TOB_SUPABASE || {};
+    let token = '';
+    try {
+      const key = Object.keys(localStorage).find(k => k.indexOf('auth-token') !== -1);
+      if (key) {
+        const saved = JSON.parse(localStorage.getItem(key) || '{}');
+        token = saved.access_token || (saved.currentSession && saved.currentSession.access_token) || '';
+      }
+    } catch (e) { /* the session key is optional */ }
+    if (!cfg.url || !cfg.anonKey || !token) {
+      rpc('dequeue_pvp');
+      return;
+    }
+    fetch(cfg.url.replace(/\/$/, '') + '/rest/v1/rpc/dequeue_pvp', {
+      method: 'POST',
+      keepalive: true,
+      headers: {apikey: cfg.anonKey, Authorization: 'Bearer ' + token, 'Content-Type': 'application/json'},
+      body: '{}',
+    }).catch(err => console.error('PvP dequeue', err));
+  }
+  function leaveQueue() {
+    if (!searching) return;
+    const pending = rpc('dequeue_pvp');
+    stopQueue();
+    pending.catch(err => console.error('PvP dequeue', err));
+  }
+  async function findQueueMatch() {
+    const db = client();
+    const user = me();
+    if (!db || !user || user.guest) return null;
+    const {data, error} = await db.from('matches').select('id,status,kind').or('host.eq.' + user.id + ',guest.eq.' + user.id).eq('status', 'active').eq('kind', 'queue').order('created_at', {ascending: false}).limit(1);
+    if (error) { console.error('PvP queue poll', error); return null; }
+    const rows = Array.isArray(data) ? data : (data ? [data] : []);
+    return rows[0] || null;
+  }
+  async function claimQueueMatch() {
+    if (!searching) return;
+    const match = await findQueueMatch();
+    if (!match || !match.id) return;
+    stopQueue();
+    openMatch(match.id);
+  }
+  function watchQueue() {
+    stopQueue();
+    searching = true;
+    const db = client();
+    const user = me();
+    queuePoll = setInterval(() => { claimQueueMatch().catch(err => console.error('PvP queue poll', err)); }, 2000);
+    if (db && user && !user.guest) {
+      queueChannel = db.channel('pvp-queue-' + user.id)
+        .on('postgres_changes', {event: '*', schema: 'public', table: 'matches'}, () => claimQueueMatch())
+        .subscribe();
+    }
+  }
+  function paintSearching() {
+    shell(`<header class="pvp-top"><div class="pvp-title">QUICK MATCH</div><button type="button" class="btn" id="pvpCancel">Cancel</button></header>
+      <section class="pvp-card pvp-lobby">
+        <p class="pvp-kicker">Queue</p>
+        <p id="pvpWait">Searching for an opponent…</p>
+        <p class="pvp-status" id="pvpStatus" role="status">Searching for an opponent…</p>
+      </section>`);
+    const cancel = $('#pvpCancel');
+    if (cancel) cancel.onclick = async () => {
+      try { await rpc('dequeue_pvp'); }
+      catch (err) { console.error('PvP dequeue', err); }
+      stopQueue();
+      showHub();
+    };
+    watchQueue();
+  }
   async function queue() {
-    const deck = await myDeck();
-    if (!deck.ok) { toast(deck.error); return; }
-    const res = await rpc('enqueue_pvp', {p_deck: deck.deck});
-    if (!res.ok) { toast(res.error || 'Could not join the queue.'); return; }
-    if (res.data && res.data.id) openMatch(res.data.id);
-    else {
-      paintLobby({id: null, code: 'QUEUE', guest: null});
-      const cancel = $('#pvpCancel');
-      if (cancel) cancel.onclick = async () => { await rpc('dequeue_pvp'); paintHub(); };
+    const btn = document.getElementById('pvpQueue');
+    if (btn) { btn.disabled = true; btn.textContent = 'Joining…'; }
+    try {
+      if (mode !== 'on') mode = await probe();
+      if (mode !== 'on') {
+        toast(mode === 'guest' ? 'Sign in to play friends.' : 'PvP is not ready yet.', true);
+        return;
+      }
+      toast('Checking your deck…');
+      const deck = await myDeck();
+      if (!deck.ok) { toast(deck.error, true); return; }
+      toast('Joining the queue…');
+      const res = await rpc('enqueue_pvp', {p_deck: deck.deck});
+      if (!res || !res.ok) { toast((res && res.error) || 'Could not join the queue.', true); return; }
+      const body = rpcBody(res);
+      if (body.queued === false || body.id) {
+        if (!body.id) { toast('The queue answered without a match.', true); return; }
+        stopQueue();
+        await openMatch(body.id);
+        return;
+      }
+      paintSearching();
+    } catch (err) {
+      console.error('PvP queue failed', err);
+      toast((err && err.message) || 'Could not join the queue.', true);
+    } finally {
+      const again = document.getElementById('pvpQueue');
+      if (again) { again.disabled = false; again.textContent = 'Join queue'; }
     }
   }
   async function challenge(name, priv) {
@@ -403,7 +532,7 @@
   }
   function bindHub() {
     const home = $('#pvpHome');
-    if (home) home.onclick = () => { stopWatch(); if (root.TOB_GAME && root.TOB_GAME.showHome) root.TOB_GAME.showHome(); };
+    if (home) home.onclick = () => { leaveQueue(); showHub(); if (root.TOB_GAME && root.TOB_GAME.showHome) root.TOB_GAME.showHome(); };
     const sign = $('#pvpSign');
     if (sign) sign.onclick = () => root.TOB_GAME && root.TOB_GAME.showAuth && root.TOB_GAME.showAuth('login');
     const room = $('#pvpRoom');
@@ -515,5 +644,12 @@
     seat = 'host';
     paintMatch({id: 'preview', host_name: 'You', guest_name: 'Nova', host_avatar: 'ember', guest_avatar: 'twinkle', state, turn_deadline: new Date(Date.now() + 45000).toISOString()});
   }
-  root.TOB_PVP = {show, boot, challenge, spectate, previewLobby, previewMatch, previewSpectate, probe};
+  document.addEventListener('click', (ev) => {
+    if (!searching) return;
+    const btn = ev.target.closest && ev.target.closest('button');
+    if (!btn || btn.id === 'pvpCancel' || btn.closest('#pvpScreen')) return;
+    leaveQueue();
+  }, true);
+  window.addEventListener('pagehide', keepaliveDequeue);
+  root.TOB_PVP = {show, boot, challenge, spectate, previewLobby, previewMatch, previewSpectate, probe, leaveQueue};
 })(window);
