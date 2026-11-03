@@ -12,6 +12,7 @@
   let botTried = false;
   let queuePoll = null;
   let queueChannel = null;
+  let clockTimer = null;
   const BOT_WAIT = 18000;
 
   function esc(s) {
@@ -109,9 +110,50 @@
     if (bad) console.error('PvP', msg);
   }
   function shell(inner) {
+    if (root.TOB) root.TOB.battleLock = null;
+    stopClock();
+    const oppLabel = document.querySelector('.side.opp .sidelabel');
+    const meLabel = document.querySelector('.side.me .sidelabel');
+    if (oppLabel) oppLabel.textContent = 'Opponent';
+    if (meLabel) meLabel.textContent = 'You';
     const ov = document.getElementById('overlay');
     ov.classList.remove('hidden');
     ov.innerHTML = `<div id="pvpScreen">${inner}</div>`;
+  }
+  function stopClock() {
+    if (clockTimer) clearInterval(clockTimer);
+    clockTimer = null;
+  }
+  function openBattle(kind) {
+    const ov = document.getElementById('overlay');
+    if (ov) {
+      ov.classList.add('hidden');
+      ov.innerHTML = '';
+    }
+    if (root.TOB) root.TOB.battleLock = kind || 'pvp';
+  }
+  function startBattleClock(deadline) {
+    stopClock();
+    const total = (root.TOB && root.TOB.phaseSeconds) || 90;
+    const text = (left) => (root.TOB && root.TOB.clockText) ? root.TOB.clockText(left) : String(left);
+    const tick = () => {
+      const node = document.getElementById('timer');
+      if (!node) return;
+      if (!deadline) {
+        node.textContent = '';
+        node.className = '';
+        node.style.removeProperty('--p');
+        node.removeAttribute('aria-label');
+        return;
+      }
+      const left = Math.max(0, Math.ceil((new Date(deadline).getTime() - Date.now()) / 1000));
+      node.textContent = text(left);
+      node.style.setProperty('--p', String(left / total));
+      node.className = (left >= 60 ? 'wide' : '') + (left <= 10 ? ' warn' : '');
+      node.setAttribute('aria-label', left + ' seconds left');
+    };
+    tick();
+    clockTimer = setInterval(tick, 250);
   }
   function cardFace(entry) {
     const drawCard = ui().card;
@@ -249,7 +291,64 @@
     const goalColor = (entry) => (entry && (entry.color || (cards[entry.id] && cards[entry.id].color))) || null;
     const goals = [goalColor(state.host.goal), goalColor(state.guest.goal)];
     const silver = {p: state.host.silver || null, o: state.guest.silver || null};
-    return E.evaluate(boards, shown, {goals, silver, penalty: {p: 0, o: 0}, final: true});
+    return E.evaluate(boards, shown, {goals, silver, penalty: {p: 0, o: 0}, final: state.phase === 'score'});
+  }
+  function goalLine(colors) {
+    const list = (colors || []).filter(Boolean);
+    const palette = root.TOB_CARDS.COLORS;
+    const bonus = root.TOB_ENGINE.COLOR_BONUS;
+    const cap = (s) => s ? s[0].toUpperCase() + s.slice(1) : s;
+    if (!list.length) return 'No goal color — points only.';
+    const bits = list.map(c => `<span class="gem" style="background:${palette[c] || '#fff'}"></span>${cap(c)}`).join(' &amp; ');
+    if (list.length === 1) return `Goal color: ${bits} (most cards = +${bonus})`;
+    return `Goal colors: ${bits} (more of BOTH wins!)`;
+  }
+  function scorePanel(leftName, rightName, leftScore, rightScore, goalTxt, ev, mineSeat) {
+    let rows = '';
+    if (ev && ev.targets && ev.targets.length && mineSeat) {
+      const colors = root.TOB_CARDS.COLORS;
+      const cap = (s) => s ? s[0].toUpperCase() + s.slice(1) : s;
+      rows = `<table class="sb-colors"><tr><th>Color</th><th>You</th><th>Opp</th></tr>` + ev.targets.map(c => {
+        const mine = mineSeat === 'host' ? ((ev.counts.p && ev.counts.p[c]) || 0) : ((ev.counts.o && ev.counts.o[c]) || 0);
+        const them = mineSeat === 'host' ? ((ev.counts.o && ev.counts.o[c]) || 0) : ((ev.counts.p && ev.counts.p[c]) || 0);
+        return `<tr><td><span class="gem" style="background:${colors[c]}"></span>${cap(c)}</td><td>${mine}</td><td>${them}</td></tr>`;
+      }).join('') + '</table>';
+    }
+    return `<div class="sb-title">Score</div>
+      <div class="sb-goal">${goalTxt}</div>
+      <div class="sb-scores">
+        <div class="sb-side me"><div class="sb-name">${esc(leftName)}</div><div class="sb-num">${leftScore}</div></div>
+        <div class="sb-vs">VS</div>
+        <div class="sb-side opp"><div class="sb-name">${esc(rightName)}</div><div class="sb-num">${rightScore}</div></div>
+      </div>${rows}`;
+  }
+  function paintBoard(opts) {
+    openBattle(opts.spectate ? 'spectate' : 'pvp');
+    const phase = opts.phase;
+    const hideBack = phase === 'place1' || phase === 'discard';
+    const active = phase === 'place1' ? [0, 1, 2, 3] : phase === 'place2' ? [4, 5, 6] : [];
+    const slot = (card, i, who) => {
+      const locked = hideBack && i >= 4;
+      const open = !opts.spectate && opts.myTurn && !card && active.indexOf(i) >= 0;
+      const face = card ? cardFace(card) : `<div class="slotnum">${i + 1}</div>`;
+      return `<div class="slot${open ? ' open' : ''}${locked ? ' locked' : ''}" data-pvp="1" data-slot="${i}" data-who="${who}">${face}</div>`;
+    };
+    const row = (board, who, idx) => idx.map(i => slot((board || [])[i], i, who)).join('');
+    document.getElementById('o-outer').innerHTML = row(opts.topBoard, opts.topWho, [4, 5, 6]);
+    document.getElementById('o-inner').innerHTML = row(opts.topBoard, opts.topWho, [0, 1, 2, 3]);
+    document.getElementById('p-inner').innerHTML = row(opts.botBoard, opts.botWho, [0, 1, 2, 3]);
+    document.getElementById('p-outer').innerHTML = row(opts.botBoard, opts.botWho, [4, 5, 6]);
+    const oppLabel = document.querySelector('.side.opp .sidelabel');
+    const meLabel = document.querySelector('.side.me .sidelabel');
+    if (oppLabel) oppLabel.textContent = opts.topName;
+    if (meLabel) meLabel.textContent = opts.botName;
+    document.getElementById('o-hand').innerHTML = Array.from({length: opts.topHandCount || 0}, () => '<div class="minback"></div>').join('');
+    const hand = document.getElementById('hand');
+    hand.innerHTML = opts.spectate ? '' : (opts.botHand || []).map((card, i) => `<div class="handcard" data-hand="${i}">${cardFace(card)}</div>`).join('');
+    document.getElementById('scoreboard').innerHTML = opts.scoreHtml;
+    document.getElementById('phaseMsg').textContent = opts.message || '';
+    document.getElementById('actions').innerHTML = opts.actions || '';
+    startBattleClock(opts.deadline);
   }
   function stateHash(state, ev) {
     const pack = (seat) => (state[seat].board || []).map(c => c && c.id ? c.id + (c.gold ? 'g' : 's') : '-').join(',');
@@ -262,27 +361,30 @@
     const opp = seat === 'host' ? 'guest' : 'host';
     const bot = !!match.is_bot;
     const oppName = bot ? (match.bot_name || match.guest_name || 'Orbit Bot') : (opp === 'host' ? match.host_name : match.guest_name);
-    const oppAva = safePublicAvatar(opp === 'host' ? match.host_avatar : match.guest_avatar);
     const myTurn = state.turn === mine;
-    const ev = state.phase === 'score' ? scoreOf(state) : null;
-    const hand = ((state[mine] && state[mine].hand) || []).map((card, i) => `<button type="button" class="pvp-hand" data-hand="${i}">${cardFace(card)}</button>`).join('');
-    const row = (who) => (state[who].board || []).map((card, i) => `<div class="pvp-slot${card ? ' filled' : ''}" data-slot="${i}" data-who="${who}">${card ? cardFace(card) : ''}</div>`).join('');
-    shell(`<header class="pvp-top">
-        <img class="pvp-ava" src="assets/cards/${encodeURIComponent(oppAva || 'zoomer')}.webp" alt="">
-        <div class="pvp-title">${esc(oppName || 'Opponent')}${bot ? ' <span class="bot-badge">BOT</span>' : ''}</div>
-        <div class="pvp-turn">${myTurn ? 'Your turn' : 'Their turn'}</div>
-        <button type="button" class="btn" id="pvpResign">Resign</button>
-      </header>
-      <div class="pvp-clock" id="pvpClock"></div>
-      <section class="pvp-board">
-        <div class="pvp-row opp">${row(opp)}</div>
-        <div class="pvp-row mine">${row(mine)}</div>
-      </section>
-      <div class="pvp-score">${ev ? `You ${seat === 'host' ? ev.score.p : ev.score.o} · Them ${seat === 'host' ? ev.score.o : ev.score.p}` : esc(phaseLabel(state.phase))}${bot && state.phase === 'score' ? '<p class="pvp-note">The server scores this bot match.</p>' : ''}</div>
-      <div class="pvp-hands">${hand}</div>
-      <div class="pvp-actions" id="pvpActions"></div>`);
+    let ev = null;
+    try { ev = scoreOf(state); } catch (e) { ev = null; }
+    const myScore = ev ? (seat === 'host' ? ev.score.p : ev.score.o) : 0;
+    const theirScore = ev ? (seat === 'host' ? ev.score.o : ev.score.p) : 0;
+    const note = bot && state.phase === 'score' ? ' The server scores this bot match.' : '';
+    paintBoard({
+      spectate: false,
+      phase: state.phase,
+      myTurn,
+      topName: oppName || 'Opponent',
+      botName: 'You',
+      topWho: opp,
+      botWho: mine,
+      topBoard: (state[opp] && state[opp].board) || [],
+      botBoard: (state[mine] && state[mine].board) || [],
+      topHandCount: ((state[opp] && state[opp].hand) || []).length,
+      botHand: (state[mine] && state[mine].hand) || [],
+      scoreHtml: scorePanel('YOU', (oppName || 'Opp').toUpperCase(), myScore, theirScore, goalLine(ev && ev.targets), ev, seat),
+      message: phaseLabel(state.phase) + note,
+      deadline: match.turn_deadline,
+    });
     wireMatch(match, ev);
-    if (ev && ev.combos && ev.combos.length) callout(ev.combos[0]);
+    if (ev && ev.combos && ev.combos.length && state.phase === 'score') callout(ev.combos[0]);
   }
   function phaseLabel(phase) {
     if (phase === 'place1') return 'Place a card in the front row';
@@ -302,9 +404,10 @@
   }
   function wireMatch(match, ev) {
     const state = match.state || {};
-    const actions = $('#pvpActions');
-    const resign = $('#pvpResign');
-    if (resign) resign.onclick = async () => {
+    const actions = $('#actions');
+    if (!actions) return;
+    const resignMatch = async () => {
+      if (match.id === 'preview') return;
       if (!window.confirm('Resign this match?')) return;
       await rpc('resign_match', {p_match: match.id});
       toast('You resigned.');
@@ -314,7 +417,7 @@
     if (state.phase === 'discard' && state.turn === seat) {
       actions.innerHTML = '<button type="button" class="btn go" id="pvpDiscard">Discard selected</button>';
       $('#pvpDiscard').onclick = async () => {
-        const idx = [...document.querySelectorAll('.pvp-hand.on')].map(node => +node.dataset.hand);
+        const idx = [...document.querySelectorAll('.handcard[data-hand].sel')].map(node => +node.dataset.hand);
         await sendMove(match.id, {t: 'discard', idx});
       };
     } else if (state.phase === 'silver' && state.turn === seat) {
@@ -325,20 +428,30 @@
       $('#pvpFinish').onclick = () => confirmResult(match, ev);
       $('#pvpRematch').onclick = () => rematch(match);
     }
-    document.querySelectorAll('.pvp-hand').forEach(btn => {
-      btn.onclick = () => btn.classList.toggle('on');
+    if (match.id !== 'preview') {
+      actions.insertAdjacentHTML('beforeend', '<button type="button" class="btn" id="pvpResign">Resign</button>');
+      const resignBtn = document.getElementById('pvpResign');
+      if (resignBtn) resignBtn.onclick = resignMatch;
+    }
+    document.querySelectorAll('.handcard[data-hand]').forEach(btn => {
+      btn.onclick = () => {
+        if (state.phase !== 'discard') {
+          document.querySelectorAll('.handcard[data-hand].sel').forEach(node => { if (node !== btn) node.classList.remove('sel'); });
+        }
+        btn.classList.toggle('sel');
+      };
     });
     if (root.TOB_DRAG) {
       root.TOB_DRAG.register({
         id: 'pvp',
-        selector: '.pvp-hand',
+        selector: '.handcard[data-hand]',
         canStart() {
           const phase = (match.state || {}).phase;
           return state.turn === seat && (phase === 'place1' || phase === 'place2');
         },
-        targets: '.pvp-slot',
+        targets: '.slot[data-pvp]',
         accept(source, target) {
-          if (target.dataset.who !== seat || target.classList.contains('filled')) return false;
+          if (target.dataset.who !== seat || target.querySelector('.card')) return false;
           const slot = +target.dataset.slot;
           const phase = (match.state || {}).phase;
           if (phase === 'place1') return slot >= 0 && slot <= 3;
@@ -350,10 +463,10 @@
         },
       });
     }
-    document.querySelectorAll('.pvp-slot').forEach(slot => {
+    document.querySelectorAll('.slot[data-pvp]').forEach(slot => {
       slot.onclick = async () => {
         if (slot.dataset.who !== seat || state.turn !== seat) return;
-        const picked = document.querySelector('.pvp-hand.on');
+        const picked = document.querySelector('.handcard[data-hand].sel');
         if (!picked) { toast('Select a card in your hand.'); return; }
         await sendMove(match.id, {t: 'place', slot: +slot.dataset.slot, hand: +picked.dataset.hand});
       };
@@ -361,13 +474,7 @@
     document.querySelectorAll('[data-silver]').forEach(btn => {
       btn.onclick = () => sendMove(match.id, {t: 'silver', color: btn.dataset.silver || null});
     });
-    tickClock(match.turn_deadline);
-  }
-  function tickClock(deadline) {
-    const node = $('#pvpClock');
-    if (!node || !deadline) return;
-    const left = Math.max(0, Math.ceil((new Date(deadline).getTime() - Date.now()) / 1000));
-    node.textContent = left ? left + 's' : 'Time';
+    startBattleClock(match.turn_deadline);
   }
   async function sendMove(id, move) {
     const res = await rpc('submit_move', {p_match: id, p_move: move});
@@ -436,7 +543,7 @@
     if (match.status === 'lobby') paintLobby(match);
     else if (match.status === 'active' || match.status === 'disputed') {
       paintMatch(match);
-      if (match.turn_deadline && new Date(match.turn_deadline).getTime() < Date.now()) {
+      if (match.turn_deadline && new Date(match.turn_deadline).getTime() + 5000 < Date.now()) {
         rpc('claim_forfeit', {p_match: match.id});
       }
     } else if (match.status === 'finished') {
@@ -703,40 +810,43 @@
     return id;
   }
   function paintSpectate(data) {
-    const cards = root.TOB_CARDS.CARDS;
-    const face = (entry) => {
-      if (!entry || !entry.id || !cards[entry.id] || String(entry.id).indexOf('ob_') === 0 || cards[entry.id].adminOnly) return '';
-      return ui().card(Object.assign({}, cards[entry.id], {gold: !!entry.gold}), null, true);
+    const state = {
+      phase: data.phase,
+      host: {board: (data.host && data.host.board) || [], goal: data.host && data.host.goalColor ? {color: data.host.goalColor} : null, silver: data.host && data.host.silver},
+      guest: {board: (data.guest && data.guest.board) || [], goal: data.guest && data.guest.goalColor ? {color: data.guest.goalColor} : null, silver: data.guest && data.guest.silver},
     };
-    const row = (seat) => (seat.board || []).map(card => `<div class="pvp-slot${card ? ' filled' : ''}">${face(card)}</div>`).join('');
-    const score = () => {
-      try {
-        const ev = scoreOf({
-          phase: 'score',
-          host: {board: data.host.board, goal: {color: data.host.goalColor}, silver: data.host.silver},
-          guest: {board: data.guest.board, goal: {color: data.guest.goalColor}, silver: data.guest.silver},
-        });
-        return `${data.host.name} ${ev.score.p} · ${data.guest.name} ${ev.score.o}`;
-      } catch (e) { return data.phase || 'Live'; }
-    };
-    shell(`<header class="pvp-top">
-        <button type="button" class="btn" id="pvpHome">Back</button>
-        <div class="pvp-title">WATCHING</div>
-        <div class="pvp-turn">${data.spectators || 1} watching</div>
-      </header>
-      <section class="pvp-card pvp-spec">
-        <div class="pvp-vs"><img src="assets/cards/${encodeURIComponent(safeAvatar(data.host.avatar))}.webp" alt=""><b>${esc(data.host.name)}</b><span>vs</span><b>${esc(data.guest.name)}</b><img src="assets/cards/${encodeURIComponent(safeAvatar(data.guest.avatar))}.webp" alt=""></div>
-        <div class="pvp-board"><div class="pvp-row">${row(data.host)}</div><div class="pvp-row">${row(data.guest)}</div></div>
-        <p class="pvp-score">${esc(score())}</p>
-        <p class="pvp-note">Spectators see the revealed board only. Hands and decks stay hidden.</p>
-      </section>`);
+    let ev = null;
+    try { ev = scoreOf(state); } catch (e) { ev = null; }
+    const known = [data.host && data.host.goalColor, data.guest && data.guest.goalColor].filter(Boolean);
+    const goalTxt = known.length ? goalLine(known) : 'Goal colors show when the match ends.';
+    paintBoard({
+      spectate: true,
+      phase: data.phase,
+      myTurn: false,
+      topName: (data.host && data.host.name) || 'Host',
+      botName: (data.guest && data.guest.name) || 'Guest',
+      topWho: 'host',
+      botWho: 'guest',
+      topBoard: state.host.board,
+      botBoard: state.guest.board,
+      topHandCount: 0,
+      scoreHtml: scorePanel(((data.host && data.host.name) || 'Host').toUpperCase(), ((data.guest && data.guest.name) || 'Guest').toUpperCase(), ev ? ev.score.p : 0, ev ? ev.score.o : 0, goalTxt, null, null),
+      message: (data.spectators || 1) + ' watching. Revealed cards only. Hands stay hidden.',
+      deadline: null,
+      actions: '<button type="button" class="btn" id="pvpHome">Back</button>',
+    });
     const home = $('#pvpHome');
-    if (home) home.onclick = () => { stopWatch(); if (root.TOB_GAME && root.TOB_GAME.showHome) root.TOB_GAME.showHome(); };
+    if (home) home.onclick = () => {
+      stopWatch();
+      if (root.TOB) root.TOB.battleLock = null;
+      stopClock();
+      if (root.TOB_GAME && root.TOB_GAME.showHome) root.TOB_GAME.showHome();
+    };
   }
   async function refreshSpectate(id) {
     const res = await rpc('spectate_match', {p_match: id, p_viewer: viewerKey()});
     if (!res.ok || !res.data) return;
-    if (!document.getElementById('pvpScreen')) { stopWatch(); return; }
+    if (!root.TOB || root.TOB.battleLock !== 'spectate') { stopWatch(); return; }
     paintSpectate(res.data);
   }
   async function spectate(id) {
@@ -775,7 +885,7 @@
       guest: {hand: [take('zoomer')], board: [take('twinkle'), take('dewdrop'), null, null, null, null, null], goal: {color: 'purple'}, silver: null},
     };
     seat = 'host';
-    paintMatch({id: 'preview', host_name: 'You', guest_name: 'Nova', host_avatar: 'ember', guest_avatar: 'twinkle', state, turn_deadline: new Date(Date.now() + 45000).toISOString()});
+    paintMatch({id: 'preview', host_name: 'You', guest_name: 'Nova', host_avatar: 'ember', guest_avatar: 'twinkle', state, turn_deadline: new Date(Date.now() + 90000).toISOString()});
   }
   document.addEventListener('click', (ev) => {
     if (!searching) return;

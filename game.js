@@ -6,7 +6,16 @@
   const qs = new URLSearchParams(location.search);
   const AUTO = qs.has('auto'); let autoGames = Math.max(1, parseInt(qs.get('auto') || '1', 10) || 1);
   // ===== CONFIG: seconds on the countdown for every timed phase (placement, discard, swap, silver). =====
-  const PHASE_SECONDS = 30;
+  const PHASE_SECONDS = 90;
+  function clockText(left) {
+    left = Math.max(0, left | 0);
+    if (left >= 60) {
+      const m = Math.floor(left / 60);
+      const s = left % 60;
+      return m + ':' + (s < 10 ? '0' : '') + s;
+    }
+    return String(left);
+  }
   const GOLD_CHANCE = 0.03;
   const ECONOMY_DEFAULTS = {winCoins: 100, lossCoins: 25, packPrice: 300, themePrice: 400, themeWeekPrice: 350, auctionFee: 0};
   function readEconomy() {
@@ -44,7 +53,7 @@
   const el = (tag, cls, html) => { const d = document.createElement(tag); if (cls) d.className = cls; if (html != null) d.innerHTML = html; return d; };
   const cap = s => s ? s[0].toUpperCase() + s.slice(1) : s;
   const results = [];
-  window.TOB = {results, get G() { return G; }};
+  window.TOB = {results, get G() { return G; }, clockText, phaseSeconds: PHASE_SECONDS};
 
   /* ---------- sound (tiny WebAudio blips, early-2000s web style) ---------- */
   let soundOn = !AUTO, actx = null;
@@ -172,6 +181,7 @@
     return `<div class="slot ${isActive && !card ? 'open' : ''} ${hidden ? 'locked' : ''} ${glowing ? 'comboglow' : ''} ${G.swapMode && side === 'p' && i === 6 ? 'swaptarget' : ''}" data-side="${side}" data-slot="${i}">${inner}</div>`;
   }
   function render() {
+    if (window.TOB.battleLock) return;
     if (!G) return;
     const ev = evalNow(false);
     G.lastEv = ev;
@@ -189,14 +199,6 @@
       hand.appendChild(w);
     });
     $('#o-hand').innerHTML = G.oHand.map(() => '<div class="minback"></div>').join('');
-    // decks + goal cards
-    const deckBox = (side, label) => {
-      const deck = side === 'p' ? G.pDeck : G.oDeck, gc = G.goalCards[side], inDeck = deck.includes(gc);
-      return `<div class="deckbox"><div class="dlabel">${label}</div>
-        <div class="deckstack">${deck.length ? `<div class="stack">${deck.length}</div>` : '<div class="stack empty">0</div>'}
-        <div class="goalcard ${inDeck ? '' : 'drawn'}" data-goal="${side}">${cardHTML(gc, null, true)}<div class="goaltag">Goal</div></div></div></div>`;
-    };
-    $('#decks').innerHTML = deckBox('o', G.oName + "'s Deck") + deckBox('p', 'Your Deck');
     renderScore(ev);
     const live = [].concat(G.pHand, G.oHand, G.boards.p, G.boards.o, [G.goalCards.p, G.goalCards.o]);
     preloadArt(live);
@@ -213,7 +215,8 @@
   }
   function renderScore(ev) {
     const tg = G.targets;
-    const goalTxt = tg.length === 0 ? 'No goal color — Points only!' : tg.length === 1 ? `Goal color: ${cap(tg[0])} (most cards = +${E.COLOR_BONUS})` : `Goal colors: ${cap(tg[0])} & ${cap(tg[1])} (more of BOTH wins!)`;
+    const dot = c => `<span class="gem" style="background:${COLORS[c]}"></span>${cap(c)}`;
+    const goalTxt = tg.length === 0 ? 'No goal color — Points only!' : tg.length === 1 ? `Goal color: ${dot(tg[0])} (most cards = +${E.COLOR_BONUS})` : `Goal colors: ${dot(tg[0])} & ${dot(tg[1])} (more of BOTH wins!)`;
     const rows = tg.map(c => `<tr><td><span class="gem" style="background:${COLORS[c]}"></span>${cap(c)}</td><td>${ev.counts.p[c] || 0}</td><td>${ev.counts.o[c] || 0}</td></tr>`).join('');
     const pen = s => G.penalty[s] ? `<div class="pen">−${G.penalty[s]} swap</div>` : '';
     const bon = s => ev.bonus === s ? `<div class="bon">+${E.COLOR_BONUS} color</div>` : '';
@@ -244,10 +247,11 @@
     stopTimer();
     let left = secs; const t = $('#timer');
     const tick = () => {
-      t.textContent = left;
+      if (window.TOB.battleLock) return;
+      t.textContent = clockText(left);
       t.style.setProperty('--p', String(Math.max(0, left) / secs));
       t.setAttribute('aria-label', left + ' seconds left');
-      t.className = left <= 10 ? 'warn' : '';
+      t.className = (left >= 60 ? 'wide' : '') + (left <= 10 ? ' warn' : '');
     };
     tick();
     timerId = setInterval(() => { left--; tick(); if (left <= 0) { stopTimer(); onTimeout(); } }, 1000);
@@ -1964,6 +1968,7 @@
   function customDeck(bags) { return resolveDeck(readRawDeck(), bags); }
   function playerDecks() { return Object.keys(DECKS).filter(k => !DECKS[k].ai && (!DECKS[k].adminOnly || packState.role === 'admin')); }
   async function quickStart(key) {
+    window.TOB.battleLock = null;
     const playable = playerDecks();
     key = key || lastDeck || playable[Math.floor(Math.random() * playable.length)];
     if (key !== 'custom' && !DECKS[key]) key = playable[0];
@@ -3384,7 +3389,7 @@
       return quickStart(k);
     }
     if (t.classList.contains('deckpick')) { const k = t.dataset.deck; if (k === 'custom' && customDeck().length !== 12) return showBuilder(); return quickStart(k); }
-    if (!G) return;
+    if (window.TOB.battleLock || !G) return;
     if (t.classList.contains('handcard')) {
       const i = +t.dataset.idx;
       const card = G.pHand[i];
@@ -3418,6 +3423,7 @@
     }
   });
   document.addEventListener('dblclick', e => {
+    if (window.TOB.battleLock) return;
     if (performance.now() - lastPlace < 500) return;
     const h = e.target.closest('.handcard');
     if (!h || !h.isConnected || !G || !G.phase.startsWith('PLAY')) return;
@@ -3533,7 +3539,7 @@
   document.addEventListener('dragstart', e => { const h = e.target.closest('.handcard'); if (h) e.dataTransfer.setData('text/plain', h.dataset.idx); });
   document.addEventListener('dragover', e => { const s = e.target.closest('.slot.open'); if (s) { e.preventDefault(); s.classList.add('hover'); } });
   document.addEventListener('dragleave', e => { const s = e.target.closest('.slot'); if (s) s.classList.remove('hover'); });
-  document.addEventListener('drop', e => { const s = e.target.closest('.slot.open'); if (!s) return; e.preventDefault(); placeCard(+e.dataTransfer.getData('text/plain'), +s.dataset.slot); });
+  document.addEventListener('drop', e => { if (window.TOB.battleLock) return; const s = e.target.closest('.slot.open'); if (!s) return; e.preventDefault(); placeCard(+e.dataTransfer.getData('text/plain'), +s.dataset.slot); });
   document.addEventListener('mouseover', e => {
     if (narrow()) return;
     const c = e.target.closest('.card[data-id]'); if (!c) return;
@@ -3673,6 +3679,8 @@
     return 'home';
   }
   function paintOrbit() {
+    const ov = document.getElementById('overlay');
+    if (ov && !ov.classList.contains('hidden')) window.TOB.battleLock = null;
     paintSideProfile();
     const page = orbitPage();
     const active = {home:'btnHome', shop:'btnPacks', auctions:'btnAuctions', trades:'btnTrades', pvp:'btnPlayMenu', decks:'btnDecks', gallery:'btnCollection', collection:'btnMyCollection', profile:'btnProfile', play:'btnPlayMenu', auth:'btnNavLogin'}[page];

@@ -49,7 +49,7 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
 .ring { position: absolute; left: 0; top: 50%; width: 32px; height: 32px; margin-top: -16px; border-radius: 50%;
   background: radial-gradient(circle at 35% 35%, #bff, #2f7bff 58%, #06204a); border: 2px solid rgba(255,255,255,.45); box-shadow: 0 0 12px rgba(80, 150, 255, .45); }
 .ring::after { content: ""; position: absolute; left: -8px; top: 10px; width: 44px; height: 8px; border: 2px solid #f0c14a; border-radius: 50%; transform: rotate(-18deg); }
-.layout { display: grid; grid-template-columns: 240px 1fr 200px; gap: 14px; padding: 14px; }
+.layout { display: grid; grid-template-columns: minmax(190px, 220px) minmax(0, 1fr) minmax(260px, 376px); gap: 12px; padding: 12px; align-items: stretch; }
 .box { background: rgba(16, 22, 46, .48); backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,.1); border-radius: 20px; box-shadow: 0 12px 32px rgba(0,0,0,.22); padding: 12px; margin-bottom: 12px; }
 .sb-title, .tv-title { font: 600 12px/1 "Outfit", system-ui, sans-serif; letter-spacing: .16em; text-transform: uppercase; color: rgba(255,255,255,.82); text-align: center; margin-bottom: 8px; }
 .sb-goal { font-size: 12px; text-align: center; background: rgba(0,0,0,.22); border-radius: 12px; padding: 6px 8px; color: #d5def5; }
@@ -120,10 +120,11 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
 .slotnum { font: 600 16px/1 "Outfit", system-ui, sans-serif; color: rgba(255,255,255,.72); }
 .midline { display: flex; align-items: center; justify-content: center; gap: 14px; min-height: 52px; margin: 6px 0; padding: 4px 8px; }
 #phaseMsg { font-size: 14px; font-weight: 500; letter-spacing: 0; text-align: center; max-width: 560px; color: rgba(238, 242, 255, .88); }
-#timer { --p: 1; position: relative; font: 700 18px/1 "Outfit", system-ui, sans-serif; color: #f7f4ea; border-radius: 50%; width: 62px; height: 62px; flex: none;
+#timer { --p: 1; position: relative; font: 700 18px/1 "Outfit", system-ui, sans-serif; font-variant-numeric: tabular-nums; color: #f7f4ea; border-radius: 50%; width: 62px; height: 62px; flex: none; }
   display: flex; align-items: center; justify-content: center; transition: --p .9s linear;
   box-shadow: 0 0 0 1px rgba(255,255,255,.1), 0 8px 18px rgba(0,0,0,.25);
   background: radial-gradient(circle closest-side, rgba(10,14,28,.94) 0 68%, transparent 69%), conic-gradient(from -90deg, #f0c14a calc(var(--p) * 360deg), rgba(255,255,255,.12) 0); }
+#timer.wide { font-size: 15px; letter-spacing: -.04em; }
 #timer:empty { display: none; }
 #timer.warn { color: #ffd2cb; animation: pulse .6s ease-in-out infinite alternate;
   background: radial-gradient(circle closest-side, rgba(42, 12, 14, .95) 0 68%, transparent 69%), conic-gradient(from -90deg, #ff4d4d calc(var(--p) * 360deg), rgba(255,255,255,.12) 0); }
@@ -273,7 +274,7 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
   .ohandrow { margin-bottom: 0; }
   .sidelabel { margin-bottom: 0; }
   .left { order: 1; } .right { order: 2; } .arena { order: 3; width: 100%; }
-  .tv { display: none; }
+  .tv, body:not(:has(#overlay:not(.hidden))) .right .tv { display: none; }
   .sb-side { min-width: 0; }
   #decks { display: flex; gap: 8px; }
   .deckbox { flex: 1; min-width: 0; margin: 0; }
@@ -288,7 +289,8 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
   .row.outer { width: calc(var(--slot) * 3 + 8px); max-width: 100%; margin-inline: auto; }
   .midline { flex-wrap: wrap; gap: 6px; min-height: 40px; margin: 2px 0; }
   #phaseMsg { max-width: 100%; font-size: 13px; }
-  #timer { width: 48px; height: 48px; font-size: 15px; }
+  #timer { width: 48px; height: 48px; font-size: 14px; }
+  #timer.wide { font-size: 12px; }
   .handbar { position: relative; bottom: auto; z-index: 7; flex-direction: column; align-items: stretch; gap: 2px; margin: 0 4px calc(4px + env(safe-area-inset-bottom)); padding: 4px 8px 6px; min-height: 0; }
   .handlabel { writing-mode: horizontal-tb; transform: none; text-align: center; letter-spacing: .14em; }
   #hand { width: 100%; min-height: 0; gap: 4px; justify-content: center; padding-top: 4px; }
@@ -1360,59 +1362,74 @@ body:has(#deckBuilder) .orbit-main { height: 100%; min-height: 0; }
   #homeScreen .home-pill { width: min(200px, 100%); }
 }
 
-/* Match preview stays one size. Hovering the hand must not reflow the page. */
+/* Match preview fills the right column. Its height stays fixed, so hovering cards does not move the page. */
+body:not(:has(#overlay:not(.hidden))) .right {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+body:not(:has(#overlay:not(.hidden))) .right .tv {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+  margin-bottom: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
 body:not(:has(#overlay:not(.hidden))) #inspector {
-  height: 268px;
-  min-height: 268px;
-  max-height: 268px;
+  flex: 1;
+  height: auto;
+  min-height: 0;
+  max-height: none;
   overflow: hidden;
   box-sizing: border-box;
 }
-body:not(:has(#overlay:not(.hidden))) .tv {
-  min-height: 0;
-  height: auto;
-  overflow: hidden;
-}
+#inspector .tv-idle { margin: 16px; }
 #inspector .tv-card {
-  height: 100%;
+  height: auto;
+  max-height: 100%;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
+  justify-content: flex-start;
+  align-items: stretch;
   overflow: hidden;
   padding: 8px;
 }
 #inspector .tv-art, #inspector .tv-card.gold .tv-art {
-  width: 118px;
-  height: 118px;
+  width: 150px;
+  height: 150px;
   flex: none;
   aspect-ratio: auto;
-  margin: 0 auto 4px;
+  margin: 0 auto 6px;
 }
 #inspector .tv-name {
   flex: none;
-  height: 1.2em;
+  height: auto;
   margin: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
 }
 #inspector .tv-meta {
   flex: none;
-  height: 1.3em;
-  margin: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  height: auto;
+  margin: 2px 0 0;
+  white-space: normal;
+  overflow: visible;
 }
 #inspector .tv-skill {
   flex: none;
-  height: 4.6em;
-  margin-top: 4px;
-  overflow: auto;
+  height: auto;
+  max-height: none;
+  margin-top: 6px;
+  overflow: visible;
   text-align: left;
 }
 #inspector .tv-power, #inspector .tv-combo, #inspector .tv-group, #inspector .tv-feat, #inspector .tv-live {
-  margin-top: 2px;
+  margin-top: 4px;
 }
 @media (max-height: 820px) {
   body:not(:has(#overlay:not(.hidden))) { overflow: hidden; }
@@ -1426,13 +1443,18 @@ body:not(:has(#overlay:not(.hidden))) .tv {
   body:not(:has(#overlay:not(.hidden))) .orbit-tv { width: 44px; height: 36px; }
   body:not(:has(#overlay:not(.hidden))) .orbit-nav { padding: 0 8px 4px; }
   body:not(:has(#overlay:not(.hidden))) .navpill { min-height: 28px; padding: 4px 10px; }
-  body:not(:has(#overlay:not(.hidden))) .orbit-body { flex: 1; min-height: 0; overflow: hidden; }
+  body:not(:has(#overlay:not(.hidden))) .orbit-body {
+    flex: 1; min-height: 0; overflow: hidden;
+    grid-template-columns: 172px minmax(0, 1fr); gap: 8px; padding: 0 8px 6px;
+  }
   body:not(:has(#overlay:not(.hidden))) .orbit-main {
     height: 100%; min-height: 0; display: flex; flex-direction: column; overflow: hidden;
   }
   body:not(:has(#overlay:not(.hidden))) .layout {
-    flex: 1; min-height: 0; overflow: hidden; gap: 8px; padding: 6px 8px;
+    flex: 1; min-height: 0; overflow: hidden; gap: 8px; padding: 6px;
     align-items: stretch;
+    grid-template-columns: 196px minmax(0, 1fr) 376px;
+    grid-template-rows: minmax(0, 1fr);
   }
   body:not(:has(#overlay:not(.hidden))) .left { min-height: 0; overflow: hidden; }
   body:not(:has(#overlay:not(.hidden))) .box { margin-bottom: 6px; padding: 8px; }
@@ -1442,7 +1464,8 @@ body:not(:has(#overlay:not(.hidden))) .tv {
   body:not(:has(#overlay:not(.hidden))) .row { gap: 6px; }
   body:not(:has(#overlay:not(.hidden))) .arena { padding: 6px; }
   body:not(:has(#overlay:not(.hidden))) .midline { min-height: 40px; margin: 2px 0; }
-  body:not(:has(#overlay:not(.hidden))) #timer { width: 48px; height: 48px; font-size: 16px; }
+  body:not(:has(#overlay:not(.hidden))) #timer { width: 52px; height: 52px; font-size: 14px; }
+  body:not(:has(#overlay:not(.hidden))) #timer.wide { font-size: 12px; letter-spacing: -.04em; }
   body:not(:has(#overlay:not(.hidden))) .handbar {
     flex: none; min-height: 0; margin: 0 8px 6px; padding: 4px 8px 6px;
   }
@@ -1451,4 +1474,7 @@ body:not(:has(#overlay:not(.hidden))) .tv {
   body:not(:has(#overlay:not(.hidden))) .handcard:hover,
   body:not(:has(#overlay:not(.hidden))) .handcard.sel,
   body:not(:has(#overlay:not(.hidden))) .handcard:active { width: 72px; height: 72px; }
+}
+@media (max-width: 1099px) {
+  body:not(:has(#overlay:not(.hidden))) .right .tv { display: none; }
 }
