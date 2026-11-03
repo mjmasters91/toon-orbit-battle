@@ -1186,9 +1186,16 @@
           <div class="prof-h">FRIENDS</div>
           <form class="prof-add" id="friendForm"><input id="friendName" maxlength="16" placeholder="Username" aria-label="Friend username"><button type="submit" class="btn go">Add</button></form>
           <p class="prof-err" id="friendErr"></p>
-          <ul class="prof-friends">${friends.map(name => `<li><span>${name}</span><button type="button" class="btn" data-view="${name}">View</button><button type="button" class="btn" data-drop="${name}">Remove</button></li>`).join('') || '<li class="prof-note">No friends yet.</li>'}</ul>
+          <ul class="prof-friends">${friends.map(name => `<li><span>${name}</span><button type="button" class="btn" data-challenge="${name}">Challenge</button><button type="button" class="btn" data-view="${name}">View</button><button type="button" class="btn" data-drop="${name}">Remove</button></li>`).join('') || '<li class="prof-note">No friends yet.</li>'}</ul>
           <p class="prof-note">Online friends coming when online accounts launch. On this device, only usernames registered here can be found.</p>
         </section>` : '';
+      let pvpHist = '';
+      if (editable && window.TOB_AUTH.mode === 'supabase' && window.TOB_AUTH.rpc) {
+        const hist = await window.TOB_AUTH.rpc('pvp_history');
+        if (hist && hist.ok && Array.isArray(hist.data) && hist.data.length) {
+          pvpHist = `<section class="prof-block"><div class="prof-h">PVP HISTORY</div><ul class="prof-friends">${hist.data.map(row => `<li><span>${row.opponent || 'Opponent'}</span><span>${row.result}${row.coins ? ' · +' + row.coins : ''}</span></li>`).join('')}</ul></section>`;
+        }
+      }
       const ov = $('#overlay');
       ov.classList.remove('hidden');
       ov.innerHTML = `<div id="profileScreen">
@@ -1210,6 +1217,7 @@
             ${editable ? `<div class="prof-actions"><button type="button" class="btn" id="btnPin">${picking ? 'Done' : 'Pin showcase'}</button>${pinned.length ? '<button type="button" class="btn" id="btnUnpin">Use rarest</button>' : ''}</div>` : `<p class="prof-note">${pinned.length ? 'Pinned by this player.' : 'Their rarest cards, gold first.'}</p>`}
           </section>
           ${friendHtml}
+          ${pvpHist}
           <section class="prof-block prof-statsblock">
             <div class="prof-h">STATS</div>
             <div class="prof-stats">
@@ -1277,6 +1285,7 @@
           draw();
         };
         ov.querySelectorAll('[data-view]').forEach(btn => { btn.onclick = () => showProfile(btn.dataset.view, {back: 'profile'}); });
+        ov.querySelectorAll('[data-challenge]').forEach(btn => { btn.onclick = () => window.TOB_PVP && window.TOB_PVP.challenge(btn.dataset.challenge); });
         ov.querySelectorAll('[data-drop]').forEach(btn => { btn.onclick = async () => { await window.TOB_AUTH.removeFriend(btn.dataset.drop); draw(); }; });
       } else {
         ov.querySelectorAll('.prof-card').forEach(btn => { btn.onclick = () => inspect(COPIES.makeCopy(btn.dataset.id, {gold: !!(owned.get(btn.dataset.id) || {}).gold}), null, true); });
@@ -1939,6 +1948,7 @@
           <nav class="portal-tabs">
             ${tab('btnGetCards', 'GET CARDS', 'CARDS')}
             ${tab('btnPlayTab', 'PLAY', 'PLAY')}
+            ${tab('btnPvp', 'PVP', 'PVP')}
             ${tab('btnDecks', 'DECKS', 'DECKS')}
             ${tab('btnProfile', 'PROFILE', 'PROFILE')}
             ${tab('btnAuctions', 'AUCTIONS', 'BIDS')}
@@ -2916,6 +2926,7 @@
       return showHome();
     }
     if (t.id === 'btnPlay' || t.id === 'btnPlayTab') return showDeckSelect();
+    if (t.id === 'btnPvp') return window.TOB_PVP && window.TOB_PVP.show();
     if (t.id === 'btnPick' || t.id === 'btnNew') {
       if (!window.TOB_AUTH.currentUser()) return showAuth('signup');
       return showDeckSelect();
@@ -3099,5 +3110,6 @@
     render();
     announceCombos();
   }
-  window.TOB_GAME = {demoCombo, showRules};
+  window.TOB_UI = {card: cardHTML};
+  window.TOB_GAME = {demoCombo, showRules, showHome, showAuth};
 })();
