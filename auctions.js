@@ -173,6 +173,10 @@
         const cards = root.TOB_CARDS && root.TOB_CARDS.CARDS;
         const def = cards && cards[rec.id];
         if (!def) { profile.collection = (profile.collection || []).concat([rec]); return {ok: false, error: 'Unknown card.'}; }
+        if (def.adminOnly || String(rec.id).indexOf('ob_') === 0) {
+          profile.collection = (profile.collection || []).concat([rec]);
+          return {ok: false, error: 'Obsidian Order cards stay out of the auction house.'};
+        }
         let custom = [];
         try { custom = JSON.parse(localStorage.getItem('tob_custom') || '[]'); } catch (e) { custom = []; }
         const still = (profile.collection || []).some(c => c && c.id === rec.id);

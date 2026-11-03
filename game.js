@@ -264,7 +264,8 @@
     let el = document.getElementById('comboCall');
     if (!el) { el = document.createElement('div'); el.id = 'comboCall'; document.body.appendChild(el); }
     el.innerHTML = `<b>${top.name}!</b> <span>+${top.bonus}</span>`;
-    el.classList.remove('show');
+    el.classList.remove('show', 'obsidian');
+    if (String(top.id || '').indexOf('ob_') === 0) el.classList.add('obsidian');
     void el.offsetWidth;
     el.classList.add('show');
   }
@@ -500,7 +501,7 @@
     const ids = new Set();
     let gold = 0;
     (profile.collection || []).forEach(rec => {
-      if (!rec || !CARDS[rec.id]) return;
+      if (!rec || !CARDS[rec.id] || CARDS[rec.id].adminOnly) return;
       ids.add(rec.id);
       if (rec.gold) gold++;
     });
@@ -793,6 +794,24 @@
       if (saved && saved.ok) profile = await window.TOB_AUTH.loadProfile();
     }
     rememberPacks(profile);
+    if (packState.role === 'admin' && window.TOB_OBSIDIAN) {
+      const have = new Set((profile.collection || []).map(r => r.id + (r.gold ? ':g' : ':s')));
+      let added = false;
+      window.TOB_OBSIDIAN.forEach(c => {
+        ['s', 'g'].forEach(kind => {
+          if (have.has(c.id + ':' + kind)) return;
+          const copy = COPIES.makeCopy(c.id, {gold: kind === 'g'});
+          if (!copy) return;
+          profile.collection = (profile.collection || []).concat([{id: copy.id, gold: !!copy.gold, uid: copy.uid}]);
+          added = true;
+        });
+      });
+      if (added) {
+        const saved = await window.TOB_AUTH.saveProfile(profile);
+        if (saved && saved.ok) profile = await window.TOB_AUTH.loadProfile();
+        rememberPacks(profile);
+      }
+    }
     return profile;
   }
   function rollPack(ownedIds) {
@@ -1112,6 +1131,7 @@
           <button type="button" class="btn" data-act="allgold">Give all gold cards</button>
           <button type="button" class="btn" data-act="role">${p.role === 'admin' ? 'Demote' : 'Make admin'}</button>
           <button type="button" class="btn" data-act="profile">Profile</button>
+          <button type="button" class="btn" data-act="obsidian">Give Obsidian cards</button>
         </div>
       </div>`;
     }).join('') || '<p class="tag">No accounts on this device.</p>';
@@ -1159,6 +1179,18 @@
       const gold = !!row.querySelector('[data-field="gold"]').checked;
       const copy = COPIES.makeCopy(id, {gold});
       profile.collection = (profile.collection || []).concat([{id: copy.id, gold: !!copy.gold, uid: copy.uid}]);
+    } else if (act === 'obsidian') {
+      if (!window.TOB_OBSIDIAN) { toast('Obsidian cards are not loaded'); return; }
+      if (!window.confirm('Give Obsidian Order cards, standard and gold, to ' + profile.username + '?')) return;
+      const have = new Set((profile.collection || []).map(r => r.id + (r.gold ? ':g' : ':s')));
+      window.TOB_OBSIDIAN.forEach(c => {
+        ['s', 'g'].forEach(kind => {
+          if (have.has(c.id + ':' + kind)) return;
+          const copy = COPIES.makeCopy(c.id, {gold: kind === 'g'});
+          if (copy) profile.collection = (profile.collection || []).concat([{id: copy.id, gold: !!copy.gold, uid: copy.uid}]);
+        });
+      });
+      customToast = 'Gave Obsidian Order cards to ' + profile.username;
     } else if (act === 'all' || act === 'allgold') {
       const gold = act === 'allgold';
       const n = CARD_LIST.length;
@@ -1354,7 +1386,7 @@
     return out.slice(0, 12);
   }
   function customDeck(bags) { return resolveDeck(readRawDeck(), bags); }
-  function playerDecks() { return Object.keys(DECKS).filter(k => !DECKS[k].ai); }
+  function playerDecks() { return Object.keys(DECKS).filter(k => !DECKS[k].ai && (!DECKS[k].adminOnly || packState.role === 'admin')); }
   async function quickStart(key) {
     const playable = playerDecks();
     key = key || lastDeck || playable[Math.floor(Math.random() * playable.length)];
@@ -1365,7 +1397,7 @@
       const profile = await window.TOB_AUTH.loadProfile();
       pIds = customDeck(ownedBags(profile));
     }
-    const others = Object.keys(DECKS).filter(k => k !== key);
+    const others = Object.keys(DECKS).filter(k => k !== key && !DECKS[k].adminOnly);
     const ok = others[Math.floor(Math.random() * others.length)];
     startGame(pIds, DECKS[ok].cards, OPP_NAMES[ok] || DECKS[ok].name);
   }
@@ -1404,7 +1436,8 @@
     const play = playable
       ? `<button type="button" class="btn go deckplay" data-deck="${key}">Play</button>${key === 'custom' ? '<button type="button" class="btn" id="btnBuild">Build / Edit deck</button>' : ''}`
       : `<button type="button" class="btn" id="btnBuild">Build / Edit deck</button>`;
-    return `<section class="deckblock"><div class="deckhead"><div><div class="dname">${name}</div><div class="dsum">${pts} base pts</div><div class="dcolors">${dots}</div></div>${play}</div><div class="deckgrid">${cards}</div></section>`;
+    const badge = key === 'obsidian' ? '<span class="adminbadge">ADMIN</span>' : '';
+    return `<section class="deckblock${key === 'obsidian' ? ' obsidian' : ''}"><div class="deckhead"><div><div class="dname">${badge}${name}</div><div class="dsum">${pts} base pts</div><div class="dcolors">${dots}</div></div>${play}</div><div class="deckgrid">${cards}</div></section>`;
   }
   let homeClock = null;
   function stopHomeClock() {
@@ -1522,7 +1555,7 @@
     const profile = await window.TOB_AUTH.loadProfile();
     const cd = customDeck(ownedBags(profile));
     const arches = [...new Set(CARD_LIST.map(c => c.archetype).filter(Boolean))].sort();
-    const blocks = Object.entries(DECKS).filter(([, d]) => !d.ai).map(([k, d]) => deckBlock(k, d.name, d.cards, true)).join('');
+    const blocks = Object.entries(DECKS).filter(([, d]) => !d.ai && (!d.adminOnly || packState.role === 'admin')).map(([k, d]) => deckBlock(k, d.name, d.cards, true)).join('');
     const custom = cd.length === 12 ? deckBlock('custom', 'My Deck', cd, true) : `<section class="deckblock"><div class="deckhead"><div><div class="dname">My Deck</div><div class="dsum">${cd.length}/12 cards</div></div><button type="button" class="btn" id="btnBuild">Build it</button></div></section>`;
     const chip = (id, label) => `<button type="button" class="btn filter${deckFinish === id ? ' on' : ''}" data-dfinish="${id}">${label}</button>`;
     ov.innerHTML = `<div class="panel select deckscreen">
@@ -1552,7 +1585,8 @@
     hidePreview();
     const ov = $('#overlay'); ov.classList.remove('hidden');
     const draw = () => {
-      const cards = CARD_LIST.filter(c => (!archFilter || c.archetype === archFilter) && (!comboOnly || (window.TOB_COMBOS && window.TOB_COMBOS.cardInCombo(c)))).map(c => COPIES.makeCopy(c.id, {gold: collectionGold}));
+      const galleryPool = (packState.role === 'admin' && window.TOB_OBSIDIAN) ? CARD_LIST.concat(window.TOB_OBSIDIAN) : CARD_LIST;
+      const cards = galleryPool.filter(c => (!archFilter || c.archetype === archFilter) && (!comboOnly || (window.TOB_COMBOS && window.TOB_COMBOS.cardInCombo(c)))).map(c => COPIES.makeCopy(c.id, {gold: collectionGold}));
       const crewList = comboOnly && window.TOB_COMBOS ? window.TOB_COMBOS.sets.map(s => `<div class="combochip"><b>${s.name}</b> +${s.bonus} · ${s.ids.map(id => CARDS[id] ? CARDS[id].name : id).join(', ')}</div>`).join('') : '';
       ov.innerHTML = `<div class="panel collection">
         <div class="sb-title">Card Gallery</div>
@@ -1643,7 +1677,8 @@
     const bags = ownedBags(profile);
     let sel = customDeck(bags);
     const ov = $('#overlay'); ov.classList.remove('hidden');
-    const arches = [...new Set(CARD_LIST.map(c => c.archetype).filter(Boolean))].sort();
+    const buildPool = (packState.role === 'admin' && window.TOB_OBSIDIAN) ? CARD_LIST.concat(window.TOB_OBSIDIAN) : CARD_LIST;
+    const arches = [...new Set(buildPool.map(c => c.archetype).filter(Boolean))].sort();
     const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
     const ownedIds = new Set(bags.keys());
     const ownCount = new Map();
@@ -1663,7 +1698,7 @@
       pullRank.set(rec.id, i);
     });
     const haystack = new Map();
-    CARD_LIST.forEach(c => {
+    buildPool.forEach(c => {
       let extra = '';
       const book = window.TOB_COMBOS;
       if (book) {
@@ -1687,7 +1722,7 @@
       (book.pairs || []).forEach(p => {
         if (deckArches.has(p.a) === deckArches.has(p.b)) return;
         const need = deckArches.has(p.a) ? p.b : p.a;
-        CARD_LIST.forEach(c => { if (c.archetype === need && ownedIds.has(c.id) && !selIds.has(c.id)) partnerIds.add(c.id); });
+        buildPool.forEach(c => { if (c.archetype === need && ownedIds.has(c.id) && !selIds.has(c.id)) partnerIds.add(c.id); });
       });
       const passesQuick = c => {
         const bag = bags.get(c.id);
@@ -1700,7 +1735,7 @@
         if (buildFinish === 'standard') return !!(bag && bag.standard) || !bag;
         return true;
       };
-      const pool = CARD_LIST.filter(passesQuick);
+      const pool = buildPool.filter(passesQuick);
       const colorCounts = {};
       const archCounts = {};
       pool.forEach(c => {
@@ -1796,7 +1831,7 @@
       const goalColor = Object.entries(colors).sort((a, b) => b[1] - a[1])[0];
       const suggestIds = [];
       partnerIds.forEach(id => { if (suggestIds.length < 8) suggestIds.push(id); });
-      if (goalColor) CARD_LIST.forEach(c => {
+      if (goalColor) buildPool.forEach(c => {
         if (suggestIds.length >= 8) return;
         if (c.color === goalColor[0] && ownedIds.has(c.id) && !selIds.has(c.id) && suggestIds.indexOf(c.id) === -1) suggestIds.push(c.id);
       });

@@ -82,6 +82,9 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
   letter-spacing: .03em; padding: 10px 16px; border-radius: 999px; box-shadow: 0 12px 28px rgba(240, 150, 0, .45); text-align: center; max-width: calc(100vw - 28px); }
 #comboCall b { letter-spacing: .04em; text-transform: uppercase; }
 #comboCall.show { animation: comboPop 1.7s ease both; }
+#comboCall.obsidian { background: linear-gradient(180deg, #3a2418, #0b0b0d); color: #ffb15a; border: 1px solid #ff7a00; box-shadow: 0 0 28px rgba(255, 90, 0, .75), inset 0 0 12px rgba(255, 120, 0, .35); }
+.deckblock.obsidian { background: radial-gradient(circle at 15% 0%, rgba(255, 90, 0, .42), transparent 58%), #120c0a; border: 1px solid #ff7a00; box-shadow: 0 0 24px rgba(255, 70, 0, .4); border-radius: 16px; padding: 8px; }
+.adminbadge { display: inline-block; margin-right: 6px; padding: 2px 6px; border-radius: 999px; background: #0b0b0d; color: #ffb15a; border: 1px solid #ff7a00; font: 800 10px/1 Inter, "Segoe UI", system-ui, sans-serif; letter-spacing: .08em; vertical-align: 2px; }
 @keyframes comboPop { 0% { opacity: 1; transform: translateX(-50%) scale(1.08); } 18% { transform: translateX(-50%) scale(1); } 72% { opacity: 1; } 100% { opacity: 0; transform: translateX(-50%) translateY(-8px) scale(1); } }
 .combochip { text-align: left; font-size: 13px; line-height: 1.35; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,.08); }
 .combolist { max-height: 280px; overflow: auto; margin: 8px 0 12px; text-align: left; }
