@@ -1023,9 +1023,9 @@ body::before { display: none; }
 }
 .banner-slide {
   position: absolute; inset: 0; display: flex; align-items: center; gap: 10px; padding: 0 12px;
-  opacity: 0; transition: opacity .35s ease;
+  opacity: 0; visibility: hidden; transition: none;
 }
-.banner-slide.on { opacity: 1; }
+.banner-slide.on { opacity: 1; visibility: visible; z-index: 1; transition: opacity .28s ease; }
 .banner-slide svg { width: 72px; height: 48px; flex: none; }
 .banner-slide b { display: block; font-size: 16px; }
 .banner-slide small { color: #c5e4ff; font-weight: 700; }
@@ -1085,7 +1085,7 @@ body::before { display: none; }
 .shop-tabs { display: flex; gap: 6px; margin-bottom: 8px; }
 .shop-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .shop-pack { padding: 10px; display: flex; flex-direction: column; gap: 4px; }
-.odds-line { font-size: 13px; font-weight: 800; color: #d7ecff; }
+.odds-line { font-size: 12px; font-weight: 800; line-height: 1.35; color: #d7ecff; }
 .shop-price s { color: #ffb0a4; margin-right: 4px; }
 .auc-head { display: flex; justify-content: space-between; gap: 8px; align-items: center; flex-wrap: wrap; }
 .auc-tabs, .auc-tools, .seg { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }

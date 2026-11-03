@@ -54,18 +54,38 @@
     const faces = (cards || []).map(puck).join('') || '<span class="trade-empty">No cards</span>';
     return `<div><div class="side-h">${label}</div><div class="trade-pucks">${faces}</div>${coins ? `<div class="trade-points">${coins} coins</div>` : ''}</div>`;
   }
+  function asList(value) {
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') {
+      try {
+        const parsed = JSON.parse(value);
+        if (Array.isArray(parsed)) return parsed;
+      } catch (e) { /* leave empty */ }
+    }
+    return [];
+  }
   function paintBadge() {
     document.querySelectorAll('[data-tradebadge]').forEach(el => {
       el.textContent = incomingN ? String(incomingN) : '';
       el.classList.toggle('on', incomingN > 0);
+      el.setAttribute('aria-label', incomingN ? incomingN + ' incoming trades' : '');
     });
   }
   async function refreshBadge() {
     if (!signedIn()) { incomingN = 0; paintBadge(); return; }
     const res = await rpc('my_trades');
-    if (missing(res) || !res.ok) { incomingN = 0; paintBadge(); return; }
-    const data = bodyOf(res);
-    incomingN = Array.isArray(data.incoming) ? data.incoming.length : 0;
+    if (missing(res)) { incomingN = 0; paintBadge(); return; }
+    if (!res.ok) return;
+    applyBook(bodyOf(res));
+  }
+  function reset() {
+    incomingN = 0;
+    book = null;
+    const db = root.TOB_AUTH && root.TOB_AUTH.client && root.TOB_AUTH.client();
+    if (channel && db) {
+      try { db.removeChannel(channel); } catch (e) { /* already gone */ }
+    }
+    channel = null;
     paintBadge();
   }
   function watch() {
@@ -106,16 +126,29 @@
     if (have) list.splice(list.indexOf(have), 1);
     else list.push({id: entry.id, gold: !!entry.gold, n: 1, name: entry.name});
   }
+  function applyBook(data) {
+    book = data || {};
+    book.incoming = asList(book.incoming);
+    book.outgoing = asList(book.outgoing);
+    book.incoming.forEach(row => {
+      row.offer_cards = asList(row.offer_cards);
+      row.want_cards = asList(row.want_cards);
+    });
+    book.outgoing.forEach(row => {
+      row.offer_cards = asList(row.offer_cards);
+      row.want_cards = asList(row.want_cards);
+    });
+    incomingN = book.incoming.length;
+    paintBadge();
+  }
   async function load() {
     soon = false;
     book = null;
-    if (!signedIn()) { soon = true; return; }
     const res = await rpc('my_trades');
-    if (missing(res)) { soon = true; return; }
-    if (!res.ok) { toast(res.error || 'Could not load trades.'); soon = true; return; }
-    book = bodyOf(res);
-    incomingN = Array.isArray(book.incoming) ? book.incoming.length : 0;
-    paintBadge();
+    if (missing(res)) { soon = true; incomingN = 0; paintBadge(); return; }
+    if (!signedIn()) return;
+    if (!res.ok) { toast(res.error || 'Could not load trades.'); return; }
+    applyBook(bodyOf(res));
   }
   function tradeRow(row, incoming) {
     const buttons = incoming
@@ -167,6 +200,7 @@
     const tabs = [['in', 'INCOMING'], ['out', 'OUTGOING'], ['new', 'CREATE TRADE']];
     let body = '';
     if (soon) body = '<p class="trade-empty">Trades coming soon.</p>';
+    else if (!signedIn()) body = '<p class="trade-empty">Log in to trade.</p>';
     else if (tab === 'new') body = createHTML(profile);
     else if (tab === 'out') {
       const rows = (book && book.outgoing) || [];
@@ -267,5 +301,5 @@
     watch();
   }
 
-  root.TOB_TRADES = {show, watch, paintBadge, refresh: refreshBadge};
+  root.TOB_TRADES = {show, watch, paintBadge, refresh: refreshBadge, reset};
 })(window);

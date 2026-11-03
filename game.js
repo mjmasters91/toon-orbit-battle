@@ -468,10 +468,11 @@
   }
   function renderUser() {
     const user = window.TOB_AUTH.currentUser();
+    const account = !!(user && !user.guest);
     const out = $('#btnLogOut');
     const inn = $('#btnNavLogin');
-    if (out) out.classList.toggle('hidden', !user);
-    if (inn) inn.classList.toggle('hidden', !!user);
+    if (out) out.classList.toggle('hidden', !account);
+    if (inn) inn.classList.toggle('hidden', account);
     const bal = $('#coinBal');
     if (bal) bal.classList.toggle('hidden', !user);
     const adminBtn = $('#btnAdmin');
@@ -581,6 +582,7 @@
   async function doLogOut() {
     closeUserMenu();
     try { await window.TOB_AUTH.logOut(); } catch (e) { /* leave the table anyway */ }
+    if (window.TOB_TRADES && window.TOB_TRADES.reset) window.TOB_TRADES.reset();
     renderUser();
     rememberPacks(null);
     G = null;
@@ -1020,11 +1022,15 @@
         return `<button type="button" class="btn go" data-buytheme="${escPack(theme.key)}" ${coins >= price ? '' : 'disabled'}>Buy &amp; Open</button>`;
       };
       const poolFor = key => CARD_LIST.filter(c => isPublicCard(c.id) && (!key || c.archetype === key));
-      const oddsHTML = cards => ['Common', 'Uncommon', 'Rare', 'Legendary'].map(name => {
-        const hit = cards.filter(c => rarityName(c) === name).length;
-        if (!hit || !cards.length) return '';
-        return `<div class="odds-line">${name}: ${Math.round(hit / cards.length * 100)}% — 5 card(s)</div>`;
-      }).join('');
+      const oddsHTML = cards => {
+        const n = cards.length || 1;
+        const parts = ['Common', 'Uncommon', 'Rare', 'Legendary'].map(name => {
+          const hit = cards.filter(c => rarityName(c) === name).length;
+          if (!hit) return '';
+          return name + ' ' + Math.round(hit / n * 100) + '%';
+        }).filter(Boolean);
+        return `<div class="odds-line">5 cards per pack</div><div class="odds-line">Each card: ${parts.join(' · ')}</div>`;
+      };
       const packCard = (theme, weekFlag) => `<article class="shop-pack${weekFlag ? ' week' : ''}">
           ${weekFlag ? '<div class="weekbadge">PACK OF THE WEEK</div>' : ''}
           ${packArt(theme)}
