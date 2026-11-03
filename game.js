@@ -1844,13 +1844,15 @@
     });
     document.addEventListener('mouseover', e => {
       if (!packCanHover()) return;
+      const feed = e.target.closest && e.target.closest('.feed-card');
+      if (feed) { showFeedTip(feed); return; }
       const card = collectionCard(e.target);
       if (!card) return;
       showCollectionTip(card);
     });
     document.addEventListener('mouseout', e => {
       if (!packCanHover()) return;
-      const card = collectionCard(e.target);
+      const card = (e.target.closest && e.target.closest('.feed-card')) || collectionCard(e.target);
       if (!card) return;
       const next = e.relatedTarget;
       if (next && card.contains(next)) return;
@@ -2118,6 +2120,70 @@
     aucTab = 'detail';
     showAuctions();
   }
+  let pullFeedRows = [];
+  let pullFeedChannel = null;
+  function pullAgo(iso) {
+    const ms = Date.now() - new Date(iso).getTime();
+    if (!Number.isFinite(ms) || ms < 0) return 'just now';
+    const mins = Math.floor(ms / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return mins + 'm ago';
+    const hours = Math.floor(mins / 60);
+    if (hours < 48) return hours + 'h ago';
+    return Math.floor(hours / 24) + 'd ago';
+  }
+  function showFeedTip(node) {
+    const id = node && node.dataset && node.dataset.cid;
+    if (!id || !CARDS[id]) return;
+    const gold = node.dataset.gold === '1';
+    showPackTip(node, {id, gold, uid: 'feed:' + id + (gold ? ':g' : ':s'), plain: true, ownedIds: tipOwnedIds || new Set()});
+  }
+  function paintPullFeed() {
+    const list = document.getElementById('pullFeed');
+    if (!list) return;
+    if (!pullFeedRows.length) {
+      list.innerHTML = '<li class="feed-empty">No rare pulls yet. Be the first!</li>';
+      return;
+    }
+    list.innerHTML = pullFeedRows.slice(0, 10).map(row => {
+      const card = CARDS[row.card_id];
+      const name = card ? card.name : row.card_id;
+      const gold = !!row.is_gold;
+      const who = liveEsc(row.username || 'Someone');
+      return `<li><button type="button" class="feed-user" data-feed-user="${who}">${who}</button> pulled <button type="button" class="feed-card${gold ? ' is-gold' : ''}" data-cid="${liveEsc(row.card_id)}" data-gold="${gold ? '1' : '0'}">${liveEsc(name)}</button>${gold ? ' <b class="feed-gold">GOLD</b>' : ''} · ${pullAgo(row.created_at)}</li>`;
+    }).join('');
+  }
+  async function loadPullFeed() {
+    const list = document.getElementById('pullFeed');
+    if (!list) return;
+    if (!window.TOB_AUTH || window.TOB_AUTH.mode !== 'supabase' || !window.TOB_AUTH.rpc) {
+      pullFeedRows = [];
+      paintPullFeed();
+      return;
+    }
+    const res = await window.TOB_AUTH.rpc('public_recent_pulls', {p_limit: 10});
+    const msg = (res && res.error) || '';
+    if (!res || !res.ok || /does not exist|could not find|PGRST202|42883|schema cache/i.test(msg)) {
+      pullFeedRows = [];
+      paintPullFeed();
+      return;
+    }
+    let data = res.data;
+    if (typeof data === 'string') {
+      try { data = JSON.parse(data); } catch (e) { data = []; }
+    }
+    pullFeedRows = Array.isArray(data) ? data : [];
+    paintPullFeed();
+  }
+  function watchPullFeed() {
+    const db = window.TOB_AUTH && window.TOB_AUTH.client && window.TOB_AUTH.client();
+    if (!db || pullFeedChannel || window.TOB_AUTH.mode !== 'supabase') return;
+    pullFeedChannel = db.channel('pull-feed')
+      .on('postgres_changes', {event: 'INSERT', schema: 'public', table: 'pull_feed'}, () => {
+        if (document.getElementById('homeScreen')) loadPullFeed();
+      })
+      .subscribe();
+  }
   function showHome() {
     auctionNotices();
     stopTimer();
@@ -2131,13 +2197,9 @@
     const draw = async () => {
       const profile = await window.TOB_AUTH.loadProfile();
       if (!window.TOB_AUTH.currentUser()) return;
-      const owned = (profile && profile.collection) || [];
-      const pulls = owned.filter(p => p && isPublicCard(p.id)).slice(-4).reverse();
+      if (profile) rememberPacks(profile);
       const liveLots = await homeAuctions();
       const liveGames = await homeMatches();
-      const pullList = pulls.length
-        ? pulls.map(p => `<li>${CARDS[p.id] ? CARDS[p.id].name : p.id}${p.gold ? ' · GOLD' : ''}</li>`).join('')
-        : '<li>No pulls yet.</li>';
       const admin = packState.role === 'admin';
       const tab = (id, label, short) => `<button type="button" class="portal-tab" id="${id}"><span class="tab-ico" aria-hidden="true"></span><span class="tab-label"><span class="tab-long">${label}</span><span class="tab-short">${short}</span></span>${id === 'btnProfile' ? '<span class="packbadge" data-friendbadge></span>' : ''}<span class="chev" aria-hidden="true">&gt;</span></button>`;
       ov.innerHTML = `<div id="homeScreen" class="portal">
@@ -2173,7 +2235,7 @@
           <div class="portal-bottom">
             <div class="portal-box">
               <div class="portal-boxhead">RECENT PULLS</div>
-              <ul class="portal-pulls">${pullList}</ul>
+              <ul class="portal-pulls" id="pullFeed"><li class="feed-empty">No rare pulls yet. Be the first!</li></ul>
             </div>
             <div class="portal-box">
               <div class="portal-boxhead">TOON TIPS</div>
@@ -2185,12 +2247,14 @@
       </div>`;
       bindLive(ov);
       let liveTick = 0;
+      loadPullFeed();
+      watchPullFeed();
       homeClock = setInterval(() => {
-        const node = document.getElementById('homeClock');
+        if (!document.getElementById('homeScreen')) { stopHomeClock(); return; }
         document.querySelectorAll('[data-live-ends]').forEach(el => { el.textContent = aucClock(+el.dataset.liveEnds); });
-        if (!node && !document.querySelector('[data-live-ends]')) { stopHomeClock(); return; }
-        if (node) node.textContent = dailyClockText();
         liveTick += 1;
+        if (liveTick % 30 === 0) paintPullFeed();
+        if (liveTick % 45 === 0) loadPullFeed();
         if (!livePreview && liveTick % 5 === 0) refreshLivePanel();
       }, 1000);
       paintFriendBadge();
@@ -3181,9 +3245,11 @@
       if (playPop) playPop.classList.add('hidden');
       if (morePop) morePop.classList.add('hidden');
     }
-    const keepTip = e.target.closest('.pullslot, .stagecard, .thumb, #packTip, .panel.collection .ccard, .panel.mine .ccard');
+    const keepTip = e.target.closest('.pullslot, .stagecard, .thumb, #packTip, .panel.collection .ccard, .panel.mine .ccard, .feed-card');
     if (!packCanHover() && !keepTip) hidePackTip();
     if (!packCanHover()) {
+      const feed = e.target.closest && e.target.closest('.feed-card');
+      if (feed) showFeedTip(feed);
       const held = collectionCard(e.target);
       if (held) showCollectionTip(held);
     }
@@ -3237,6 +3303,8 @@
       if (routeHash() === 'settings' || routeHash() === 'profile') history.pushState(null, '', location.pathname + location.search);
       return showHome();
     }
+    if (t.classList.contains('feed-card')) return;
+    if (t.dataset.feedUser) return showProfile(t.dataset.feedUser);
     if (t.id === 'btnPlay' || t.id === 'btnPlayTab') return showDeckSelect();
     if (t.id === 'btnPvp') return window.TOB_PVP && window.TOB_PVP.show();
     if (t.id === 'btnPick' || t.id === 'btnNew') {
