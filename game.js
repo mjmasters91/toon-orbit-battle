@@ -1831,58 +1831,195 @@
     };
     draw();
   }
+  let adminPeople = [];
+  let adminQuery = '';
+  let adminPage = 0;
+  let adminTotal = 0;
+  let adminNote = '';
+  let adminSelected = null;
+  let adminSearchMissing = false;
+  const ADMIN_PAGE = 25;
+  function adminWhen(iso) {
+    if (!iso) return '—';
+    const ms = Date.now() - new Date(iso).getTime();
+    if (!Number.isFinite(ms) || ms < 0) return '—';
+    const mins = Math.floor(ms / 60000);
+    if (mins < 1) return 'Just now';
+    if (mins < 60) return mins + 'm ago';
+    const hours = Math.floor(mins / 60);
+    if (hours < 48) return hours + 'h ago';
+    return Math.floor(hours / 24) + 'd ago';
+  }
+  function adminFace(id) {
+    const safe = id && isPublicCard(id) ? id : 'zoomer';
+    return 'assets/cards/' + encodeURIComponent(safe) + '.webp';
+  }
+  function adminCardId(raw) {
+    const value = String(raw || '').trim();
+    if (!value) return '';
+    if (CARDS[value]) return value;
+    const hit = CARD_LIST.find(card => String(card.name || '').toLowerCase() === value.toLowerCase());
+    return hit ? hit.id : '';
+  }
+  function normalizeAdmin(raw, local) {
+    const rating = raw.rating == null ? null : (raw.rating | 0);
+    const band = rating == null ? null : tierInfo(rating);
+    const cards = local ? (raw.collection || []).length : (Number(raw.cards) || 0);
+    return {
+      id: raw.id || '',
+      username: raw.username || 'Player',
+      role: raw.role === 'admin' ? 'admin' : 'player',
+      coins: raw.coins | 0,
+      packs: (raw.packs != null ? raw.packs : raw.unopened_packs) | 0,
+      cards,
+      avatar: raw.avatar || '',
+      rating,
+      tier: raw.tier || (band && band.tier) || '',
+      division: raw.division || (band && band.division) || '',
+      rankedWins: (raw.ranked_wins != null ? raw.ranked_wins : raw.rankedWins) | 0,
+      rankedLosses: (raw.ranked_losses != null ? raw.ranked_losses : raw.rankedLosses) | 0,
+      lastActive: raw.last_active || raw.lastActive || '',
+      local: !!local,
+    };
+  }
+  function rpcMissing(res, name) {
+    const msg = (res && (res.error || res.message || res.code)) || '';
+    return new RegExp(name + '|does not exist|PGRST202|schema cache|42883|could not find the function', 'i').test(String(msg));
+  }
+  async function loadAdminPeople() {
+    if (window.TOB_AUTH.mode !== 'supabase') {
+      const q = adminQuery.trim().toLowerCase();
+      let people = (window.TOB_AUTH.listProfiles() || []).map(p => normalizeAdmin(p, true));
+      if (q) people = people.filter(p => p.username.toLowerCase().indexOf(q) >= 0);
+      people.sort((a, b) => a.username.localeCompare(b.username));
+      return {people, total: people.length, note: people.length ? '' : 'No accounts on this device.'};
+    }
+    if (adminSearchMissing) {
+      return {people: [], total: 0, note: 'The member list is not on the server yet.'};
+    }
+    const res = await window.TOB_AUTH.rpc('admin_search_players', {
+      p_query: adminQuery.trim(), p_limit: ADMIN_PAGE, p_offset: adminPage * ADMIN_PAGE,
+    });
+    if (!res || !res.ok) {
+      if (rpcMissing(res, 'admin_search_players')) {
+        adminSearchMissing = true;
+        return {people: [], total: 0, note: 'The member list is not on the server yet.'};
+      }
+      return {people: [], total: 0, note: (res && res.error) || 'Could not load members.'};
+    }
+    const data = res.data || {};
+    const people = (data.players || []).map(p => normalizeAdmin(p, false));
+    return {people, total: data.total | 0, note: ''};
+  }
+  function memberRow(person, index) {
+    const tier = person.rating == null ? '—' : (person.tier + (person.division ? ' ' + person.division : '') + ' · ' + person.rating);
+    const badge = person.role === 'admin' ? '<span class="member-badge">ADMIN</span>' : '';
+    return `<button type="button" class="member-row" data-pick="${index}">
+      <img class="member-ava" src="${adminFace(person.avatar)}" alt="">
+      <span class="member-name">${escPack(person.username)}${badge}</span>
+      <span class="member-tier">${escPack(tier)}</span>
+      <span class="member-coins">${person.coins} coins</span>
+      <span class="member-when">${escPack(person.local ? 'On this device' : adminWhen(person.lastActive))}</span>
+    </button>`;
+  }
+  function adminSheet(person) {
+    const tier = person.rating == null ? 'No ranked rating' : (person.tier + (person.division ? ' ' + person.division : '') + ' · ' + person.rating);
+    const record = person.local ? '' : `<p class="admin-meta">Ranked ${person.rankedWins}-${person.rankedLosses} · ${person.cards} cards · ${escPack(person.local ? 'On this device' : adminWhen(person.lastActive))}</p>`;
+    const names = CARD_LIST.map(card => `<option value="${escPack(card.name)}"></option>`).join('');
+    return `<div class="admin-panel admin-sheet" data-user="${escPack(String(person.username || '').toLowerCase())}" data-id="${escPack(person.id)}">
+      <div class="admin-sheet-top">
+        <img class="member-ava" src="${adminFace(person.avatar)}" alt="">
+        <div><h2>${escPack(person.username)}</h2><p class="admin-meta">${escPack(tier)}${person.role === 'admin' ? ' · Admin' : ''}</p>${record}</div>
+        <button type="button" class="btn sm" id="adminPopClose">Close</button>
+      </div>
+      <section class="admin-sec"><h3>Wallet</h3>
+        <div class="admin-line"><input class="admin-in" data-field="coins" type="number" min="0" value="${person.coins | 0}" aria-label="Coins"><button type="button" class="btn sm" data-act="coins">Set coins</button></div>
+        <div class="admin-line"><input class="admin-in" data-field="packs" type="number" min="0" value="${person.packs | 0}" aria-label="Packs"><button type="button" class="btn sm" data-act="packs">Set packs</button></div>
+      </section>
+      <section class="admin-sec"><h3>Cards</h3>
+        <div class="admin-line"><input class="admin-in" data-field="card" list="adminCardNames" placeholder="Card name" aria-label="Card"><label class="goldlab"><input type="checkbox" data-field="gold"> Gold</label><button type="button" class="btn sm" data-act="card">Grant</button></div>
+        <datalist id="adminCardNames">${names}</datalist>
+        <div class="admin-line"><button type="button" class="btn sm" data-act="all">Give all cards</button><button type="button" class="btn sm" data-act="allgold">Give all gold</button>${window.TOB_OBSIDIAN ? '<button type="button" class="btn sm" data-act="obsidian">Give Obsidian</button>' : ''}</div>
+      </section>
+      <section class="admin-sec"><h3>Account</h3>
+        <div class="admin-line"><button type="button" class="btn sm" data-act="profile">View profile</button><button type="button" class="btn sm" data-act="role">${person.role === 'admin' ? 'Remove admin' : 'Make admin'}</button></div>
+      </section>
+    </div>`;
+  }
+  function openAdminSheet(person) {
+    adminSelected = person;
+    const tools = $('#adminTools');
+    if (tools) tools.classList.add('hidden');
+    const pop = $('#adminPop');
+    if (!pop) return;
+    pop.classList.remove('hidden');
+    pop.innerHTML = adminSheet(person);
+    const close = $('#adminPopClose');
+    if (close) close.onclick = () => { adminSelected = null; pop.classList.add('hidden'); pop.innerHTML = ''; };
+    pop.querySelectorAll('[data-act]').forEach(btn => { btn.onclick = () => adminAct(btn); });
+  }
+  async function paintAdminList() {
+    const box = $('#adminList');
+    if (!box) return;
+    const loaded = await loadAdminPeople();
+    adminPeople = loaded.people;
+    adminTotal = loaded.total;
+    adminNote = loaded.note;
+    const pages = Math.max(1, Math.ceil(adminTotal / ADMIN_PAGE));
+    const rows = adminPeople.map(memberRow).join('');
+    box.innerHTML = (adminNote ? `<p class="admin-empty">${escPack(adminNote)}</p>` : '') +
+      (rows || (!adminNote ? '<p class="admin-empty">No members match that search.</p>' : '')) +
+      `<div class="admin-foot"><span>${adminTotal} member${adminTotal === 1 ? '' : 's'}</span><span><button type="button" class="btn sm" id="adminPrev" ${adminPage <= 0 ? 'disabled' : ''}>Prev</button> <button type="button" class="btn sm" id="adminNext" ${adminPage + 1 >= pages ? 'disabled' : ''}>Next</button></span></div>`;
+    box.querySelectorAll('[data-pick]').forEach(btn => { btn.onclick = () => openAdminSheet(adminPeople[+btn.dataset.pick]); });
+    const prev = $('#adminPrev');
+    const next = $('#adminNext');
+    if (prev) prev.onclick = () => { if (adminPage > 0) { adminPage -= 1; paintAdminList(); } };
+    if (next) next.onclick = () => { if (adminPage + 1 < pages) { adminPage += 1; paintAdminList(); } };
+    if (adminSelected) {
+      const fresh = adminPeople.find(p => (p.id && p.id === adminSelected.id) || p.username === adminSelected.username);
+      if (fresh) openAdminSheet(fresh);
+    }
+  }
   async function showAdmin() {
     if (packState.role !== 'admin') return showHome();
     closeUserMenu();
     hidePreview();
     stopTimer();
+    const morePop = $('#morePop');
+    const playPop = $('#playPop');
+    if (morePop) morePop.classList.add('hidden');
+    if (playPop) playPop.classList.add('hidden');
     const ov = $('#overlay');
     ov.classList.remove('hidden');
-    let people = window.TOB_AUTH.listProfiles();
-    if (window.TOB_AUTH.mode === 'supabase') {
-      const listed = await window.TOB_AUTH.rpc('admin_list_players');
-      if (!listed.ok) { toast(listed.error || 'Admins only.'); return showHome(); }
-      people = (listed.data || []).map(p => ({id: p.id, username: p.username, role: p.role, coins: p.coins, packs: p.unopened_packs, collection: new Array(Number(p.cards) || 0)}));
-    }
-    const cardOpts = CARD_LIST.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
-    const rows = people.map(p => {
-      const count = (p.collection || []).length;
-      const key = String(p.username || '').toLowerCase();
-      return `<div class="adminrow" data-user="${key}" data-id="${p.id || ''}">
-        <div class="adminwho"><b>${p.username}</b> <span>${p.role === 'admin' ? 'admin' : 'player'}</span></div>
-        <div class="adminmeta">${p.coins | 0} coins · ${p.packs | 0} packs · ${count} cards</div>
-        <div class="admingrid">
-          <input class="admin-in" data-field="coins" type="number" min="0" value="${p.coins | 0}" aria-label="Coins for ${p.username}">
-          <button type="button" class="btn" data-act="coins">Set coins</button>
-          <input class="admin-in" data-field="packs" type="number" min="0" value="${p.packs | 0}" aria-label="Packs for ${p.username}">
-          <button type="button" class="btn" data-act="packs">Set packs</button>
-          <select data-field="card" aria-label="Card for ${p.username}">${cardOpts}</select>
-          <label class="goldlab"><input type="checkbox" data-field="gold"> Gold</label>
-          <button type="button" class="btn" data-act="card">Grant card</button>
-          <button type="button" class="btn" data-act="all">Give all cards</button>
-          <button type="button" class="btn" data-act="allgold">Give all gold cards</button>
-          <button type="button" class="btn" data-act="role">${p.role === 'admin' ? 'Demote' : 'Make admin'}</button>
-          <button type="button" class="btn" data-act="profile">Profile</button>
-          <button type="button" class="btn" data-act="obsidian">Give Obsidian cards</button>
+    ov.innerHTML = `<div class="admin-screen">
+      <div class="admin-bar"><h1>Members</h1><div class="admin-tools"><button type="button" class="btn sm" id="btnAdminTools">Site tools</button><button type="button" class="btn sm" id="btnAdminBack">Back</button></div></div>
+      <input class="admin-search" id="adminSearch" type="search" placeholder="Search username" value="${escPack(adminQuery)}" aria-label="Search members">
+      <div class="admin-panel admin-list" id="adminList"></div>
+      <div class="admin-pop hidden" id="adminPop"></div>
+      <div class="admin-pop hidden" id="adminTools"><div class="admin-panel admin-sheet">
+        <div class="admin-sheet-top"><h2>Site tools</h2><button type="button" class="btn sm" id="adminToolsClose">Close</button></div>
+        <p class="admin-meta">${window.TOB_AUTH.mode === 'supabase' ? 'Prices are checked on the server.' : 'Local prices stay on this device.'}</p>
+        <div class="econ">
+          <label>Win <input id="ecoWin" type="number" min="0" value="${ECONOMY.winCoins}"></label>
+          <label>Loss <input id="ecoLoss" type="number" min="0" value="${ECONOMY.lossCoins}"></label>
+          <label>Pack <input id="ecoPrice" type="number" min="0" value="${ECONOMY.packPrice}"></label>
+          <label>Theme pack <input id="ecoTheme" type="number" min="0" value="${ECONOMY.themePrice | 0}"></label>
+          <label>Week pack <input id="ecoWeek" type="number" min="0" value="${ECONOMY.themeWeekPrice | 0}"></label>
+          <label>Auction fee % <input id="ecoFee" type="number" min="0" max="50" value="${ECONOMY.auctionFee | 0}"></label>
         </div>
-      </div>`;
-    }).join('') || '<p class="tag">No accounts on this device.</p>';
-    ov.innerHTML = `<div class="panel admin">
-      <div class="sb-title">Admin</div>
-      <p class="tag">Local admin is device-only and client-side. Anyone with this browser can change the data. A Supabase project has to enforce the admin role on the server.</p>
-      <div class="econ">
-        <label>Win <input id="ecoWin" type="number" min="0" value="${ECONOMY.winCoins}"></label>
-        <label>Loss <input id="ecoLoss" type="number" min="0" value="${ECONOMY.lossCoins}"></label>
-        <label>Pack <input id="ecoPrice" type="number" min="0" value="${ECONOMY.packPrice}"></label>
-        <label>Theme pack <input id="ecoTheme" type="number" min="0" value="${ECONOMY.themePrice | 0}"></label>
-        <label>Week pack <input id="ecoWeek" type="number" min="0" value="${ECONOMY.themeWeekPrice | 0}"></label>
-        <label>Auction fee % <input id="ecoFee" type="number" min="0" max="50" value="${ECONOMY.auctionFee | 0}"></label>
-        <button type="button" class="btn go" id="btnSaveEcon">Save economy</button>
-      </div>
-      <div class="adminlist">${rows}</div>
-      <div class="go-btns"><button type="button" class="btn" id="btnAdminBack">BACK</button></div>
+        <button type="button" class="btn sm go" id="btnSaveEcon">Save economy</button>
+      </div></div>
     </div>`;
-    $('#btnAdminBack').onclick = () => showHome();
+    $('#btnAdminBack').onclick = () => { adminSelected = null; showHome(); };
+    $('#btnAdminTools').onclick = () => { const pop = $('#adminTools'); if (pop) pop.classList.remove('hidden'); const member = $('#adminPop'); if (member) member.classList.add('hidden'); };
+    $('#adminToolsClose').onclick = () => { const pop = $('#adminTools'); if (pop) pop.classList.add('hidden'); };
+    let searchTimer = null;
+    $('#adminSearch').oninput = () => {
+      adminQuery = $('#adminSearch').value;
+      adminPage = 0;
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(paintAdminList, window.TOB_AUTH.mode === 'supabase' ? 250 : 0);
+    };
     $('#btnSaveEcon').onclick = async () => {
       const next = {
         winCoins: clampInt($('#ecoWin').value, ECONOMY.winCoins),
@@ -1901,27 +2038,30 @@
       }
       saveEconomy(next);
       toast('Saved economy');
-      showAdmin();
     };
-    ov.querySelectorAll('[data-act]').forEach(btn => { btn.onclick = () => adminAct(btn); });
+    await paintAdminList();
   }
   async function adminActOnline(btn) {
-    const row = btn.closest('.adminrow');
+    const row = btn.closest('.admin-sheet');
     const id = row && row.dataset.id;
     const act = btn.dataset.act;
+    const who = (adminSelected && adminSelected.username) || 'that player';
     if (!id) { toast('That player is not online'); return; }
     if (act === 'profile') { showProfile(row.dataset.user, {back: 'admin'}); return; }
+    if (act === 'role') { toast('Role changes stay on this device. The server still checks admin actions.'); return; }
     let res = {ok: false, error: 'That action stays on the device.'};
     if (act === 'coins') res = await window.TOB_AUTH.rpc('admin_give_coins', {p_user: id, p_amount: clampInt(row.querySelector('[data-field="coins"]').value, 0)});
     else if (act === 'packs') res = await window.TOB_AUTH.rpc('admin_give_packs', {p_user: id, p_amount: clampInt(row.querySelector('[data-field="packs"]').value, 0)});
     else if (act === 'card') {
-      const card = row.querySelector('[data-field="card"]').value;
+      const card = adminCardId(row.querySelector('[data-field="card"]').value);
+      if (!card) { toast('Pick a card'); return; }
       res = await window.TOB_AUTH.rpc('admin_give_card', {p_user: id, p_card: card, p_gold: !!row.querySelector('[data-field="gold"]').checked});
     } else if (act === 'all' || act === 'allgold') {
-      if (!window.confirm('Give cards through the server?')) return;
+      const what = act === 'allgold' ? 'every gold card' : 'every card';
+      if (!window.confirm('Give ' + what + ' to ' + who + '?')) return;
       res = await window.TOB_AUTH.rpc('admin_give_all', {p_user: id, p_gold: act === 'allgold'});
     } else if (act === 'obsidian') {
-      if (!window.confirm('Give Obsidian Order cards, standard and gold?')) return;
+      if (!window.confirm('Give Obsidian Order cards, standard and gold, to ' + who + '?')) return;
       res = {ok: true};
       for (const card of (window.TOB_OBSIDIAN || [])) {
         const a = await window.TOB_AUTH.rpc('admin_give_card', {p_user: id, p_card: card.id, p_gold: false});
@@ -1930,11 +2070,11 @@
       }
     }
     toast(res && res.ok ? 'Saved' : ((res && res.error) || 'Could not save'));
-    if (res && res.ok) showAdmin();
+    if (res && res.ok) paintAdminList();
   }
   function adminAct(btn) {
     if (window.TOB_AUTH.mode === 'supabase') { adminActOnline(btn); return; }
-    const row = btn.closest('.adminrow');
+    const row = btn.closest('.admin-sheet');
     const username = row && row.dataset.user;
     const profile = window.TOB_AUTH.listProfiles().find(p => String(p.username || '').toLowerCase() === username);
     if (!profile) { toast('That player is not on this device'); return; }
@@ -1946,7 +2086,7 @@
       profile.packs = clampInt(row.querySelector('[data-field="packs"]').value, profile.packs | 0);
       profile.welcomeGranted = true;
     } else if (act === 'card') {
-      const id = row.querySelector('[data-field="card"]').value;
+      const id = adminCardId(row.querySelector('[data-field="card"]').value);
       if (!CARDS[id]) { toast('Pick a card'); return; }
       const gold = !!row.querySelector('[data-field="gold"]').checked;
       const copy = COPIES.makeCopy(id, {gold});
@@ -1974,7 +2114,9 @@
       customToast = 'Gave ' + what + ' to ' + profile.username;
     } else if (act === 'role') {
       if (String(profile.username || '').toLowerCase() === 'guest') { toast('Guest stays a player'); return; }
-      profile.role = profile.role === 'admin' ? 'player' : 'admin';
+      const next = profile.role === 'admin' ? 'player' : 'admin';
+      if (!window.confirm((next === 'admin' ? 'Make ' : 'Remove admin from ') + profile.username + '?')) return;
+      profile.role = next;
     }
     const saved = window.TOB_AUTH.adminSave(profile.username, profile);
     if (!saved || !saved.ok) { toast((saved && saved.error) || 'Could not save'); return; }
@@ -1982,7 +2124,8 @@
     if (me && String(me.username || '').toLowerCase() === username) rememberPacks(saved.profile);
     const labels = {coins: 'Updated coins for ', packs: 'Updated packs for ', card: 'Granted a card to ', role: 'Updated role for '};
     toast(customToast || ((labels[act] || 'Saved ') + profile.username));
-    showAdmin();
+    if (adminSelected) adminSelected = normalizeAdmin(profile, true);
+    paintAdminList();
   }
   async function beginPull(profile, pulls, before) {
     profile.stats = profile.stats || {};
