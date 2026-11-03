@@ -525,10 +525,25 @@
   }
   function goalColorOf(side) {
     if (!side) return null;
-    if (side.goalColor) return side.goalColor;
+    if (side.goalPublic === false) return null;
+    if (Object.prototype.hasOwnProperty.call(side, 'goalColor')) return side.goalColor || null;
+    if (!(side.hand || side.deck || side.goal)) return null;
     const id = side.goal && side.goal.id;
+    if (!id || String(id).indexOf('ob_') === 0) return null;
     const cards = root.TOB_CARDS && root.TOB_CARDS.CARDS;
-    return id && cards && cards[id] ? cards[id].color : null;
+    const card = cards && cards[id];
+    if (!card || card.adminOnly) return null;
+    return card.color || null;
+  }
+  function seatLooksRedacted(side) {
+    if (!side || typeof side !== 'object') return false;
+    const marked = Object.prototype.hasOwnProperty.call(side, 'handCount')
+      || Object.prototype.hasOwnProperty.call(side, 'deckCount')
+      || Object.prototype.hasOwnProperty.call(side, 'goalPublic');
+    return marked && !(side.hand || side.deck || side.goal);
+  }
+  function stateLooksRedacted(state) {
+    return !!(state && (seatLooksRedacted(state.host) || seatLooksRedacted(state.guest)));
   }
   function boardFor(side, phase, own) {
     const board = (side && side.board) || [];
@@ -627,6 +642,10 @@
     const user = me();
     if (!user) return null;
     seat = data.host === user.id ? 'host' : 'guest';
+    if (stateLooksRedacted(data.state)) {
+      viewMode = 'rpc';
+      return null;
+    }
     const packed = normalizeLegacy(data, seat);
     packed.legacy = viewMode !== 'rpc';
     return packed;

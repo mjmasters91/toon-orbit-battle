@@ -242,7 +242,9 @@
   function renderScore(ev) {
     const tg = G.targets;
     const dot = c => `<span class="gem" style="background:${COLORS[c]}"></span>${cap(c)}`;
-    const goalTxt = tg.length === 0 ? 'No goal color — Points only!' : tg.length === 1 ? `Goal color: ${dot(tg[0])} (most cards = +${E.COLOR_BONUS})` : `Goal colors: ${dot(tg[0])} & ${dot(tg[1])} (more of BOTH wins!)`;
+    const goalTxt = tg.length === 0
+      ? (G.spectate && G.serverPhase !== 'score' ? 'Goal colors show when the match ends.' : 'No goal color — Points only!')
+      : tg.length === 1 ? `Goal color: ${dot(tg[0])} (most cards = +${E.COLOR_BONUS})` : `Goal colors: ${dot(tg[0])} & ${dot(tg[1])} (more of BOTH wins!)`;
     const rows = tg.map(c => `<tr><td><span class="gem" style="background:${COLORS[c]}"></span>${cap(c)}</td><td>${ev.counts.p[c] || 0}</td><td>${ev.counts.o[c] || 0}</td></tr>`).join('');
     const pen = s => G.penalty[s] ? `<div class="pen">−${G.penalty[s]} swap</div>` : '';
     const bon = s => ev.bonus === s ? `<div class="bon">+${E.COLOR_BONUS} color</div>` : '';
@@ -359,6 +361,9 @@
     const cell = document.querySelector(`.slot[data-side="p"][data-slot="${slot}"] .card`);
     if (cell) cell.classList.add('dropin');
     if (G.liveId && G.alternate) finishServerPlay(false);
+  }
+  function finishServerPlay(auto) {
+    return finishPlay(!!auto);
   }
   function unplace(slot) {
     if (G && G.sent && G.sent[slot]) return;
@@ -607,6 +612,7 @@
     G.spectate = true;
     G.myTurn = false;
     G.phase = 'WATCH';
+    G.serverPhase = phase;
     G.oName = guest.name || 'Guest';
     G.pName = host.name || 'Host';
     G.goals = [host.goalColor || null, guest.goalColor || null];
@@ -627,6 +633,7 @@
     render();
     setMsg((data.spectators || 1) + ' watching. Unrevealed cards stay face down.');
     setActions('<button class="btn" id="pvpHome">Back</button>');
+    if (window.TOB) window.TOB.battleLock = 'spectate';
   }
   function syncServerMatch(match) {
     if (!G || G.spectate || G.rankBusy) return;
@@ -714,6 +721,16 @@
     if (!res || !res.ok) { beginSwap(); setMsg((res && res.error) || 'Swap was rejected.'); return; }
     applyServer(res.match);
     await afterCommit(prev);
+  }
+  function beginRankedSilver() {
+    G.phase = 'SILVER';
+    const has = (side) => G.boards[side].some(c => c && c.color === 'silver');
+    if (!has('p')) return finishRankedSilver(null);
+    setMsg('You have SILVER cards in play! Pick the color all your silver cards will count as.');
+    setActions(E.PLAYABLE_COLORS.map(c => `<button class="btn colorbtn" data-color="${c}" style="background:${COLORS[c]}">${cap(c)}</button>`).join(''));
+    render();
+    touchRanked();
+    startTimer(T.short, () => finishRankedSilver(G.targets[0] || 'red'));
   }
   async function finishRankedSilver(color) {
     if (!G || G.phase !== 'SILVER' || G.rankBusy) return;

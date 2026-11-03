@@ -2,6 +2,12 @@
 -- The full match state lives in match_private, which players cannot read.
 -- matches.state is the redacted copy Realtime and SELECT are allowed to see.
 -- get_match_view builds each player's own view from the private row.
+-- Spectators, match_public, and list_live_matches see a goal color only at
+-- score, and never for ob_% or admin_only goals. goal_is_public() reads the
+-- goalPublic flag stored by redact_seat. The two players still see colors
+-- before score, through view_seat. state_has_secrets() is true when either
+-- seat still has a hand, deck, or goal, which is how the trigger, the
+-- redactors, and the backfill tell a private row from an already redacted one.
 -- Friend matches use the same whole-round turns as bot matches: a player
 -- fills the round, then the opponent does, then those cards are revealed.
 -- place2 leads to swap, then silver, matching solo.
@@ -57,12 +63,41 @@ begin
 end;
 $$;
 
+-- True when this JSON still holds a hand, a deck, or a goal card.
+-- A redacted seat has counts and goalPublic instead, so this is false.
+create or replace function public.state_has_secrets(p_state jsonb)
+returns boolean language sql immutable as $$
+  select p_state is not null
+    and jsonb_typeof(p_state) = 'object'
+    and (
+      coalesce((p_state->'host') ? 'hand', false)
+      or coalesce((p_state->'host') ? 'deck', false)
+      or coalesce((p_state->'host') ? 'goal', false)
+      or coalesce((p_state->'guest') ? 'hand', false)
+      or coalesce((p_state->'guest') ? 'deck', false)
+      or coalesce((p_state->'guest') ? 'goal', false)
+    );
+$$;
+
+-- Stored on the redacted seat. Spectators trust this flag instead of a card id.
+create or replace function public.goal_is_public(p_side jsonb)
+returns boolean language sql immutable as $$
+  select coalesce((p_side->>'goalPublic')::boolean, false);
+$$;
+
 create or replace function public.seat_goal_color(p_side jsonb)
 returns text language sql stable security definer set search_path = public as $$
-  select coalesce(
-    nullif(p_side->>'goalColor', ''),
-    (select c.color from public.cards c where c.id = p_side->'goal'->>'id')
-  );
+  select case
+    when p_side->'goal'->>'id' like 'ob_%' then null
+    when exists (
+      select 1 from public.cards c
+      where c.id = p_side->'goal'->>'id' and c.admin_only
+    ) then null
+    else coalesce(
+      nullif(p_side->>'goalColor', ''),
+      (select c.color from public.cards c where c.id = p_side->'goal'->>'id' and not c.admin_only and c.id not like 'ob_%')
+    )
+  end;
 $$;
 
 create or replace function public.redact_seat(p_side jsonb, p_phase text)
@@ -71,6 +106,9 @@ declare
   hand jsonb := coalesce(p_side->'hand', '[]'::jsonb);
   deck jsonb := coalesce(p_side->'deck', '[]'::jsonb);
   silver_on boolean := coalesce((p_side->>'silverDone')::boolean, false);
+  gid text := p_side->'goal'->>'id';
+  public_goal boolean := false;
+  gcolor text := null;
 begin
   if p_side is null or jsonb_typeof(p_side) is distinct from 'object' then
     return jsonb_build_object(
@@ -78,6 +116,7 @@ begin
       'handCount', 0,
       'deckCount', 0,
       'goalColor', null,
+      'goalPublic', false,
       'silver', null,
       'silverDone', false,
       'discarded', false,
@@ -85,14 +124,21 @@ begin
       'penalty', 0
     );
   end if;
-  if p_side ? 'handCount' and not (p_side ? 'hand') then
+  if not ((p_side ? 'hand') or (p_side ? 'deck') or (p_side ? 'goal')) then
     return p_side;
+  end if;
+  if gid is not null and gid not like 'ob_%' and exists (
+    select 1 from public.cards c where c.id = gid and not c.admin_only
+  ) then
+    public_goal := true;
+    select c.color into gcolor from public.cards c where c.id = gid;
   end if;
   return jsonb_build_object(
     'board', public.redact_board(p_side->'board', p_phase),
     'handCount', coalesce((p_side->>'handCount')::int, jsonb_array_length(hand)),
     'deckCount', coalesce((p_side->>'deckCount')::int, jsonb_array_length(deck)),
-    'goalColor', public.seat_goal_color(p_side),
+    'goalColor', gcolor,
+    'goalPublic', public_goal,
     'silver', case when silver_on then p_side->>'silver' else null end,
     'silverDone', silver_on,
     'discarded', coalesce((p_side->>'discarded')::boolean, false),
@@ -110,7 +156,7 @@ begin
   if p_state is null or jsonb_typeof(p_state) is distinct from 'object' then
     return '{}'::jsonb;
   end if;
-  if (p_state->'host') ? 'handCount' and not ((p_state->'host') ? 'hand') then
+  if not public.state_has_secrets(p_state) then
     return p_state;
   end if;
   phase := p_state->>'phase';
@@ -184,9 +230,7 @@ $$;
 create or replace function public.matches_hide_secrets()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
-  if new.state is not null
-     and jsonb_typeof(new.state) = 'object'
-     and (new.state->'host') ? 'hand' then
+  if public.state_has_secrets(new.state) then
     insert into public.match_private (match_id, state, host_deck, guest_deck)
     values (new.id, new.state, new.host_deck, new.guest_deck)
     on conflict (match_id) do update set
@@ -243,7 +287,10 @@ begin
   return jsonb_build_object(
     'board', public.public_board(p_side->'board'),
     'silver', case when silver_on then p_side->>'silver' else null end,
-    'goalColor', public.seat_goal_color(p_side)
+    'goalColor', case
+      when p_phase = 'score' and public.goal_is_public(p_side) then nullif(p_side->>'goalColor', '')
+      else null
+    end
   );
 end;
 $$;
@@ -853,6 +900,8 @@ $function$;
 
 revoke all on function public.slot_revealed(text, int) from public, anon, authenticated;
 revoke all on function public.redact_board(jsonb, text) from public, anon, authenticated;
+revoke all on function public.state_has_secrets(jsonb) from public, anon, authenticated;
+revoke all on function public.goal_is_public(jsonb) from public, anon, authenticated;
 revoke all on function public.seat_goal_color(jsonb) from public, anon, authenticated;
 revoke all on function public.redact_seat(jsonb, text) from public, anon, authenticated;
 revoke all on function public.redact_match_state(jsonb) from public, anon, authenticated;
@@ -864,4 +913,4 @@ grant execute on function public.get_match_view(uuid) to authenticated;
 revoke all on function public.bump_bot_clock(uuid) from public, anon;
 grant execute on function public.bump_bot_clock(uuid) to authenticated;
 
-update public.matches set state = state where state->'host' ? 'hand';
+update public.matches set state = state where public.state_has_secrets(state);
