@@ -455,9 +455,6 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
   .shop-pack.week, .shop-pack.standard { display: flex; gap: 16px; align-items: center; text-align: left; }
   .shop-pack.week .foilpack.feature, .shop-pack.standard .foilpack.mini { margin: 0; flex: none; }
   .packstage { flex-direction: row; align-items: flex-start; justify-content: center; gap: 18px; }
-  .stagecard { width: 240px; }
-  .pullstats { max-height: 68vh; margin-top: 0; }
-  .pullgrid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 }
 .coinaward { margin: 8px 0; font-weight: 800; color: #ffe7a3; }
 .adminrow { text-align: left; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1); border-radius: 14px; padding: 10px; margin: 8px 0; }
@@ -485,7 +482,7 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
 .stagehint { font: 700 13px/1 "Outfit", system-ui, sans-serif; letter-spacing: .16em; text-transform: uppercase; color: rgba(255,255,255,.8); margin-bottom: 8px; }
 .stagewrap { flex: 1; display: flex; align-items: center; justify-content: center; width: 100%; }
 .packstage { width: min(100%, 920px); display: flex; flex-direction: column; align-items: center; }
-.stagecard { width: min(42vw, 200px); height: auto; padding: 0; border: 0; background: transparent; cursor: pointer; perspective: 1000px; position: relative; display: flex; flex-direction: column; align-items: center; }
+.stagecard { width: 160px; height: auto; padding: 0; border: 0; background: transparent; cursor: pointer; perspective: 1000px; position: relative; display: flex; flex-direction: column; align-items: center; }
 .pull-inner { display: block; width: 100%; aspect-ratio: 1; height: auto; position: relative; transform-style: preserve-3d; }
 .pull-back, .pull-front { position: absolute; inset: 0; backface-visibility: hidden; -webkit-backface-visibility: hidden; transition: transform .78s cubic-bezier(.2, .75, .2, 1); }
 .goldsweep { position: absolute; inset: -10%; border-radius: 50%; pointer-events: none; z-index: 4; background: linear-gradient(115deg, transparent 34%, rgba(255,255,255,.9) 50%, transparent 66%); transform: translateX(-130%); opacity: 0; }
@@ -505,8 +502,8 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
 .dock { display: flex; gap: 8px; justify-content: center; min-height: 52px; margin-top: 12px; }
 .thumb { width: 48px; height: 48px; }
 .thumb .card { width: 48px; height: 48px; }
-.pullgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: min(100%, 640px); }
-.pullslot { width: auto; min-width: 0; max-width: none; border: 0; background: #141417; color: inherit; border-radius: 14px; padding: 8px; cursor: pointer; text-align: center; }
+.pullgrid { display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-start; gap: 16px 18px; width: min(100%, 980px); }
+.pullslot { width: 156px; flex: 0 0 156px; border: 0; background: transparent; color: inherit; border-radius: 12px; padding: 0; cursor: pointer; text-align: center; }
 .pullname { display: block; font: 800 13px/1.2 Inter, "Segoe UI", system-ui, sans-serif; margin-top: 4px; }
 .pullmeta { display: flex; gap: 4px; align-items: center; justify-content: center; color: #ffb15a; font: 700 12px/1 Inter, "Segoe UI", system-ui, sans-serif; margin-top: 2px; }
 .pulltotal { margin-top: 10px; font: 800 16px/1.2 Inter, "Segoe UI", system-ui, sans-serif; color: #ffb15a; }
@@ -524,9 +521,15 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
 .ps-fact .is-miss { color: #8d8d96; }
 .ps-puck { display: flex; justify-content: center; margin-bottom: 8px; }
 .ps-puck .card { width: 120px; height: 120px; }
-.pullsheet { position: fixed; left: 0; right: 0; bottom: 0; max-height: 82vh; overflow: auto; z-index: 90; background: #141417; border-top: 2px solid #ff7a00; padding: 12px; box-shadow: 0 -16px 36px rgba(0,0,0,.5); }
-.pullsheet .pullstats { max-height: none; border: 0; margin: 0; width: 100%; }
-.pullslot .card { width: 100%; height: auto; aspect-ratio: 1; }
+.pullslot .card { width: 150px; height: 150px; }
+.packtip { position: fixed; z-index: 140; width: 280px; max-width: calc(100vw - 16px); max-height: min(360px, 70vh); overflow: auto; pointer-events: none; text-align: left;
+  background: #121214; color: #f4f4f6; border: 1px solid #ff7a00; border-radius: 14px; padding: 10px 12px;
+  box-shadow: 0 16px 36px rgba(0,0,0,.55), 0 0 18px rgba(255, 122, 0, .28);
+  opacity: 0; transform: translateY(4px) scale(.96); transform-origin: left center; transition: opacity .14s ease, transform .14s ease; }
+.packtip.open { opacity: 1; transform: none; }
+.packtip.from-right { transform-origin: right center; }
+.packtip.from-top { transform-origin: center bottom; }
+.packtip .pullstats { width: auto; max-height: none; margin: 0; padding: 0; border: 0; background: transparent; overflow: visible; }
 .pullslot .cname, .pullslot .cname.long { font-size: 12px; line-height: 1.15; letter-spacing: 0; -webkit-line-clamp: 2; padding: 3px 5px; }
 .pulltags { display: flex; gap: 4px; justify-content: center; flex-wrap: wrap; min-height: 20px; margin-bottom: 4px; }
 .pulltags .newtag, .pulltags .duptag, .pulltags .goldpill { position: static; transform: none; font: 800 10px/1 "Outfit", system-ui, sans-serif; border-radius: 999px; padding: 3px 6px; }

@@ -1478,11 +1478,11 @@
       const copy = COPIES.makeCopy(pull.id, {gold: pull.gold, uid: pull.uid});
       return `<button type="button" class="thumb" data-pull="${idx}">${cardHTML(copy, null, true)}</button>`;
     }).join('');
+    const hint = packCanHover() ? 'Hover a card for stats' : 'Tap a card to flip it';
     $('#overlay').innerHTML = `<div class="packtake">
-      <div class="stagehint">${currentPackTheme ? escPack(currentPackTheme.icon + ' ' + currentPackTheme.key) : 'Standard pack'} · tap the card</div>
+      <div class="stagehint">${currentPackTheme ? escPack(currentPackTheme.icon + ' ' + currentPackTheme.key) : 'Standard pack'} · ${hint}</div>
       <div class="packstage">
         <div class="stagewrap">${stageCard(currentPulls[i], i)}</div>
-        <div id="pullStats"><p class="ps-wait">Flip the card to read its power and combos.</p></div>
       </div>
       <div class="go-btns">
         <button type="button" class="btn go" id="btnNextPull" data-i="${i}" hidden>Next card</button>
@@ -1494,14 +1494,17 @@
   function flipPull(i) {
     if (!currentPulls || flipped[i] || packSummaryShown) return;
     const node = document.querySelector('.stagecard');
-    if (!node || node.classList.contains('flipped') || +node.dataset.i !== i) return;
+    if (!node || +node.dataset.i !== i) return;
+    if (node.classList.contains('flipped')) {
+      if (!packCanHover()) showPackTip(node, currentPulls[i]);
+      return;
+    }
     node.classList.add('flipped');
     packSound('flip');
     if (currentPulls[i].gold) goldBurst();
-    const box = document.getElementById('pullStats');
-    if (box) box.innerHTML = statsHTML(currentPulls[i], false);
     const next = document.getElementById('btnNextPull');
     if (next) next.hidden = false;
+    if (packCanHover()) showPackTip(node, currentPulls[i]);
   }
   function advancePull(i) {
     if (!currentPulls || packSummaryShown || !flipped) return;
@@ -1519,21 +1522,76 @@
     if (unseenGold) goldBurst();
     showPackSummary();
   }
-  function openPullStats(i) {
-    const pull = currentPulls && currentPulls[i];
-    const host = document.querySelector('.packtake');
-    if (!pull || !host) return;
-    let sheet = document.getElementById('pullSheet');
-    if (!sheet) {
-      sheet = document.createElement('div');
-      sheet.id = 'pullSheet';
-      host.appendChild(sheet);
+  function packCanHover() {
+    return matchMedia('(hover: hover) and (pointer: fine)').matches;
+  }
+  function hidePackTip() {
+    const tip = document.getElementById('packTip');
+    if (tip) tip.classList.remove('open');
+  }
+  function showPackTip(anchor, pull) {
+    if (!anchor || !pull) return;
+    let tip = document.getElementById('packTip');
+    if (!tip) {
+      tip = document.createElement('div');
+      tip.id = 'packTip';
+      tip.className = 'packtip';
+      document.body.appendChild(tip);
     }
-    sheet.className = 'pullsheet open';
-    sheet.innerHTML = `<button type="button" class="btn" id="btnClosePull">Close</button>${statsHTML(pull, true)}`;
+    const mark = String(pull.uid || pull.id);
+    if (tip.dataset.for === mark && tip.classList.contains('open')) return;
+    tip.dataset.for = mark;
+    tip.innerHTML = statsHTML(pull, false);
+    tip.classList.remove('open', 'from-right', 'from-top');
+    tip.style.left = '0px';
+    tip.style.top = '0px';
+    const gap = 12;
+    const box = anchor.getBoundingClientRect();
+    const w = tip.offsetWidth || 280;
+    const h = tip.offsetHeight || 160;
+    let left = box.right + gap;
+    let top = box.top + (box.height - h) / 2;
+    let place = 'right';
+    if (left + w > window.innerWidth - 8) {
+      left = box.left - gap - w;
+      place = 'left';
+    }
+    if (left < 8) {
+      left = Math.max(8, Math.min(box.left, window.innerWidth - w - 8));
+      top = box.top - h - gap;
+      place = 'above';
+      if (top < 8) { top = box.bottom + gap; place = 'below'; }
+    }
+    if (top + h > window.innerHeight - 8) top = Math.max(8, window.innerHeight - h - 8);
+    if (top < 8) top = 8;
+    tip.style.left = Math.round(left) + 'px';
+    tip.style.top = Math.round(top) + 'px';
+    if (place === 'left') tip.classList.add('from-right');
+    if (place === 'above') tip.classList.add('from-top');
+    requestAnimationFrame(() => tip.classList.add('open'));
+  }
+  if (!openPack._tip) {
+    openPack._tip = true;
+    document.addEventListener('mouseover', e => {
+      if (!packCanHover() || !currentPulls) return;
+      const card = e.target.closest && e.target.closest('.pullslot, .stagecard.flipped, .thumb');
+      if (!card || !card.closest('#overlay')) return;
+      const i = card.dataset.pull != null ? +card.dataset.pull : +card.dataset.i;
+      if (!currentPulls[i]) return;
+      showPackTip(card, currentPulls[i]);
+    });
+    document.addEventListener('mouseout', e => {
+      if (!packCanHover()) return;
+      const card = e.target.closest && e.target.closest('.pullslot, .stagecard.flipped, .thumb');
+      if (!card) return;
+      const next = e.relatedTarget;
+      if (next && card.contains(next)) return;
+      hidePackTip();
+    });
   }
   function showPackSummary() {
     if (packSummaryShown || !currentPulls) return;
+    hidePackTip();
     packSummaryShown = true;
     stageToken++;
     const fresh = currentPulls.filter(p => p.isNew).length;
@@ -1543,12 +1601,11 @@
     const slots = currentPulls.map((pull, i) => {
       const card = CARDS[pull.id];
       const copy = COPIES.makeCopy(pull.id, {gold: pull.gold, uid: pull.uid});
-      const combo = card && window.TOB_COMBOS && window.TOB_COMBOS.cardInCombo(card);
       return `<button type="button" class="pullslot${pull.gold ? ' is-gold' : ''}" data-pull="${i}">
         ${pullTagHTML(pull)}
         <span class="pullshown">${cardHTML(copy, null, true)}</span>
         <span class="pullname">${escPack(card ? card.name : pull.id)}</span>
-        <span class="pullmeta"><i class="gem" style="background:${card ? COLORS[card.color] : '#888'}"></i> ${card ? card.pts : 0} pts${combo ? '<i class="db-cdot" title="Combo card"></i>' : ''}</span>
+        <span class="pullmeta">${card ? card.pts : 0} pts</span>
       </button>`;
     }).join('');
     $('#overlay').innerHTML = `<div class="packtake summarytake">
@@ -2683,6 +2740,7 @@
   /* ---------- events ---------- */
   document.addEventListener('click', e => {
     if (!e.target.closest('.usermenu')) closeUserMenu();
+    if (!packCanHover() && !e.target.closest('.pullslot, .stagecard, .thumb, #packTip')) hidePackTip();
     const pop = $('#preview');
     const keep = e.target.closest('.preview-sheet, .handcard, .ccard, .card, .goalcard, .deckcard');
     if (pop && !pop.classList.contains('hidden') && !keep) { pop.classList.add('hidden'); pop.classList.remove('force'); }
@@ -2735,9 +2793,11 @@
     if (t.id === 'btnDaily') return claimDaily();
     if (t.id === 'btnNextPull') return advancePull(+t.dataset.i);
     if (t.id === 'btnRevealAll') return revealAll();
-    if (t.id === 'btnClosePull') { const sheet = document.getElementById('pullSheet'); if (sheet) sheet.remove(); return; }
     if (t.id === 'btnPackBuilder') return showBuilder('home');
-    if (t.dataset.pull != null && (t.classList.contains('pullslot') || t.classList.contains('thumb'))) return openPullStats(+t.dataset.pull);
+    if (!packCanHover() && t.dataset.pull != null && (t.classList.contains('pullslot') || t.classList.contains('thumb'))) {
+      showPackTip(t, currentPulls && currentPulls[+t.dataset.pull]);
+      return;
+    }
     if (t.classList.contains('pullcard')) return flipPull(+t.dataset.i);
     if (t.id === 'btnViewPackCollection') return showMyCollection();
     if (t.id === 'btnMyCollection') return showMyCollection();
