@@ -363,6 +363,14 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
   background: radial-gradient(circle at 32% 24%, #fff6cc, #f0c14a 40%, #8d5a10 74%, #ffe7a3);
   box-shadow: inset 0 0 0 1px rgba(255,255,255,.7), 0 0 16px rgba(240, 193, 74, .4), 0 8px 16px rgba(0,0,0,.28);
 }
+.card.mythic {
+  background: radial-gradient(circle at 30% 18%, #fff6ff, #d7c4ff 42%, #6d4ad4 78%);
+  box-shadow: inset 0 0 0 2px #f4e7ff, 0 0 16px rgba(176, 120, 255, .75);
+}
+.mythictag { position: absolute; z-index: 5; left: 50%; top: 9%; transform: translateX(-50%); pointer-events: none;
+  font: 800 8px/1 "Outfit", system-ui, sans-serif; letter-spacing: .12em; color: #2a1248;
+  background: linear-gradient(#fff, #d7b6ff); border-radius: 999px; padding: 2px 4px; }
+.card.mythic.gold .mythictag { top: 18%; }
 .goldtag { position: absolute; z-index: 5; left: 50%; top: 9%; transform: translateX(-50%); pointer-events: none;
   font: 800 8px/1 "Outfit", system-ui, sans-serif; letter-spacing: .14em; color: #3a2504;
   background: linear-gradient(#fff8d2, #e8b23a); border-radius: 999px; padding: 2px 4px; }
@@ -380,6 +388,7 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
 .tv-art { position: relative; }
 .tv-art .cartimg { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
 .tv-card.gold { border-color: rgba(240, 193, 74, .45); }
+.tv-card.mythic { border-color: rgba(196, 150, 255, .7); box-shadow: 0 0 18px rgba(160, 90, 255, .35); }
 .tv-card.gold .tv-art { border-color: #f0c14a; box-shadow: 0 0 0 4px rgba(0,0,0,.45), 0 0 16px rgba(240, 193, 74, .35); background: #10131c; }
 .goldtoggle { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; margin: 4px 0 8px; }
 .archpick { margin: 4px 8px 8px; padding: 8px 10px; border-radius: 999px; border: 1px solid rgba(255,255,255,.2); background: rgba(0,0,0,.28); color: #fff; font: 600 14px "Outfit", system-ui, sans-serif; }
@@ -554,7 +563,8 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
 .shop-head { font-weight: 800; letter-spacing: .08em; color: #ffa733; margin-bottom: 4px; }
 .shop-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .shop-pack { background: rgba(20, 20, 23, .92); border: 1px solid #2a2a2e; border-radius: 16px; padding: 10px; text-align: center; }
-.shop-pack.week, .shop-pack.standard { grid-column: 1 / -1; margin-bottom: 10px; border-color: #ff7a00; box-shadow: 0 0 22px rgba(255, 90, 0, .28); scroll-margin-top: 58px; }
+.shop-pack.week, .shop-pack.standard, .shop-pack.mythic { grid-column: 1 / -1; margin-bottom: 10px; border-color: #ff7a00; box-shadow: 0 0 22px rgba(255, 90, 0, .28); scroll-margin-top: 58px; }
+.shop-pack.mythic { border-color: #c9a6ff; box-shadow: 0 0 22px rgba(160, 90, 255, .4); }
 .shop-pack.standard { border-color: #3a3a40; box-shadow: none; }
 .weekbadge { display: inline-block; margin-bottom: 6px; padding: 4px 8px; border-radius: 999px; background: #ff7a00; color: #1a0d00; font: 800 10px/1 Inter, "Segoe UI", system-ui, sans-serif; letter-spacing: .08em; }
 .shop-name { font-weight: 800; font-size: 14px; line-height: 1.25; }
@@ -567,8 +577,8 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
 .foilpack.feature { width: min(46vw, 168px); margin: 0 auto 8px; }
 @media (min-width: 800px) {
   .shop-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .shop-pack.week, .shop-pack.standard { display: flex; gap: 16px; align-items: center; text-align: left; }
-  .shop-pack.week .foilpack.feature, .shop-pack.standard .foilpack.mini { margin: 0; flex: none; }
+  .shop-pack.week, .shop-pack.standard, .shop-pack.mythic { display: flex; gap: 16px; align-items: center; text-align: left; }
+  .shop-pack.week .foilpack.feature, .shop-pack.standard .foilpack.mini, .shop-pack.mythic .foilpack.mini { margin: 0; flex: none; }
   .packstage { flex-direction: row; align-items: flex-start; justify-content: center; gap: 18px; }
 }
 .coinaward { margin: 8px 0; font-weight: 800; color: #ffe7a3; }

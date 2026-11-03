@@ -107,8 +107,12 @@
   }
   function svg(card) {
     const a = card.art || {};
-    const bg = `<defs><radialGradient id="g_${card.id}" cx="50%" cy="40%" r="70%"><stop offset="0" stop-color="#fffbe0"/><stop offset="1" stop-color="#ffd27a"/></radialGradient></defs><rect width="100" height="100" fill="url(#g_${card.id})"/>` +
-      [0,1,2,3,4,5,6,7].map(i => `<path d="M50 50 L${50+80*Math.cos(i*Math.PI/4)} ${50+80*Math.sin(i*Math.PI/4)} L${50+80*Math.cos(i*Math.PI/4+0.3)} ${50+80*Math.sin(i*Math.PI/4+0.3)}Z" fill="#fff" fill-opacity=".35"/>`).join('');
+    const mythic = !!(card.mythic || String(card.id).indexOf('my_') === 0);
+    const bg = mythic
+      ? `<defs><radialGradient id="g_${card.id}" cx="50%" cy="38%" r="72%"><stop offset="0" stop-color="#fff4ff"/><stop offset="0.45" stop-color="#b9a0ff"/><stop offset="1" stop-color="#3a246e"/></radialGradient></defs><rect width="100" height="100" fill="url(#g_${card.id})"/>` +
+        [0,1,2,3,4,5,6,7,8,9].map(i => `<circle cx="${12 + (i * 17) % 80}" cy="${10 + (i * 23) % 80}" r="${1.2 + (i % 3)}" fill="#fff" fill-opacity=".85"/>`).join('')
+      : `<defs><radialGradient id="g_${card.id}" cx="50%" cy="40%" r="70%"><stop offset="0" stop-color="#fffbe0"/><stop offset="1" stop-color="#ffd27a"/></radialGradient></defs><rect width="100" height="100" fill="url(#g_${card.id})"/>` +
+        [0,1,2,3,4,5,6,7].map(i => `<path d="M50 50 L${50+80*Math.cos(i*Math.PI/4)} ${50+80*Math.sin(i*Math.PI/4)} L${50+80*Math.cos(i*Math.PI/4+0.3)} ${50+80*Math.sin(i*Math.PI/4+0.3)}Z" fill="#fff" fill-opacity=".35"/>`).join('');
     let body = a.kind ? object(a.kind) : back(a) + head(a) + eyes(a.eyes) + mouth(a.mouth) + front(a);
     return `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice">${bg}${body}</svg>`;
   }

@@ -92,9 +92,11 @@
       else { badge = playInfo.value; bcls = playInfo.value > card.pts ? 'up' : playInfo.value < card.pts ? 'down' : ''; }
     }
     const recol2 = playInfo && !playInfo.knocked && playInfo.color !== card.color ? `<div class="recolor" style="background:${COLORS[playInfo.color]}"></div>` : '';
-    return `<div class="card${gold ? ' gold' : ''}" data-id="${card.id}" style="--cc:${c}">
+    const mythic = !!(card.mythic || String(card.id).indexOf('my_') === 0);
+    return `<div class="card${gold ? ' gold' : ''}${mythic ? ' mythic' : ''}" data-id="${card.id}" style="--cc:${c}">
       <div class="cname${long}">${card.name}</div>
       <div class="cart">${faceHTML(card, eager)}${gold ? '<div class="holo"></div><div class="spark"></div>' : ''}</div>
+      ${mythic ? '<div class="mythictag">MYTHIC</div>' : ''}
       ${gold ? '<div class="goldtag">GOLD</div>' : ''}
       ${card.powers.length ? '<div class="pstar" aria-label="Has a power">★</div>' : ''}
       ${recol2}
@@ -119,7 +121,8 @@
       </div>`;
     }
     const notes = info ? (info.knocked ? [info.knocked] : info.notes) : [];
-    return `<div class="tv-card${card.gold ? ' gold' : ''}" style="--cc:${COLORS[card.color]}">
+    const mythic = !!(card.mythic || String(card.id).indexOf('my_') === 0);
+    return `<div class="tv-card${card.gold ? ' gold' : ''}${mythic ? ' mythic' : ''}" style="--cc:${COLORS[card.color]}">
       <div class="tv-art">${faceHTML(card, true)}${card.gold ? '<div class="holo"></div><div class="spark"></div>' : ''}</div>
       <div class="tv-name">${card.name}</div>
       <div class="tv-meta"><span class="gem" style="background:${COLORS[card.color]}"></span>${cap(card.color)} · ${card.pts} pts${card.archetype ? ' · ' + card.archetype : ''}</div>
@@ -1281,6 +1284,7 @@
   }
   let siteProfile = null;
   let shopTab = 'packs';
+  let mythicOffer;
   let friendIncoming = 0;
   function paintFriendBadge() {
     document.querySelectorAll('[data-friendbadge]').forEach(el => {
@@ -1362,7 +1366,7 @@
   function liveThemes() {
     const seen = {};
     CARD_LIST.forEach(c => {
-      if (!c || !c.archetype || c.adminOnly || String(c.id).indexOf('ob_') === 0) return;
+      if (!c || !c.archetype || c.adminOnly || c.mythic || String(c.id).indexOf('ob_') === 0 || String(c.id).indexOf('my_') === 0) return;
       seen[c.archetype] = true;
     });
     return Object.keys(seen).sort().map(key => {
@@ -1393,7 +1397,7 @@
     return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
   }
   function publicPool(archetype) {
-    let pool = CARD_LIST.filter(c => c && !c.adminOnly && String(c.id).indexOf('ob_') !== 0);
+    let pool = CARD_LIST.filter(c => isPackCard(c && c.id));
     if (archetype) pool = pool.filter(c => c.archetype === archetype);
     return pool;
   }
@@ -1459,6 +1463,7 @@
       const profile = await liveProfile();
       if (!profile) { showAuth('login'); return; }
       await refreshWeekPack();
+      await refreshMythicPack();
       const claimed = profile.lastDaily === todayKey();
       const coins = profile.coins | 0;
       const week = weekPack();
@@ -1474,7 +1479,7 @@
         const price = priceForTheme(theme.key);
         return `<button type="button" class="btn go" data-buytheme="${escPack(theme.key)}" ${coins >= price ? '' : 'disabled'}>Buy &amp; Open</button>`;
       };
-      const poolFor = key => CARD_LIST.filter(c => isPublicCard(c.id) && (!key || c.archetype === key));
+      const poolFor = key => CARD_LIST.filter(c => isPackCard(c.id) && (!key || c.archetype === key));
       const oddsHTML = cards => {
         const n = cards.length || 1;
         const parts = ['Common', 'Uncommon', 'Rare', 'Legendary'].map(name => {
@@ -1512,7 +1517,7 @@
             <button type="button" class="btn go" id="btnBuyOpenPack" ${coins < (ECONOMY.packPrice | 0) ? 'disabled' : ''}>Buy &amp; Open</button>
             <button type="button" class="btn" id="btnBuyPack" ${coins < (ECONOMY.packPrice | 0) ? 'disabled' : ''}>Buy</button>
           </div>
-        </article>${grid}</div>
+        </article>${mythicPackHTML(coins)}${grid}</div>
         <p class="tag">Each copy has a ${Math.round(GOLD_CHANCE * 100)}% chance to be gold. A Buy keeps the pack unopened. Themed packs open right away.</p>`;
       ov.innerHTML = `<div id="packScreen">
         <div class="shop-tabs">
@@ -1603,6 +1608,12 @@
     if (!id || String(id).indexOf('ob_') === 0) return false;
     const card = CARDS[id];
     return !!(card && !card.adminOnly);
+  }
+  function isMythicCard(card) {
+    return !!(card && (card.mythic || String(card.id).indexOf('my_') === 0));
+  }
+  function isPackCard(id) {
+    return isPublicCard(id) && !isMythicCard(CARDS[id]);
   }
   function autoShowcase(profile) {
     return [...ownedIndex(profile).values()].filter(row => isPublicCard(row.id)).sort((a, b) => (b.gold - a.gold) || (a.count - b.count) || ((CARDS[b.id].pts | 0) - (CARDS[a.id].pts | 0)) || a.id.localeCompare(b.id)).slice(0, 6);
@@ -2001,6 +2012,104 @@
     packSummaryShown = false;
     if (profile) rememberPacks(profile);
     await playPull();
+  }
+  function localMythicOffer() {
+    const cards = CARD_LIST.filter(c => isPackCard(c.id));
+    const weight = c => (rarityName(c) === 'Rare' || rarityName(c) === 'Legendary') ? 12 : 10;
+    const total = cards.reduce((sum, c) => sum + weight(c), 0) || 1;
+    const bands = ['Common', 'Uncommon', 'Rare', 'Legendary'].map(name => {
+      const w = cards.filter(c => rarityName(c) === name).reduce((sum, c) => sum + weight(c), 0);
+      return name + ' ' + (Math.round(w / total * 1000) / 10).toFixed(1) + '%';
+    });
+    return {
+      id: 'mythic', name: 'Mythic Vault', price: 900, size: 5, mythic_pct: 4,
+      lines: [
+        '5 cards per pack',
+        '4% of packs contain 1 Mythic card',
+        'Every other card is a standard toon, commons included',
+        'Each of those cards: ' + bands.join(' · '),
+      ],
+    };
+  }
+  async function refreshMythicPack() {
+    if (!isOnlinePlayer()) { mythicOffer = localMythicOffer(); return; }
+    if (mythicOffer === null) return;
+    const res = await window.TOB_AUTH.rpc('list_shop_packs');
+    const msg = (res && (res.error || res.message)) || '';
+    if (!res || !res.ok) {
+      if (/list_shop_packs|does not exist|PGRST202|schema cache|42883|could not find the function/i.test(String(msg))) mythicOffer = null;
+      return;
+    }
+    const rows = Array.isArray(res.data) ? res.data : [];
+    mythicOffer = rows.find(row => row && row.id === 'mythic') || null;
+  }
+  function mythicPackHTML(coins) {
+    const pack = mythicOffer;
+    if (!pack || pack.id !== 'mythic') return '';
+    const price = pack.price | 0;
+    const lines = (pack.lines || []).map(line => `<div class="odds-line">${escPack(line)}</div>`).join('');
+    return `<article class="shop-pack mythic">
+      ${foilEl({key: pack.name || 'Mythic Vault', icon: '✦', hue: 272}, 'mini')}
+      <div>
+        <div class="shop-name">✦ ${escPack(pack.name || 'Mythic Vault')}</div>
+        ${lines}
+        <div class="shop-price"><span class="coinicon" aria-hidden="true"></span> ${price}</div>
+        <button type="button" class="btn go" id="btnBuyMythic" ${coins >= price ? '' : 'disabled'}>Buy &amp; Open</button>
+      </div>
+    </article>`;
+  }
+  function rollMythicPack(ownedIds) {
+    const standard = CARD_LIST.filter(c => isPackCard(c.id));
+    const mythics = CARD_LIST.filter(c => isMythicCard(c));
+    const weight = c => (rarityName(c) === 'Rare' || rarityName(c) === 'Legendary') ? 12 : 10;
+    const pickWeighted = () => {
+      const total = standard.reduce((sum, c) => sum + weight(c), 0);
+      let roll = Math.random() * total;
+      for (const card of standard) {
+        roll -= weight(card);
+        if (roll <= 0) return card.id;
+      }
+      return standard[standard.length - 1].id;
+    };
+    const unowned = standard.map(c => c.id).filter(id => !ownedIds.has(id));
+    const forceAt = unowned.length ? Math.floor(Math.random() * 5) : -1;
+    const pulls = [];
+    for (let i = 0; i < 5; i++) {
+      const id = i === forceAt ? unowned[Math.floor(Math.random() * unowned.length)] : pickWeighted();
+      const copy = COPIES.makeCopy(id, {gold: Math.random() < GOLD_CHANCE});
+      pulls.push({id: copy.id, gold: !!copy.gold, uid: copy.uid});
+    }
+    if (mythics.length && Math.random() < 0.04) {
+      const slot = Math.floor(Math.random() * 5);
+      const id = mythics[Math.floor(Math.random() * mythics.length)].id;
+      const copy = COPIES.makeCopy(id, {gold: Math.random() < GOLD_CHANCE});
+      pulls[slot] = {id: copy.id, gold: !!copy.gold, uid: copy.uid};
+    }
+    return pulls;
+  }
+  async function buyMythicPack() {
+    if (packBusy || !mythicOffer) return;
+    const price = mythicOffer.price | 0;
+    if (isOnlinePlayer()) {
+      packBusy = true;
+      try { await playServerPull(await window.TOB_AUTH.openPack('mythic', null), {key: mythicOffer.name, icon: '✦', hue: 272}); }
+      finally { packBusy = false; }
+      return;
+    }
+    packBusy = true;
+    try {
+      const profile = await liveProfile();
+      if (!profile) return;
+      if ((profile.coins | 0) < price) { toast('Not enough Orbit Coins'); return; }
+      const before = (profile.collection || []).slice();
+      const pulls = rollMythicPack(new Set(before.map(rec => rec && rec.id).filter(Boolean)));
+      profile.coins = (profile.coins | 0) - price;
+      currentPackTheme = {key: mythicOffer.name, icon: '✦', hue: 272};
+      const ok = await beginPull(profile, pulls, before);
+      if (!ok) toast('Could not open that pack');
+    } finally {
+      packBusy = false;
+    }
   }
   async function buyThemePack(key) {
     if (packBusy) return;
@@ -3847,6 +3956,7 @@
       return showProfile();
     }
     if (t.id === 'btnHomeOut') { doLogOut(); return; }
+    if (t.id === 'btnBuyMythic') return buyMythicPack();
     if (t.dataset.buytheme) return buyThemePack(t.dataset.buytheme);
     if (t.id === 'btnBuyPack') return buyPack();
     if (t.id === 'btnOpenPack' || t.id === 'btnOpenAnother') return openPack();
