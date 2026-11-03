@@ -352,14 +352,30 @@
       if (name.error) return {ok: false, error: name.error};
       const pass = validatePassword(password);
       if (pass.error) return {ok: false, error: pass.error};
-      const {data, error} = await this.client.auth.signUp({
-        email: playerEmail(name.username),
-        password: pass.password,
-        options: {data: {username: name.username}},
-      });
+      let data, error;
+      try {
+        const raced = await Promise.race([
+          this.client.auth.signUp({
+            email: playerEmail(name.username),
+            password: pass.password,
+            options: {data: {username: name.username}},
+          }),
+          new Promise(resolve => setTimeout(() => resolve({timedOut: true}), 20000)),
+        ]);
+        if (raced && raced.timedOut) {
+          return {ok: false, error: 'The account service did not answer. If Confirm email is on, turn it off under Authentication → Providers → Email, then try again.'};
+        }
+        data = raced.data;
+        error = raced.error;
+      } catch (e) {
+        return {ok: false, error: 'You appear to be offline. If Confirm email is on, turn it off in Supabase Auth settings and try again.'};
+      }
       if (error) return {ok: false, error: this._friendly(error)};
-      if (!data.session) {
-        return {ok: false, error: 'Turn off Confirm email in the Supabase Auth settings, then sign up again.'};
+      if (!data || !data.session) {
+        try { await this.client.auth.signOut(); } catch (e) { /* no session to clear */ }
+        this.user = null;
+        this.username = '';
+        return {ok: false, error: 'Confirm email is still on, so this account cannot sign in yet. Check the inbox for ' + playerEmail(name.username) + ', confirm it, then log in. To skip that, turn off Confirm email in Supabase Auth settings.'};
       }
       this.user = data.user;
       this.username = name.username;

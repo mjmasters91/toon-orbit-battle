@@ -708,6 +708,8 @@
         renderUser();
         await liveProfile();
         showHome();
+      } catch (e) {
+        errBox.textContent = (e && e.message) ? e.message : 'Something went wrong. If Confirm email is on, turn it off in Supabase Auth settings, then try again.';
       } finally {
         if (btn.isConnected) { btn.disabled = false; btn.textContent = prev; }
       }
@@ -851,23 +853,29 @@
     }
     return profile;
   }
-  const THEMED_PACKS = [
-    {key: 'Candy Folk', icon: '🍬', hue: 330},
-    {key: 'Critters', icon: '🐾', hue: 28},
-    {key: 'Dinos', icon: '🦕', hue: 92},
-    {key: 'Dragons', icon: '🐉', hue: 8},
-    {key: 'Elementals', icon: '🔥', hue: 18},
-    {key: 'Fairies', icon: '🧚', hue: 300},
-    {key: 'Ghosts', icon: '👻', hue: 262},
-    {key: 'Knights', icon: '🛡️', hue: 45},
-    {key: 'Ninjas', icon: '🥷', hue: 222},
-    {key: 'Pirates', icon: '🏴‍☠️', hue: 200},
-    {key: 'Robots', icon: '🤖', hue: 188},
-    {key: 'Sea Creatures', icon: '🐙', hue: 168},
-    {key: 'Space Aliens', icon: '👽', hue: 128},
-    {key: 'Undead', icon: '💀', hue: 140},
-    {key: 'Wizards', icon: '🧙', hue: 268},
-  ];
+  const THEME_LOOK = {
+    'Barnyard': {icon: '🐄', hue: 48},
+    'Candy Folk': {icon: '🍬', hue: 330},
+    'Critters': {icon: '🐾', hue: 28},
+    'Dinos': {icon: '🦕', hue: 92},
+    'Dragons': {icon: '🐉', hue: 8},
+    'Elementals': {icon: '🔥', hue: 18},
+    'Fairies': {icon: '🧚', hue: 300},
+    'Galaxy': {icon: '🌌', hue: 250},
+    'Ghosts': {icon: '👻', hue: 262},
+    'Knights': {icon: '🛡️', hue: 45},
+    'Ninjas': {icon: '🥷', hue: 222},
+    'Pirates': {icon: '🏴‍☠️', hue: 200},
+    'Robots': {icon: '🤖', hue: 188},
+    'Sea Creatures': {icon: '🐙', hue: 168},
+    'Space Aliens': {icon: '👽', hue: 128},
+    'Spooks': {icon: '🎃', hue: 280},
+    'Sprouts': {icon: '🌱', hue: 110},
+    'Toons': {icon: '🎬', hue: 36},
+    'Undead': {icon: '💀', hue: 140},
+    'Wizards': {icon: '🧙', hue: 268},
+  };
+  let weekKeyOverride = '';
   function isoWeekNumber(date) {
     const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
     const day = d.getUTCDay() || 7;
@@ -876,13 +884,28 @@
     return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
   }
   function liveThemes() {
-    return THEMED_PACKS.filter(theme => CARD_LIST.some(c => c.archetype === theme.key && !c.adminOnly && String(c.id).indexOf('ob_') !== 0));
+    const seen = {};
+    CARD_LIST.forEach(c => {
+      if (!c || !c.archetype || c.adminOnly || String(c.id).indexOf('ob_') === 0) return;
+      seen[c.archetype] = true;
+    });
+    return Object.keys(seen).sort().map(key => {
+      const look = THEME_LOOK[key] || {icon: '✦', hue: 24};
+      return {key, icon: look.icon, hue: look.hue};
+    });
   }
   function weekPack() {
     const packs = liveThemes();
     if (!packs.length) return null;
+    if (weekKeyOverride) return packs.find(theme => theme.key === weekKeyOverride) || {key: weekKeyOverride, icon: '✦', hue: 24};
     const n = isoWeekNumber(new Date());
     return packs[(Math.max(1, n) - 1) % packs.length];
+  }
+  async function refreshWeekPack() {
+    weekKeyOverride = '';
+    if (!window.TOB_AUTH || window.TOB_AUTH.mode !== 'supabase' || !window.TOB_AUTH.rpc) return;
+    const res = await window.TOB_AUTH.rpc('current_week_pack');
+    if (res && res.ok && typeof res.data === 'string' && res.data) weekKeyOverride = res.data;
   }
   function priceForTheme(key) {
     const full = ECONOMY.themePrice | 0;
@@ -959,6 +982,7 @@
     const draw = async () => {
       const profile = await liveProfile();
       if (!profile) { showAuth('login'); return; }
+      await refreshWeekPack();
       const claimed = profile.lastDaily === todayKey();
       const coins = profile.coins | 0;
       const week = weekPack();
