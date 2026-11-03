@@ -1,5 +1,6 @@
 -- Mythic Vault: 60 player-obtainable Mythic cards (my_*), extended combos, and one premium pack.
--- Not applied. Review this file, then run it in the Supabase SQL editor.
+-- Applied to production on 2026-11-03.
+-- LIKE patterns use my\_% because _ is a wildcard.
 -- Regular packs stay on pack_pool and never drop my_* cards.
 -- Mythic Vault costs 900 coins and contains 5 cards. 4% of packs replace one
 -- slot with a Mythic card. The other slots are the standard pool, including
@@ -186,7 +187,7 @@ create or replace function public.mythic_standard_card()
 returns text language sql volatile security definer set search_path = public as $$
   select c.id
   from public.cards c
-  where c.pack_pool and not c.admin_only and c.id not like 'my_%' and c.id not like 'ob_%'
+  where c.pack_pool and not c.admin_only and c.id not like 'my\_%' and c.id not like 'ob_%'
   order by -ln(greatest(random(), 1e-9)) / (
     case public.card_rarity(c.pts) when 'Rare' then 12 when 'Legendary' then 12 else 10 end
   )
@@ -204,7 +205,7 @@ begin
       select public.card_rarity(c.pts) as band,
         case public.card_rarity(c.pts) when 'Rare' then 12 when 'Legendary' then 12 else 10 end as w
       from public.cards c
-      where c.pack_pool and not c.admin_only and c.id not like 'my_%' and c.id not like 'ob_%'
+      where c.pack_pool and not c.admin_only and c.id not like 'my\_%' and c.id not like 'ob_%'
     ), tot as (
       select sum(w)::numeric as s from pool
     )
@@ -249,7 +250,7 @@ begin
   if admin_flag is null or admin_flag then
     return;
   end if;
-  if p_card like 'my_%' then
+  if p_card like 'my\_%' then
     band := 'Mythic';
   else
     band := public.card_rarity(card_pts);
@@ -299,7 +300,7 @@ begin
       raise exception 'No unopened packs.';
     end if;
     update public.profiles set unopened_packs = unopened_packs - 1, packs_opened = packs_opened + 1 where id = uid;
-    select coalesce(array_agg(id), '{}') into pool from public.cards where pack_pool and id not like 'my_%';
+    select coalesce(array_agg(id), '{}') into pool from public.cards where pack_pool and id not like 'my\_%';
     kind := 'standard';
   elsif p_mode = 'mythic' then
     price := 900;
@@ -310,7 +311,7 @@ begin
     if not found then
       raise exception 'Not enough Orbit Coins.';
     end if;
-    select coalesce(array_agg(id), '{}') into pool from public.cards where pack_pool and id not like 'my_%';
+    select coalesce(array_agg(id), '{}') into pool from public.cards where pack_pool and id not like 'my\_%';
     if coalesce(array_length(pool, 1), 0) = 0 then
       raise exception 'That pack is empty.';
     end if;
@@ -326,7 +327,7 @@ begin
       raise exception 'Not enough Orbit Coins.';
     end if;
     select coalesce(array_agg(id), '{}') into pool
-    from public.cards where pack_pool and archetype = p_theme and id not like 'my_%';
+    from public.cards where pack_pool and archetype = p_theme and id not like 'my\_%';
     if coalesce(array_length(pool, 1), 0) = 0 then
       raise exception 'That pack is empty.';
     end if;
@@ -350,7 +351,7 @@ begin
   for i in 1..5 loop
     if p_mode = 'mythic' and mythic_hit and i = mythic_slot then
       select c.id into cid from public.cards c
-      where c.id like 'my_%' and not c.admin_only
+      where c.id like 'my\_%' and not c.admin_only
       order by random()
       limit 1;
       if cid is null then
