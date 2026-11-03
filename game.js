@@ -102,12 +102,14 @@
     const html = `<div class="tv-card${card.gold ? ' gold' : ''}" style="--cc:${COLORS[card.color]}">
       <div class="tv-art">${faceHTML(card, true)}${card.gold ? '<div class="holo"></div><div class="spark"></div>' : ''}</div>
       <div class="tv-name">${card.name}</div>
-      <div class="tv-meta"><span class="gem" style="background:${COLORS[card.color]}"></span>${cap(card.color)} · ${card.pts} pts</div>
-      <div class="tv-group">${card.archetype ? card.archetype + ' · ' : ''}${card.group}</div>
-      <div class="tv-feat">${card.features.join(' · ')}</div>
-      ${card.power && card.power !== 'No Power' ? `<div class="tv-power">${card.power}</div>` : ''}
-      ${(window.TOB_COMBOS ? window.TOB_COMBOS.blurbs(card) : []).map(line => `<div class="tv-combo">${line}</div>`).join('')}
-      ${info ? `<div class="tv-live">In play: <b>${info.knocked ? 0 : info.value}</b> pts${notes.length ? '<br>' + notes.join('<br>') : ''}</div>` : ''}
+      <div class="tv-meta"><span class="gem" style="background:${COLORS[card.color]}"></span>${cap(card.color)} · ${card.pts} pts${card.archetype ? ' · ' + card.archetype : ''}</div>
+      <div class="tv-skill">
+        ${card.group ? `<div class="tv-group">${card.group}</div>` : ''}
+        ${(card.features || []).length ? `<div class="tv-feat">${card.features.join(' · ')}</div>` : ''}
+        ${card.power && card.power !== 'No Power' ? `<div class="tv-power">${card.power}</div>` : ''}
+        ${(window.TOB_COMBOS ? window.TOB_COMBOS.blurbs(card) : []).map(line => `<div class="tv-combo">${line}</div>`).join('')}
+        ${info ? `<div class="tv-live">In play: <b>${info.knocked ? 0 : info.value}</b> pts${notes.length ? '<br>' + notes.join('<br>') : ''}</div>` : ''}
+      </div>
     </div>`;
     box.innerHTML = html;
     if (body) body.innerHTML = html;
@@ -567,15 +569,25 @@
     </div>`;
     blip(copy.gold ? 1040 : 880, 0.22, 'triangle', 0.07);
   }
+  function deckImportAnswers() {
+    try {
+      const saved = JSON.parse(localStorage.getItem('tob_deck_import_choice') || '{}');
+      return saved && typeof saved === 'object' ? saved : {};
+    } catch (e) { return {}; }
+  }
   async function offerLocalDeckImport() {
     if (!isOnlinePlayer()) return;
     const me = window.TOB_AUTH.currentUser();
     let deck = [];
     try { deck = JSON.parse(localStorage.getItem('tob_custom') || '[]'); } catch (e) { deck = []; }
     if (!Array.isArray(deck) || !deck.length) return;
-    if (localStorage.getItem('tob_deck_imported') === me.id) return;
+    const answers = deckImportAnswers();
+    if (answers[me.id] === 'yes' || answers[me.id] === 'no' || localStorage.getItem('tob_deck_imported') === me.id) return;
+    const yes = window.confirm('Import your local deck layout onto this account? Coins and cards are not imported.');
+    answers[me.id] = yes ? 'yes' : 'no';
+    localStorage.setItem('tob_deck_import_choice', JSON.stringify(answers));
+    if (!yes) return;
     localStorage.setItem('tob_deck_imported', me.id);
-    if (!window.confirm('Import your local deck layout onto this account? Coins and cards are not imported.')) return;
     const res = await window.TOB_AUTH.saveDeck(deck);
     toast(res && res.ok ? 'Imported your deck layout.' : ((res && res.error) || 'Could not import the deck.'));
   }
