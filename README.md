@@ -37,7 +37,7 @@ A new account starts with every card in the chosen starter deck, all non-gold. A
 
 ## Packs
 
-Packs is in the header menu and on the deck screen. The badge is the number still unopened. A pack holds 5 copies drawn from all 42 cards. Each copy is gold on its own 10% roll, and the pack includes a card the player does not own yet when any remain. The cards are saved as soon as the pack is opened, before the tear-open animation. New copies are tagged NEW!. A duplicate shows the new total, such as x2. A gold pull flashes the screen, plays a short sparkle, and vibrates the phone when the browser allows it. Sound uses the same on/off switch as the rest of the game.
+Packs is in the header menu and on the deck screen. The badge is the number still unopened. A pack holds 5 copies drawn from all 42 cards. Each copy is gold on its own 3% roll (`GOLD_CHANCE` in `game.js`), and the pack includes a card the player does not own yet when any remain. There is no guaranteed gold card in a pack. The cards are saved as soon as the pack is opened, before the tear-open animation. New copies are tagged NEW!. A duplicate shows the new total, such as x2. A gold pull flashes the screen, plays a short sparkle, and vibrates the phone when the browser allows it. Sound uses the same on/off switch as the rest of the game.
 
 New accounts and guests start with 3 welcome packs and 0 Orbit Coins. An account saved before packs existed is given those 3 the next time it loads. One more pack can be claimed each calendar day. Guest packs, coins, and the daily claim move onto an account at sign-up. With Supabase, those fields travel inside the `stats` JSON so the existing table does not need new columns.
 

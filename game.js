@@ -7,6 +7,7 @@
   const AUTO = qs.has('auto'); let autoGames = Math.max(1, parseInt(qs.get('auto') || '1', 10) || 1);
   // ===== CONFIG: seconds on the countdown for every timed phase (placement, discard, swap, silver). =====
   const PHASE_SECONDS = 30;
+  const GOLD_CHANCE = 0.03;
   const ECONOMY_DEFAULTS = {winCoins: 100, lossCoins: 25, packPrice: 300, auctionFee: 0};
   function readEconomy() {
     const base = {winCoins: ECONOMY_DEFAULTS.winCoins, lossCoins: ECONOMY_DEFAULTS.lossCoins, packPrice: ECONOMY_DEFAULTS.packPrice};
@@ -821,7 +822,7 @@
     const forceAt = unowned.length ? Math.floor(Math.random() * 5) : -1;
     for (let i = 0; i < 5; i++) {
       const id = i === forceAt ? unowned[Math.floor(Math.random() * unowned.length)] : ids[Math.floor(Math.random() * ids.length)];
-      const gold = Math.random() < 0.1; /* pack */
+      const gold = Math.random() < GOLD_CHANCE;
       const copy = COPIES.makeCopy(id, {gold});
       pulls.push({id: copy.id, gold: !!copy.gold, uid: copy.uid});
     }
@@ -878,7 +879,7 @@
           <button type="button" class="btn go" id="btnBuyPack" ${(profile.coins | 0) < ECONOMY.packPrice ? 'disabled' : ''}>Buy pack</button>
           <p class="shop-note" id="shopNote">${(profile.coins | 0) < ECONOMY.packPrice ? `You need ${ECONOMY.packPrice} Orbit Coins for a pack. You have ${profile.coins | 0}.` : 'Buy a pack with Orbit Coins. No real money.'}</p>
         </div>
-        <div class="tag">Five toons. One is new when you still have cards to find. Each copy has a 10% chance to be gold.</div>
+        <div class="tag">Five toons. One is new when you still have cards to find. Each copy has a ${Math.round(GOLD_CHANCE * 100)}% chance to be gold.</div>
         <div class="go-btns">
           <button type="button" class="btn go" id="btnOpenPack" ${(profile.packs | 0) < 1 ? 'disabled' : ''}>Open pack</button>
           <button type="button" class="btn" id="btnDaily" ${claimed ? 'disabled' : ''}>${claimed ? 'Daily pack claimed' : 'Claim daily pack'}</button>
@@ -1609,7 +1610,7 @@
     };
     draw();
   }
-  let buildFinish = 'all', buildColor = '', buildArch = '', buildQ = '', buildSort = 'name', buildCombo = false, buildOwned = false, buildNotIn = false, buildPartners = false, buildView = 'grid', buildFoldColor = false, buildFoldArch = false, buildFocus = '', buildFrom = 'home', buildDeckOpen = false, buildSheet = false, buildFlash = '';
+  let buildFinish = 'all', buildColor = '', buildArch = '', buildQ = '', buildSort = 'name', buildCombo = false, buildOwned = false, buildNotIn = false, buildPartners = false, buildView = 'grid', buildFocus = '', buildFrom = 'home', buildDeckOpen = false, buildSheet = false, buildFlash = '', buildFiltersOpen = false;
   function comboFacts(card, selIds, ownedIds) {
     const book = window.TOB_COMBOS;
     if (!book || !card) return [];
@@ -1666,6 +1667,7 @@
   }
   async function showBuilder(from) {
     if (from) buildFrom = from;
+    buildFiltersOpen = false;
     stopHomeClock();
     stopTimer();
     hidePreview();
@@ -1707,15 +1709,16 @@
       }
       haystack.set(c.id, (c.name + ' ' + (c.power || '') + ' ' + (c.archetype || '') + ' ' + c.group + extra).toLowerCase());
     });
-    const draw = () => {
-      const chosen = id => sel.find(row => row.id === id);
-      const selIds = new Set(sel.map(row => row.id));
-      const q = buildQ.trim().toLowerCase();
+    if (!buildFocus || !CARDS[buildFocus]) buildFocus = (sel[0] && sel[0].id) || '';
+    const chosen = id => sel.find(row => row.id === id);
+    let savedListScroll = 0;
+    let pressScroll = null;
+
+    function partnerSet(selIds) {
       const partnerIds = new Set();
       const book = window.TOB_COMBOS || {sets: [], pairs: []};
       (book.sets || []).forEach(s => {
-        const have = s.ids.filter(id => selIds.has(id));
-        if (!have.length) return;
+        if (!s.ids.some(id => selIds.has(id))) return;
         s.ids.forEach(id => { if (!selIds.has(id) && ownedIds.has(id)) partnerIds.add(id); });
       });
       const deckArches = new Set([...selIds].map(id => CARDS[id] && CARDS[id].archetype).filter(Boolean));
@@ -1724,9 +1727,15 @@
         const need = deckArches.has(p.a) ? p.b : p.a;
         buildPool.forEach(c => { if (c.archetype === need && ownedIds.has(c.id) && !selIds.has(c.id)) partnerIds.add(c.id); });
       });
-      const passesQuick = c => {
+      return partnerIds;
+    }
+    function visibleCards() {
+      const selIds = new Set(sel.map(row => row.id));
+      const q = buildQ.trim().toLowerCase();
+      const partnerIds = partnerSet(selIds);
+      const pool = buildPool.filter(c => {
         const bag = bags.get(c.id);
-        if (q && haystack.get(c.id).indexOf(q) === -1) return false;
+        if (q && (haystack.get(c.id) || '').indexOf(q) === -1) return false;
         if (buildCombo && !(window.TOB_COMBOS && window.TOB_COMBOS.cardInCombo(c))) return false;
         if (buildOwned && !bag) return false;
         if (buildNotIn && selIds.has(c.id)) return false;
@@ -1734,15 +1743,14 @@
         if (buildFinish === 'gold') return !!(bag && bag.gold);
         if (buildFinish === 'standard') return !!(bag && bag.standard) || !bag;
         return true;
-      };
-      const pool = buildPool.filter(passesQuick);
+      });
       const colorCounts = {};
       const archCounts = {};
       pool.forEach(c => {
         if (!buildArch || (c.archetype || '') === buildArch) colorCounts[c.color] = (colorCounts[c.color] || 0) + 1;
         if (!buildColor || c.color === buildColor) archCounts[c.archetype || ''] = (archCounts[c.archetype || ''] || 0) + 1;
       });
-      let cards = pool.filter(c => (!buildColor || c.color === buildColor) && (!buildArch || (c.archetype || '') === buildArch));
+      const cards = pool.filter(c => (!buildColor || c.color === buildColor) && (!buildArch || (c.archetype || '') === buildArch));
       const byColor = (a, b) => a.color.localeCompare(b.color) || a.name.localeCompare(b.name);
       const byArch = (a, b) => (a.archetype || '').localeCompare(b.archetype || '') || a.name.localeCompare(b.name);
       cards.sort((a, b) => buildSort === 'pts-desc' ? b.pts - a.pts || a.name.localeCompare(b.name)
@@ -1752,58 +1760,244 @@
         : buildSort === 'recent' ? (pullRank.get(b.id) || -1) - (pullRank.get(a.id) || -1) || a.name.localeCompare(b.name)
         : buildSort === 'owned' ? (ownCount.get(b.id) || 0) - (ownCount.get(a.id) || 0) || a.name.localeCompare(b.name)
         : a.name.localeCompare(b.name));
-      if (!cards.some(c => c.id === buildFocus)) buildFocus = (sel[0] && sel[0].id) || (cards[0] && cards[0].id) || '';
-      const focus = CARDS[buildFocus];
-      const mark = state => state === 'miss' ? 'is-miss' : state === 'in' ? 'is-in' : 'is-own';
-      const markText = state => state === 'in' ? '✓ In deck' : state === 'own' ? '✓ Owned' : 'Not owned';
-      const factHtml = card => comboFacts(card, selIds, ownedIds).map(fact => `<div class="db-fact"><span class="db-badge">COMBO</span> <b>${esc(fact.name)}</b> +${fact.bonus}<ul>${fact.partners.map(p => `<li class="${mark(p.state)}">${markText(p.state)} · ${esc(p.name)}</li>`).join('')}</ul></div>`).join('');
-      const detailHtml = card => {
-        if (!card) return '<p class="db-power">Choose a card to read its skill.</p>';
-        const row = chosen(card.id);
-        const bag = bags.get(card.id);
-        const extras = extraPowers(card).map(line => `<p class="db-power">${esc(line)}</p>`).join('');
-        const both = bag && bag.gold && bag.standard;
-        const face = COPIES.makeCopy(card.id, {gold: !!(row && row.gold), uid: row && row.uid});
-        return `<div class="db-puck db-hero">${cardHTML(face, null, true)}</div>
-          <div class="db-dname">${esc(card.name)}</div>
-          <p class="db-meta">${card.pts} pts · ${esc(cap(card.color))} · ${esc(card.archetype || card.group)}${row && row.gold ? ' · Gold' : ''}</p>
-          <p class="db-power">${esc(card.power && card.power !== 'No Power' ? card.power : 'No power.')}</p>
-          ${extras}
-          ${factHtml(card) || '<p class="db-power">No named crew or archetype pair on this card.</p>'}
-          <div class="db-tools">
-            ${both ? `<button type="button" class="btn" data-goldpick="${card.id}">${row && row.gold ? 'Use standard' : 'Use gold'}</button>` : ''}
-            <button type="button" class="btn go" data-add="${card.id}">${row ? 'Remove from deck' : 'Add to deck'}</button>
-          </div>`;
-      };
+      return {cards, colorCounts, archCounts, partnerIds, selIds, q};
+    }
+    function listScroller() {
+      const col = document.querySelector('#deckBuilder .db-listcol');
+      if (col) {
+        const oy = getComputedStyle(col).overflowY;
+        if (oy === 'auto' || oy === 'scroll') return col;
+      }
+      return document.getElementById('overlay');
+    }
+    function searchSnap() {
+      const q = document.getElementById('buildQ');
+      return {on: !!q && document.activeElement === q, start: q ? q.selectionStart : 0, end: q ? q.selectionEnd : 0};
+    }
+    function restoreSearch(snap) {
+      if (!snap || !snap.on) return;
+      const q = document.getElementById('buildQ');
+      if (!q) return;
+      if (document.activeElement !== q) q.focus({preventScroll: true});
+      try { q.setSelectionRange(snap.start, snap.end); } catch (e) { /* ignore */ }
+    }
+    function activeFilterCount() {
+      let n = 0;
+      if (buildFinish !== 'all') n++;
+      if (buildCombo) n++;
+      if (buildOwned) n++;
+      if (buildNotIn) n++;
+      if (buildPartners) n++;
+      if (buildColor) n++;
+      if (buildArch) n++;
+      return n;
+    }
+    function tileCopy(c) {
+      const bag = bags.get(c.id);
+      const row = chosen(c.id);
+      if (row) return COPIES.makeCopy(c.id, {gold: !!row.gold, uid: row.uid});
+      if (buildFinish === 'gold' && bag && bag.gold) return COPIES.makeCopy(c.id, {gold: true, uid: bag.gold.uid});
+      if (bag && bag.gold && !bag.standard) return COPIES.makeCopy(c.id, {gold: true, uid: bag.gold.uid});
+      return COPIES.makeCopy(c.id, {gold: false, uid: bag && bag.standard ? bag.standard.uid : null});
+    }
+    function tileHtml(c) {
+      const row = chosen(c.id);
+      const combo = window.TOB_COMBOS && window.TOB_COMBOS.cardInCombo(c);
+      return `<article class="db-item${row ? ' in' : ''}${c.id === buildFocus ? ' focus' : ''}" data-cid="${c.id}">
+        <button type="button" class="db-row" data-focus="${c.id}">
+          <span class="db-puck">${cardHTML(tileCopy(c))}</span>
+          <span class="db-name">${esc(c.name)}</span>
+          <span class="db-meta">${c.pts} pts${combo ? '<i class="db-cdot" title="Combo card"></i>' : ''}</span>
+        </button>
+      </article>`;
+    }
+    function patchTile(id) {
+      const node = document.querySelector('#dbRows .db-item[data-cid="' + id + '"]');
+      const c = CARDS[id];
+      if (!node || !c) return;
+      node.classList.toggle('in', !!chosen(id));
+      node.classList.toggle('focus', id === buildFocus);
+      const puck = node.querySelector('.db-puck');
+      if (puck) puck.innerHTML = cardHTML(tileCopy(c));
+    }
+    function paintCount(n) {
+      const el = document.getElementById('dbCount');
+      if (!el) return;
+      const searching = !!buildQ.trim();
+      el.textContent = searching ? (n + (n === 1 ? ' result' : ' results')) : (n + ' cards');
+    }
+    function suggestMarkup(view) {
+      if (view.q) return '';
+      const suggestIds = [];
+      view.partnerIds.forEach(id => { if (suggestIds.length < 8) suggestIds.push(id); });
+      const colors = {};
+      sel.forEach(row => { const c = CARDS[row.id]; if (c) colors[c.color] = (colors[c.color] || 0) + 1; });
+      const goal = Object.entries(colors).sort((a, b) => b[1] - a[1])[0];
+      if (goal) buildPool.forEach(c => {
+        if (suggestIds.length >= 8) return;
+        if (c.color === goal[0] && ownedIds.has(c.id) && !view.selIds.has(c.id) && suggestIds.indexOf(c.id) === -1) suggestIds.push(c.id);
+      });
+      if (!suggestIds.length) return '';
+      return `<b>Suggested for this deck</b><div class="db-sugrow">${suggestIds.map(id => {
+        const c = CARDS[id];
+        if (!c) return '';
+        const bag = bags.get(id);
+        const copy = COPIES.makeCopy(id, {gold: !!(bag && bag.gold && !bag.standard)});
+        return `<button type="button" class="db-sug" data-focus="${id}"><span class="db-puck sug-puck">${cardHTML(copy)}</span><span>${esc(c.name)}</span></button>`;
+      }).join('')}</div>`;
+    }
+    function setSuggest(html) {
+      const el = document.getElementById('dbSuggest');
+      if (!el) return 0;
+      const h0 = el.getBoundingClientRect().height;
+      el.innerHTML = html;
+      el.hidden = !html;
+      return (el.hidden ? 0 : el.getBoundingClientRect().height) - h0;
+    }
+    function fillRows(view) {
+      const rows = document.getElementById('dbRows');
+      if (!rows) return;
+      rows.className = 'db-rows ' + buildView + (sel.length >= 12 ? ' deckfull' : '');
+      rows.innerHTML = view.cards.length ? view.cards.map(tileHtml).join('') : '<p class="db-empty">No cards match. Clear a filter to see more.</p>';
+      paintCount(view.cards.length);
+      setSuggest(suggestMarkup(view));
+    }
+    function syncOne(id, view) {
+      const rows = document.getElementById('dbRows');
+      if (!rows) return;
+      const card = view.cards.find(c => c.id === id);
+      const existing = rows.querySelector('.db-item[data-cid="' + id + '"]');
+      rows.classList.toggle('deckfull', sel.length >= 12);
+      if (!card) {
+        if (existing) existing.remove();
+        if (!rows.querySelector('.db-item')) rows.innerHTML = '<p class="db-empty">No cards match. Clear a filter to see more.</p>';
+      } else if (!existing) {
+        const empty = rows.querySelector('.db-empty');
+        if (empty) empty.remove();
+        const holder = document.createElement('div');
+        holder.innerHTML = tileHtml(card);
+        const node = holder.firstElementChild;
+        const idx = view.cards.findIndex(c => c.id === id);
+        const items = rows.querySelectorAll('.db-item');
+        if (items[idx]) rows.insertBefore(node, items[idx]);
+        else rows.appendChild(node);
+      } else patchTile(id);
+      paintCount(view.cards.length);
+    }
+    function pillsHtml() {
+      const pill = (key, label) => `<button type="button" class="db-pill" data-clear="${key}">${esc(label)} ×</button>`;
+      const bits = [];
+      if (buildFinish !== 'all') bits.push(pill('finish', buildFinish === 'gold' ? 'Gold' : 'Standard'));
+      if (buildCombo) bits.push(pill('combo', 'Has combo'));
+      if (buildOwned) bits.push(pill('owned', 'Owned'));
+      if (buildNotIn) bits.push(pill('notin', 'Not in deck'));
+      if (buildPartners) bits.push(pill('partners', 'Combo partners'));
+      if (buildColor) bits.push(pill('color', cap(buildColor)));
+      if (buildArch) bits.push(pill('arch', buildArch));
+      if (!bits.length) return '';
+      bits.push('<button type="button" class="db-pill db-clear" data-clear="all">Clear</button>');
+      return bits.join('');
+    }
+    function drawerHtml(view) {
+      const fin = (id, label) => `<button type="button" class="db-chip${buildFinish === id ? ' on' : ''}" data-bfinish="${id}">${label}</button>`;
+      const tog = (key, label, on) => `<button type="button" class="db-chip${on ? ' on' : ''}" data-qtog="${key}">${label}</button>`;
+      return `<div class="db-dlabel">Finish</div>
+        <div class="db-quick">${fin('all', 'All')}${fin('gold', 'Gold')}${fin('standard', 'Standard')}</div>
+        <div class="db-dlabel">Limit</div>
+        <div class="db-quick">${tog('combo', 'Has combo', buildCombo)}${tog('owned', 'Owned', buildOwned)}${tog('notin', 'Not in deck', buildNotIn)}${tog('partners', 'Combo partners', buildPartners)}</div>
+        <div class="db-dlabel">Color</div>
+        <div class="db-quick">${Object.keys(COLORS).map(c => `<button type="button" class="db-chip${buildColor === c ? ' on' : ''}" data-color="${c}"><i style="background:${COLORS[c]}"></i>${esc(cap(c))} <em>${view.colorCounts[c] || 0}</em></button>`).join('')}</div>
+        <div class="db-dlabel">Archetype</div>
+        <div class="db-quick">${arches.map(a => `<button type="button" class="db-chip${buildArch === a ? ' on' : ''}" data-arch="${esc(a)}">${esc(a)} <em>${view.archCounts[a] || 0}</em></button>`).join('')}</div>
+        <button type="button" class="btn" id="btnAutoGold">Auto-use gold</button>`;
+    }
+    function paintDrawer(view) {
+      const drawer = document.getElementById('dbDrawer');
+      if (!drawer) return;
+      drawer.classList.toggle('open', buildFiltersOpen);
+      if (!buildFiltersOpen) return;
+      const top = drawer.scrollTop;
+      drawer.innerHTML = drawerHtml(view || visibleCards());
+      drawer.scrollTop = top;
+    }
+    function paintChrome(view) {
+      const root = document.getElementById('deckBuilder');
+      if (!root) return;
+      root.classList.toggle('pane-deck', buildDeckOpen);
+      root.classList.toggle('pane-cards', !buildDeckOpen);
+      root.classList.toggle('is-search', !!buildQ.trim());
+      const n = activeFilterCount();
+      const badge = document.getElementById('dbFcount');
+      if (badge) { badge.textContent = String(n); badge.hidden = !n; }
+      const filtersBtn = document.getElementById('btnFilters');
+      if (filtersBtn) {
+        filtersBtn.classList.toggle('on', buildFiltersOpen || n > 0);
+        filtersBtn.setAttribute('aria-expanded', buildFiltersOpen ? 'true' : 'false');
+      }
+      root.querySelectorAll('[data-view]').forEach(btn => {
+        const on = btn.dataset.view === buildView;
+        btn.classList.toggle('go', on);
+        btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      });
+      root.querySelectorAll('[data-pane]').forEach(btn => {
+        btn.classList.toggle('go', (btn.dataset.pane === 'deck') === buildDeckOpen);
+      });
+      const rows = document.getElementById('dbRows');
+      if (rows) {
+        rows.classList.toggle('grid', buildView === 'grid');
+        rows.classList.toggle('list', buildView === 'list');
+        rows.classList.toggle('deckfull', sel.length >= 12);
+      }
+      const sort = document.getElementById('buildSort');
+      if (sort && sort.value !== buildSort) sort.value = buildSort;
+      const pills = document.getElementById('dbPills');
+      if (pills) pills.innerHTML = pillsHtml();
+      paintDrawer(view);
+    }
+    function refreshList(fromPointer) {
+      const scroller = listScroller();
+      const top = fromPointer && pressScroll != null ? pressScroll : (scroller ? scroller.scrollTop : 0);
+      const snap = searchSnap();
+      const view = visibleCards();
+      fillRows(view);
+      paintChrome(view);
+      if (scroller) scroller.scrollTop = top;
+      restoreSearch(snap);
+    }
+    const mark = state => state === 'miss' ? 'is-miss' : state === 'in' ? 'is-in' : 'is-own';
+    const markText = state => state === 'in' ? 'In deck' : state === 'own' ? 'Owned' : 'Not owned';
+    function factHtml(card, selIds) {
+      return comboFacts(card, selIds, ownedIds).map(fact => `<div class="db-fact"><span class="db-badge">COMBO</span> <b>${esc(fact.name)}</b> +${fact.bonus}<ul>${fact.partners.map(p => `<li class="${mark(p.state)}">${markText(p.state)} · ${esc(p.name)}</li>`).join('')}</ul></div>`).join('');
+    }
+    function detailHtml(card) {
+      if (!card) return '<p class="db-power">Tap a card to read its skill and combos.</p>';
+      const row = chosen(card.id);
+      const bag = bags.get(card.id);
+      const extras = extraPowers(card).map(line => `<p class="db-power">${esc(line)}</p>`).join('');
+      const both = bag && bag.gold && bag.standard;
+      const face = COPIES.makeCopy(card.id, {gold: !!(row && row.gold), uid: row && row.uid});
+      const selIds = new Set(sel.map(item => item.id));
+      const canAdd = !!row || sel.length < 12;
+      return `<div class="db-puck db-hero">${cardHTML(face, null, true)}</div>
+        <div class="db-dname">${esc(card.name)}</div>
+        <p class="db-meta">${card.pts} pts · ${esc(cap(card.color))} · ${esc(card.archetype || card.group)}${row && row.gold ? ' · Gold' : ''}</p>
+        <p class="db-power">${esc(card.power && card.power !== 'No Power' ? card.power : 'No power.')}</p>
+        ${extras}
+        ${factHtml(card, selIds) || '<p class="db-power">No named crew or archetype pair on this card.</p>'}
+        <div class="db-tools">
+          ${both ? `<button type="button" class="btn" data-goldpick="${card.id}">${row && row.gold ? 'Use standard' : 'Use gold'}</button>` : ''}
+          <button type="button" class="btn go" data-add="${card.id}" ${canAdd ? '' : 'disabled'}>${row ? 'Remove from deck' : 'Add to deck'}</button>
+        </div>`;
+    }
+    function deckHtml() {
       const pts = sel.reduce((sum, row) => sum + (CARDS[row.id] ? CARDS[row.id].pts : 0), 0);
       const colors = {};
       sel.forEach(row => { const c = CARDS[row.id]; if (c) colors[c.color] = (colors[c.color] || 0) + 1; });
+      const selIds = new Set(sel.map(row => row.id));
       const report = deckComboReport(selIds, ownedIds);
-      const chip = (id, label) => `<button type="button" class="btn filter${buildFinish === id ? ' on' : ''}" data-bfinish="${id}">${label}</button>`;
-      const rows = cards.map(c => {
-        const bag = bags.get(c.id);
-        const row = chosen(c.id);
-        const gold = row ? !!row.gold : !!(bag && bag.gold && !bag.standard);
-        const both = bag && bag.gold && bag.standard;
-        const copy = COPIES.makeCopy(c.id, {gold, uid: row && row.uid});
-        return `<article class="db-item${row ? ' in' : ''}${c.id === buildFocus ? ' focus' : ''}${buildFlash === c.id ? ' db-flash' : ''}">
-          <button type="button" class="db-row" data-focus="${c.id}">
-            <span class="db-puck">${cardHTML(copy)}</span>
-            <span class="db-copy">
-              <span class="db-name">${esc(c.name)}</span>
-              <span class="db-meta">${c.pts} pts · ${esc(cap(c.color))} · ${esc(c.archetype || c.group)}${gold ? ' · Gold' : ''}</span>
-              <span class="db-power">${esc(c.power && c.power !== 'No Power' ? c.power : 'No power.')}</span>
-              ${factHtml(c)}
-            </span>
-          </button>
-          <span class="db-rowtools">
-            ${both ? `<button type="button" class="btn" data-goldpick="${c.id}">${row && row.gold ? 'Gold' : 'Std'}</button>` : ''}
-            <button type="button" class="btn" data-add="${c.id}">${row ? 'Remove' : 'Add'}</button>
-          </span>
-        </article>`;
-      }).join('');
       const deckRows = sel.map(row => {
         const c = CARDS[row.id];
+        if (!c) return '';
         const bag = bags.get(row.id);
         const copy = COPIES.makeCopy(row.id, {gold: !!row.gold, uid: row.uid});
         const both = bag && bag.gold && bag.standard;
@@ -1822,191 +2016,225 @@
           </span>
         </article>`;
       }).join('');
-      const deckHtml = `<div class="db-deckhead">YOUR DECK <b>${sel.length}/12</b> · ${pts} pts</div>
+      return `<div class="db-deckhead">YOUR DECK <b>${sel.length}/12</b> · ${pts} pts</div>
         <div class="db-decktools"><button type="button" class="btn" id="btnClearDeck" ${sel.length ? '' : 'disabled'}>Clear deck</button></div>
         <div class="db-colors">${Object.entries(colors).map(([c, n]) => `<span><i style="background:${COLORS[c]}"></i>${n} ${esc(cap(c))}</span>`).join('') || '<span>No colors yet</span>'}</div>
         <div class="yd-list">${deckRows || '<p class="db-empty">Your deck is empty. Add cards from the list. They show up here.</p>'}</div>
         <div class="db-active"><b>Active combos in this deck</b>${report.active.length ? report.active.map(line => `<p>${esc(line)}</p>`).join('') : '<p>None yet. Add a full crew or both sides of a pair.</p>'}</div>
         <div class="db-active"><b>Partners you own</b>${report.suggest.length ? report.suggest.map(line => `<p>${esc(line)}</p>`).join('') : '<p>No missing partner sitting in your collection.</p>'}</div>`;
-      const goalColor = Object.entries(colors).sort((a, b) => b[1] - a[1])[0];
-      const suggestIds = [];
-      partnerIds.forEach(id => { if (suggestIds.length < 8) suggestIds.push(id); });
-      if (goalColor) buildPool.forEach(c => {
-        if (suggestIds.length >= 8) return;
-        if (c.color === goalColor[0] && ownedIds.has(c.id) && !selIds.has(c.id) && suggestIds.indexOf(c.id) === -1) suggestIds.push(c.id);
+    }
+    function paintDeck() {
+      const deck = document.getElementById('dbDeck');
+      const pts = sel.reduce((sum, row) => sum + (CARDS[row.id] ? CARDS[row.id].pts : 0), 0);
+      if (deck) deck.innerHTML = deckHtml();
+      const tray = document.getElementById('btnOpenDeck');
+      if (tray) tray.textContent = `Deck ${sel.length}/12 · ${pts} pts`;
+      const save = document.getElementById('btnSaveDeck');
+      if (save) save.disabled = sel.length !== 12;
+      buildFlash = '';
+    }
+    function paintDetail() {
+      const html = detailHtml(CARDS[buildFocus]);
+      const detail = document.getElementById('dbDetail');
+      if (detail) detail.innerHTML = html;
+      const sheet = document.getElementById('dbSheet');
+      if (!sheet) return;
+      const top = sheet.scrollTop;
+      sheet.classList.toggle('open', !!buildSheet);
+      sheet.innerHTML = buildSheet ? `<button type="button" class="btn" id="btnCloseSheet">Close</button>${html}` : '';
+      if (buildSheet) sheet.scrollTop = top;
+    }
+    function afterDeck(changedId) {
+      const snap = searchSnap();
+      const scroller = listScroller();
+      const top = pressScroll != null ? pressScroll : (scroller ? scroller.scrollTop : 0);
+      const view = visibleCards();
+      let delta = 0;
+      if (buildPartners) {
+        fillRows(view);
+        paintChrome(view);
+      } else {
+        delta = setSuggest(suggestMarkup(view));
+        if (buildNotIn) syncOne(changedId, view);
+        else {
+          patchTile(changedId);
+          const rows = document.getElementById('dbRows');
+          if (rows) rows.classList.toggle('deckfull', sel.length >= 12);
+        }
+        paintChrome(view);
+      }
+      paintDeck();
+      paintDetail();
+      if (scroller) scroller.scrollTop = top > 0 ? top + delta : top;
+      restoreSearch(snap);
+    }
+    function pickGold(id) {
+      const bag = bags.get(id);
+      if (buildFinish === 'gold' && bag && bag.gold) return {id, gold: true, uid: bag.gold.uid};
+      if (bag && bag.gold && !bag.standard) return {id, gold: true, uid: bag.gold.uid};
+      if (bag && bag.standard) return {id, gold: false, uid: bag.standard.uid};
+      return {id, gold: false, uid: null};
+    }
+    function toggleDeck(id) {
+      if (chosen(id)) sel = sel.filter(row => row.id !== id);
+      else if (sel.length < 12) { sel.push(pickGold(id)); buildFlash = id; }
+      else return;
+      afterDeck(id);
+    }
+    function toggleGold(id) {
+      const bag = bags.get(id);
+      if (!bag || !bag.gold || !bag.standard) return;
+      const row = chosen(id);
+      const next = row && row.gold ? {id, gold: false, uid: bag.standard.uid} : {id, gold: true, uid: bag.gold.uid};
+      if (row) sel = sel.map(item => item.id === id ? next : item);
+      else if (sel.length < 12) { sel.push(next); buildFlash = id; }
+      else return;
+      afterDeck(id);
+    }
+    function setFocus(id, sheet) {
+      buildFocus = id;
+      buildSheet = !!sheet;
+      document.querySelectorAll('#dbRows .db-item.focus').forEach(node => node.classList.remove('focus'));
+      const node = document.querySelector('#dbRows .db-item[data-cid="' + id + '"]');
+      if (node) node.classList.add('focus');
+      paintDetail();
+    }
+    function showPane(deck) {
+      const scroller = listScroller();
+      if (deck && scroller) savedListScroll = scroller.scrollTop;
+      buildDeckOpen = !!deck;
+      buildSheet = false;
+      paintChrome();
+      paintDetail();
+      if (!deck) requestAnimationFrame(() => {
+        const box = listScroller();
+        if (box) box.scrollTop = savedListScroll;
       });
-      const suggest = suggestIds.length ? `<div class="db-suggest"><b>Suggested for this deck</b><div class="db-sugrow">${suggestIds.map(id => {
-        const c = CARDS[id];
-        const bag = bags.get(id);
-        const copy = COPIES.makeCopy(id, {gold: !!(bag && bag.gold && !bag.standard)});
-        return `<button type="button" class="db-sug" data-focus="${id}"><span class="db-puck sug-puck">${cardHTML(copy)}</span><span>${esc(c.name)}</span></button>`;
-      }).join('')}</div></div>` : '';
-      const pill = (key, label) => `<button type="button" class="db-pill" data-clear="${key}">${esc(label)} ×</button>`;
-      const pills = [
-        buildQ ? pill('q', buildQ) : '',
-        buildFinish !== 'all' ? pill('finish', buildFinish === 'gold' ? 'Gold' : 'Standard') : '',
-        buildCombo ? pill('combo', 'Has combo') : '',
-        buildOwned ? pill('owned', 'Owned only') : '',
-        buildNotIn ? pill('notin', 'Not in deck') : '',
-        buildPartners ? pill('partners', 'Combo partners') : '',
-        buildColor ? pill('color', cap(buildColor)) : '',
-        buildArch ? pill('arch', buildArch) : '',
-      ].join('');
-      const pillRow = (pills ? pills + '<button type="button" class="db-pill" data-clear="all">Clear all</button>' : '') ;
-      ov.innerHTML = `<div id="deckBuilder" class="${buildDeckOpen ? 'pane-deck' : 'pane-cards'}">
-        <header class="db-top">
-          <div class="db-title">DECK BUILDER</div>
-          <button type="button" class="btn go" id="btnSaveDeck" ${sel.length === 12 ? '' : 'disabled'}>Save & play</button>
-          <button type="button" class="btn" id="btnBack">${buildFrom === 'deck' ? 'Deck select' : 'Home'}</button>
-        </header>
-        <div class="db-switch">
-          <button type="button" class="btn${buildDeckOpen ? '' : ' go'}" data-pane="cards">Cards</button>
-          <button type="button" class="btn${buildDeckOpen ? ' go' : ''}" data-pane="deck">My Deck</button>
-        </div>
-        <div class="db-body">
-          <section class="db-listcol">
-            <div class="db-filters">
-              <input id="buildQ" value="${esc(buildQ)}" placeholder="Search name, power, combo" aria-label="Search cards">
-              <div class="db-quick">
-                ${chip('all', 'All')}${chip('gold', 'Gold')}${chip('standard', 'Standard')}
-                <button type="button" class="btn filter${buildCombo ? ' on' : ''}" data-qtog="combo">Has combo</button>
-                <button type="button" class="btn filter${buildOwned ? ' on' : ''}" data-qtog="owned">Owned only</button>
-                <button type="button" class="btn filter${buildNotIn ? ' on' : ''}" data-qtog="notin">Not in deck</button>
-                <button type="button" class="btn filter${buildPartners ? ' on' : ''}" data-qtog="partners">Combo partners</button>
+    }
+    function clearFilters(k) {
+      if (k === 'all' || k === 'q') {
+        buildQ = '';
+        const box = document.getElementById('buildQ');
+        if (box) box.value = '';
+      }
+      if (k === 'all' || k === 'finish') buildFinish = 'all';
+      if (k === 'all' || k === 'combo') buildCombo = false;
+      if (k === 'all' || k === 'owned') buildOwned = false;
+      if (k === 'all' || k === 'notin') buildNotIn = false;
+      if (k === 'all' || k === 'partners') buildPartners = false;
+      if (k === 'all' || k === 'color') buildColor = '';
+      if (k === 'all' || k === 'arch') buildArch = '';
+      refreshList(true);
+    }
+    const sortOpt = (value, label) => `<option value="${value}"${buildSort === value ? ' selected' : ''}>${label}</option>`;
+    ov.innerHTML = `<div id="deckBuilder" class="${buildDeckOpen ? 'pane-deck' : 'pane-cards'}">
+      <header class="db-top">
+        <div class="db-title">DECK BUILDER</div>
+        <button type="button" class="btn go" id="btnSaveDeck" ${sel.length === 12 ? '' : 'disabled'}>Save & play</button>
+        <button type="button" class="btn" id="btnBack">${buildFrom === 'deck' ? 'Deck select' : 'Home'}</button>
+      </header>
+      <div class="db-switch">
+        <button type="button" class="btn${buildDeckOpen ? '' : ' go'}" data-pane="cards">Cards</button>
+        <button type="button" class="btn${buildDeckOpen ? ' go' : ''}" data-pane="deck">My Deck</button>
+      </div>
+      <div class="db-body">
+        <section class="db-listcol">
+          <div class="db-bar">
+            <div class="db-bar-row">
+              <input id="buildQ" value="${esc(buildQ)}" placeholder="Search" aria-label="Search name, power, or combo" autocomplete="off" spellcheck="false">
+              <button type="button" class="db-filterbtn" id="btnFilters" aria-expanded="false">Filters <span class="db-fcount" id="dbFcount" hidden>0</span></button>
+              <select id="buildSort" aria-label="Sort">${sortOpt('name', 'A–Z')}${sortOpt('pts-desc', 'Pts ↓')}${sortOpt('pts-asc', 'Pts ↑')}${sortOpt('color', 'Color')}${sortOpt('arch', 'Type')}${sortOpt('recent', 'Recent')}${sortOpt('owned', 'Owned')}</select>
+              <div class="db-view" role="group" aria-label="Layout">
+                <button type="button" class="db-iconbtn${buildView === 'grid' ? ' go' : ''}" data-view="grid" aria-label="Grid">Grid</button>
+                <button type="button" class="db-iconbtn${buildView === 'list' ? ' go' : ''}" data-view="list" aria-label="List">List</button>
               </div>
-              <button type="button" class="db-fold" data-fold="color">Colors${buildColor ? ' · ' + esc(cap(buildColor)) : ''}</button>
-              <div class="db-chipline${buildFoldColor ? '' : ' shut'}">${Object.keys(COLORS).map(c => `<button type="button" class="db-chip${buildColor === c ? ' on' : ''}" data-color="${c}"><i style="background:${COLORS[c]}"></i>${cap(c)} <em>${colorCounts[c] || 0}</em></button>`).join('')}</div>
-              <button type="button" class="db-fold" data-fold="arch">Types${buildArch ? ' · ' + esc(buildArch) : ''}</button>
-              <div class="db-chipline${buildFoldArch ? '' : ' shut'}">${arches.map(a => `<button type="button" class="db-chip${buildArch === a ? ' on' : ''}" data-arch="${esc(a)}"><i style="background:hsl(${[...a].reduce((h, ch) => (h * 33 + ch.charCodeAt(0)) % 360, 0)} 62% 48%)"></i>${esc(a)} <em>${archCounts[a] || 0}</em></button>`).join('')}</div>
-              <div class="db-toolsline">
-                <select id="buildSort" aria-label="Sort">
-                  <option value="name"${buildSort === 'name' ? ' selected' : ''}>Name A–Z</option>
-                  <option value="pts-desc"${buildSort === 'pts-desc' ? ' selected' : ''}>Points high</option>
-                  <option value="pts-asc"${buildSort === 'pts-asc' ? ' selected' : ''}>Points low</option>
-                  <option value="color"${buildSort === 'color' ? ' selected' : ''}>Color</option>
-                  <option value="arch"${buildSort === 'arch' ? ' selected' : ''}>Archetype</option>
-                  <option value="recent"${buildSort === 'recent' ? ' selected' : ''}>Recently pulled</option>
-                  <option value="owned"${buildSort === 'owned' ? ' selected' : ''}>Most owned</option>
-                </select>
-                <button type="button" class="btn${buildView === 'grid' ? ' go' : ''}" data-view="grid">Grid</button>
-                <button type="button" class="btn${buildView === 'list' ? ' go' : ''}" data-view="list">List</button>
-                <button type="button" class="btn" id="btnAutoGold">Auto-use gold</button>
-              </div>
-              <div class="db-pills">${pillRow}<span class="db-count">${cards.length} cards</span></div>
             </div>
-            ${suggest}
-            <div class="db-rows ${buildView}">${rows || '<p class="db-empty">No cards match. Clear a filter to see more.</p>'}</div>
-          </section>
-          <section class="db-detail">${detailHtml(focus)}</section>
-          <aside class="db-deckcol">${deckHtml}</aside>
-        </div>
-        <button type="button" class="db-tray" id="btnOpenDeck">Deck ${sel.length}/12 · ${pts} pts</button>
-        <div class="db-sheet${buildSheet ? ' open' : ''}"><button type="button" class="btn" id="btnCloseSheet">Close</button>${detailHtml(focus)}</div>
-      </div>`;
-      const pickGold = (id) => {
-        const bag = bags.get(id);
-        if (buildFinish === 'gold' && bag && bag.gold) return {id, gold: true, uid: bag.gold.uid};
-        if (bag && bag.gold && !bag.standard) return {id, gold: true, uid: bag.gold.uid};
-        if (bag && bag.standard) return {id, gold: false, uid: bag.standard.uid};
-        return {id, gold: false, uid: null};
-      };
-      const focusOn = (id, sheet) => { buildFocus = id; buildSheet = !!sheet; draw(); };
-      ov.querySelectorAll('[data-focus]').forEach(btn => {
-        btn.onclick = () => focusOn(btn.dataset.focus, matchMedia('(max-width: 899px)').matches);
-      });
-      ov.querySelectorAll('[data-add]').forEach(btn => {
-        btn.onclick = () => {
-          const id = btn.dataset.add;
-          if (chosen(id)) sel = sel.filter(row => row.id !== id);
-          else if (sel.length < 12) { sel.push(pickGold(id)); buildFlash = id; }
-          buildFocus = id;
-          draw();
-        };
-      });
-      ov.querySelectorAll('[data-remove]').forEach(btn => {
-        btn.onclick = (ev) => {
-          ev.stopPropagation();
-          sel = sel.filter(row => row.id !== btn.dataset.remove);
-          draw();
-        };
-      });
-      ov.querySelectorAll('[data-goldpick]').forEach(btn => {
-        btn.onclick = () => {
-          const id = btn.dataset.goldpick;
-          const bag = bags.get(id);
-          if (!bag || !bag.gold || !bag.standard) return;
-          const row = chosen(id);
-          const next = row && row.gold ? {id, gold: false, uid: bag.standard.uid} : {id, gold: true, uid: bag.gold.uid};
-          if (row) sel = sel.map(item => item.id === id ? next : item);
-          else if (sel.length < 12) sel.push(next);
-          buildFocus = id;
-          draw();
-        };
-      });
-      ov.querySelectorAll('[data-bfinish]').forEach(btn => { btn.onclick = () => { buildFinish = btn.dataset.bfinish; draw(); }; });
-      const searchBox = $('#buildQ');
-      if (searchBox) searchBox.oninput = () => {
-        const pos = searchBox.selectionStart;
-        buildQ = searchBox.value;
-        draw();
-        const again = $('#buildQ');
-        if (again) { again.focus(); try { again.setSelectionRange(pos, pos); } catch (e) { /* ignore */ } }
-      };
-      const sortBox = $('#buildSort');
-      if (sortBox) sortBox.onchange = () => { buildSort = sortBox.value; draw(); };
-      $('#btnAutoGold').onclick = () => {
+            <div class="db-pills" id="dbPills"></div>
+            <div class="db-drawer" id="dbDrawer"></div>
+          </div>
+          <div class="db-suggest" id="dbSuggest" hidden></div>
+          <div class="db-countline" id="dbCount"></div>
+          <div class="db-rows ${buildView}" id="dbRows"></div>
+        </section>
+        <section class="db-detail" id="dbDetail"></section>
+        <aside class="db-deckcol" id="dbDeck"></aside>
+      </div>
+      <button type="button" class="db-tray" id="btnOpenDeck">Deck ${sel.length}/12</button>
+      <div class="db-sheet" id="dbSheet"></div>
+    </div>`;
+    const root = document.getElementById('deckBuilder');
+    root.addEventListener('pointerdown', () => {
+      const scroller = listScroller();
+      pressScroll = scroller ? scroller.scrollTop : 0;
+    }, true);
+    root.addEventListener('input', ev => {
+      if (ev.target && ev.target.id === 'buildQ') {
+        buildQ = ev.target.value;
+        refreshList();
+      }
+    });
+    root.addEventListener('change', ev => {
+      if (ev.target && ev.target.id === 'buildSort') {
+        buildSort = ev.target.value;
+        refreshList();
+      }
+    });
+    root.addEventListener('click', ev => {
+      const t = ev.target.closest('button');
+      if (!t || !root.contains(t)) return;
+      if (t.id === 'btnBack') { buildFrom === 'deck' ? showDeckSelect() : showHome(); return; }
+      if (t.id === 'btnSaveDeck') { localStorage.setItem('tob_custom', JSON.stringify(sel)); quickStart('custom'); return; }
+      if (t.id === 'btnFilters') { buildFiltersOpen = !buildFiltersOpen; paintChrome(); return; }
+      if (t.id === 'btnOpenDeck') { showPane(true); return; }
+      if (t.id === 'btnCloseSheet') { buildSheet = false; paintDetail(); return; }
+      if (t.id === 'btnClearDeck') {
+        if (!sel.length || !window.confirm('Remove every card from your deck?')) return;
+        sel = [];
+        try { localStorage.setItem('tob_custom', '[]'); } catch (e) { /* ignore */ }
+        refreshList(true);
+        paintDeck();
+        paintDetail();
+        return;
+      }
+      if (t.id === 'btnAutoGold') {
         sel = sel.map(row => {
           const bag = bags.get(row.id);
           if (bag && bag.gold) return {id: row.id, gold: true, uid: bag.gold.uid};
           return row;
         });
-        draw();
-      };
-      $('#btnOpenDeck').onclick = () => { buildDeckOpen = true; buildSheet = false; draw(); };
-      ov.querySelectorAll('[data-pane]').forEach(btn => { btn.onclick = () => { buildDeckOpen = btn.dataset.pane === 'deck'; buildSheet = false; draw(); }; });
-      ov.querySelectorAll('[data-qtog]').forEach(btn => {
-        btn.onclick = () => {
-          const k = btn.dataset.qtog;
-          if (k === 'combo') buildCombo = !buildCombo;
-          if (k === 'owned') buildOwned = !buildOwned;
-          if (k === 'notin') buildNotIn = !buildNotIn;
-          if (k === 'partners') buildPartners = !buildPartners;
-          draw();
-        };
-      });
-      ov.querySelectorAll('[data-fold]').forEach(btn => { btn.onclick = () => { if (btn.dataset.fold === 'color') buildFoldColor = !buildFoldColor; else buildFoldArch = !buildFoldArch; draw(); }; });
-      ov.querySelectorAll('[data-color]').forEach(btn => { btn.onclick = () => { buildColor = buildColor === btn.dataset.color ? '' : btn.dataset.color; draw(); }; });
-      ov.querySelectorAll('[data-arch]').forEach(btn => { btn.onclick = () => { buildArch = buildArch === btn.dataset.arch ? '' : btn.dataset.arch; draw(); }; });
-      ov.querySelectorAll('[data-view]').forEach(btn => { btn.onclick = () => { buildView = btn.dataset.view; draw(); }; });
-      ov.querySelectorAll('[data-clear]').forEach(btn => {
-        btn.onclick = () => {
-          const k = btn.dataset.clear;
-          if (k === 'all' || k === 'q') buildQ = '';
-          if (k === 'all' || k === 'finish') buildFinish = 'all';
-          if (k === 'all' || k === 'combo') buildCombo = false;
-          if (k === 'all' || k === 'owned') buildOwned = false;
-          if (k === 'all' || k === 'notin') buildNotIn = false;
-          if (k === 'all' || k === 'partners') buildPartners = false;
-          if (k === 'all' || k === 'color') buildColor = '';
-          if (k === 'all' || k === 'arch') buildArch = '';
-          draw();
-        };
-      });
-      const clearBtn = $('#btnClearDeck');
-      if (clearBtn) clearBtn.onclick = () => {
-        if (!sel.length || !window.confirm('Remove every card from your deck?')) return;
-        sel = [];
-        try { localStorage.setItem('tob_custom', '[]'); } catch (e) { /* ignore */ }
-        draw();
-      };
-      const closeDeck = $('#btnCloseDeck');
-      if (closeDeck) closeDeck.onclick = () => { buildDeckOpen = false; draw(); };
-      const closeSheet = $('#btnCloseSheet');
-      if (closeSheet) closeSheet.onclick = () => { buildSheet = false; draw(); };
-      $('#btnSaveDeck').onclick = () => { localStorage.setItem('tob_custom', JSON.stringify(sel)); quickStart('custom'); };
-      $('#btnBack').onclick = () => buildFrom === 'deck' ? showDeckSelect() : showHome();
-    };
-    draw();
+        const view = visibleCards();
+        sel.forEach(row => patchTile(row.id));
+        setSuggest(suggestMarkup(view));
+        paintDeck();
+        paintDetail();
+        return;
+      }
+      if (t.dataset.pane) { showPane(t.dataset.pane === 'deck'); return; }
+      if (t.dataset.view) { buildView = t.dataset.view; paintChrome(); return; }
+      if (t.dataset.bfinish) { buildFinish = t.dataset.bfinish; refreshList(true); return; }
+      if (t.dataset.qtog) {
+        const k = t.dataset.qtog;
+        if (k === 'combo') buildCombo = !buildCombo;
+        if (k === 'owned') buildOwned = !buildOwned;
+        if (k === 'notin') buildNotIn = !buildNotIn;
+        if (k === 'partners') buildPartners = !buildPartners;
+        refreshList(true);
+        return;
+      }
+      if (t.dataset.color) { buildColor = buildColor === t.dataset.color ? '' : t.dataset.color; refreshList(true); return; }
+      if (t.dataset.arch) { buildArch = buildArch === t.dataset.arch ? '' : t.dataset.arch; refreshList(true); return; }
+      if (t.dataset.clear) { clearFilters(t.dataset.clear); return; }
+      if (t.dataset.remove) { ev.stopPropagation(); toggleDeck(t.dataset.remove); return; }
+      if (t.dataset.goldpick) { toggleGold(t.dataset.goldpick); return; }
+      if (t.dataset.add) { toggleDeck(t.dataset.add); return; }
+      if (t.dataset.focus) {
+        if (buildFiltersOpen) { buildFiltersOpen = false; paintChrome(); }
+        setFocus(t.dataset.focus, matchMedia('(max-width: 899px)').matches);
+      }
+    });
+    refreshList();
+    paintDeck();
+    paintDetail();
     if (!showBuilder._keys) {
       showBuilder._keys = true;
       document.addEventListener('keydown', e => {
