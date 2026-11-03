@@ -551,9 +551,26 @@
       showHub();
     }
   }
+  async function commitRanked(matchId, moves) {
+    for (const move of moves) {
+      const res = await rpc('submit_move', {p_match: matchId, p_move: move});
+      if (!res || !res.ok) return {ok: false, error: (res && res.error) || 'The server rejected that move.'};
+    }
+    const match = await loadMatch(matchId);
+    if (!match) return {ok: false, error: 'That match could not be reloaded.'};
+    return {ok: true, match};
+  }
+  function bumpBotClock(matchId) {
+    return rpc('bump_bot_clock', {p_match: matchId});
+  }
   async function openMatch(id) {
     const match = await loadMatch(id);
     if (!match) { toast('Match not found.', true); return; }
+    if (match.is_bot && match.status === 'active' && root.TOB_GAME && root.TOB_GAME.playRankedBot) {
+      stopWatch();
+      root.TOB_GAME.playRankedBot(match);
+      return;
+    }
     watch(id);
     if (match.status === 'lobby') paintLobby(match);
     else paintMatch(match);
@@ -894,5 +911,5 @@
     leaveQueue();
   }, true);
   window.addEventListener('pagehide', keepaliveDequeue);
-  root.TOB_PVP = {show, boot, challenge, spectate, previewLobby, previewMatch, previewSpectate, probe, leaveQueue};
+  root.TOB_PVP = {show, boot, challenge, spectate, previewLobby, previewMatch, previewSpectate, probe, leaveQueue, commitRanked, bumpBotClock};
 })(window);

@@ -329,6 +329,7 @@
     setMsg(`<b>Round ${round}:</b> Play ${n} toons! Tap or drag a card, then tap a slot.`);
     setActions(`<button class="btn go" id="btnReady" disabled>READY!</button>`);
     render(); updateReady();
+    touchRanked();
     startTimer(T.play, () => { setMsg("Time's up! Filling your empty slots…"); finishPlay(true); });
     if (AUTO) setTimeout(() => finishPlay(true), 10);
   }
@@ -359,7 +360,86 @@
     const pick = AI.choosePlacement(mirror, G.pHand, empty) || [];
     empty.forEach((s, i) => { const c = pick[i]; if (c) { G.boards.p[s] = c; G.pHand.splice(G.pHand.indexOf(c), 1); } });
   }
+  function copyEntry(entry) {
+    if (!entry || !entry.id || !CARDS[entry.id]) return null;
+    return COPIES.makeCopy(entry.id, {gold: !!entry.gold});
+  }
+  function copyList(list) { return (list || []).map(copyEntry).filter(Boolean); }
+  function touchRanked() {
+    if (G && G.rankedId && window.TOB_PVP && window.TOB_PVP.bumpBotClock) window.TOB_PVP.bumpBotClock(G.rankedId);
+  }
+  async function playRankedBot(match) {
+    window.TOB.battleLock = null;
+    const ov = $('#overlay');
+    if (ov) { ov.classList.add('hidden'); ov.innerHTML = ''; }
+    hidePreview();
+    const host = (match.state && match.state.host) || {};
+    const guest = (match.state && match.state.guest) || {};
+    const pGoal = copyEntry(host.goal);
+    const oGoal = copyEntry(guest.goal);
+    G = {
+      phase: 'INTRO', oName: match.bot_name || match.guest_name || 'Orbit Bot',
+      pDeck: copyList(host.deck), oDeck: copyList(guest.deck),
+      pHand: copyList(host.hand), oHand: copyList(guest.hand),
+      pDiscard: [], oDiscard: [],
+      goalCards: {p: pGoal, o: oGoal},
+      boards: {p: Array(7).fill(null), o: Array(7).fill(null)},
+      shown: {p: Array(7).fill(false), o: Array(7).fill(false)},
+      penalty: {p: 0, o: 0}, silver: {p: null, o: null},
+      selected: -1, discardSel: new Set(), swapMode: false, round: 1,
+      log: [], result: null, seenCombos: new Set(),
+      rankedId: match.id,
+      rankHand: (host.hand || []).map(c => ({id: c.id, gold: !!(c && c.gold)})),
+      rankBusy: false,
+    };
+    G.goals = [pGoal && pGoal.color, oGoal && oGoal.color];
+    G.targets = E.targetColors(G.goals);
+    render();
+    setMsg('Ranked match vs ' + G.oName + '.');
+    touchRanked();
+    beginPlay(1);
+  }
+  async function finishRankedPlay(auto) {
+    if (!G.phase.startsWith('PLAY') || G.rankBusy) return;
+    const slots = activeSlots();
+    if (auto) autoFillPlayer(slots);
+    if (slots.some(s => !G.boards.p[s])) return;
+    G.rankBusy = true;
+    stopTimer(); setActions('');
+    const hand = (G.rankHand || []).slice();
+    const moves = [];
+    for (const slot of slots) {
+      const card = G.boards.p[slot];
+      const idx = hand.findIndex(c => c && c.id === card.id && !!c.gold === !!card.gold);
+      if (idx < 0) { G.rankBusy = false; setMsg('That card is not in the dealt hand.'); return; }
+      moves.push({t: 'place', slot, hand: idx});
+      hand.splice(idx, 1);
+    }
+    const res = await window.TOB_PVP.commitRanked(G.rankedId, moves);
+    G.rankBusy = false;
+    if (!res || !res.ok) { setMsg((res && res.error) || 'The server rejected that round.'); beginPlay(G.round); return; }
+    const host = res.match.state.host || {};
+    const guest = res.match.state.guest || {};
+    slots.forEach(s => { G.boards.o[s] = copyEntry(guest.board && guest.board[s]); });
+    G.pHand = copyList(host.hand);
+    G.pDeck = copyList(host.deck);
+    G.oHand = copyList(guest.hand);
+    G.oDeck = copyList(guest.deck);
+    G.rankHand = (host.hand || []).map(c => ({id: c.id, gold: !!(c && c.gold)}));
+    const round = G.round;
+    G.phase = round === 1 ? 'REVEAL_1' : 'REVEAL_2';
+    setMsg(G.oName + ' is ready… Revealing!');
+    render();
+    await wait(T.pause);
+    const order = round === 1 ? [0, 1, 2, 3] : [4, 5];
+    await flipSeq(order.flatMap(i => [['p', i], ['o', i]]));
+    const ev = evalNow(false);
+    setMsg(`Round ${round} scored: You <b>${ev.score.p}</b> – ${G.oName} <b>${ev.score.o}</b>`);
+    await wait(T.pause);
+    if (round === 1) beginDiscard(); else beginSwap();
+  }
   async function finishPlay(auto) {
+    if (G && G.rankedId) return finishRankedPlay(auto);
     if (!G.phase.startsWith('PLAY')) return;
     const slots = activeSlots();
     if (auto) autoFillPlayer(slots);
@@ -384,11 +464,32 @@
     setMsg('Discard up to 2 cards (tap to mark), then press DONE. You will draw back to 6.');
     setActions(`<button class="btn go" id="btnDiscard">DONE</button>`);
     render();
+    touchRanked();
     startTimer(T.short, () => { G.discardSel = new Set(); finishDiscard(); }); // time's up = discard nothing
     if (AUTO) setTimeout(() => { if (Math.random() < .5 && G.pHand.length) G.discardSel.add(0); finishDiscard(); }, 10);
   }
+  async function finishRankedDiscard() {
+    if (G.rankBusy) return;
+    G.rankBusy = true;
+    stopTimer();
+    const res = await window.TOB_PVP.commitRanked(G.rankedId, [{t: 'discard', idx: [...G.discardSel]}]);
+    G.rankBusy = false;
+    if (!res || !res.ok) { setMsg((res && res.error) || 'Discard was rejected.'); beginDiscard(); return; }
+    const host = res.match.state.host || {};
+    const guest = res.match.state.guest || {};
+    G.pHand = copyList(host.hand);
+    G.pDeck = copyList(host.deck);
+    G.oHand = copyList(guest.hand);
+    G.oDeck = copyList(guest.deck);
+    G.rankHand = (host.hand || []).map(c => ({id: c.id, gold: !!(c && c.gold)}));
+    G.discardSel = new Set();
+    setMsg(G.oName + ' discarded. Hands refilled!');
+    render();
+    setTimeout(() => beginPlay(2), T.pause);
+  }
   function finishDiscard() {
     if (G.phase !== 'DISCARD') return;
+    if (G.rankedId) return finishRankedDiscard();
     stopTimer();
     const keep = G.pHand.filter((c, i) => !G.discardSel.has(i));
     G.pDiscard.push(...G.pHand.filter((c, i) => G.discardSel.has(i)));
@@ -407,10 +508,32 @@
     setMsg(`Swap your face-down last card for one in your hand? Costs <b>−${E.SWAP_PENALTY}</b> points.`);
     setActions(`<button class="btn warn" id="btnSwapYes">SWAP (−${E.SWAP_PENALTY})</button><button class="btn" id="btnSwapNo">NO SWAP</button>`);
     render();
+    touchRanked();
     startTimer(T.short, () => afterSwap(null));
     if (AUTO) setTimeout(() => afterSwap(Math.random() < .3 ? 0 : null), 10);
   }
+  async function afterRankedSwap(handIdx) {
+    if (G.phase !== 'SWAP' || G.rankBusy) return;
+    G.rankBusy = true;
+    stopTimer(); G.swapMode = false;
+    const move = {t: 'swap'};
+    if (handIdx != null) move.hand = handIdx;
+    const res = await window.TOB_PVP.commitRanked(G.rankedId, [move]);
+    G.rankBusy = false;
+    if (!res || !res.ok) { setMsg((res && res.error) || 'Swap was rejected.'); beginSwap(); return; }
+    const host = res.match.state.host || {};
+    const guest = res.match.state.guest || {};
+    G.boards.p[6] = copyEntry(host.board && host.board[6]);
+    G.boards.o[6] = copyEntry(guest.board && guest.board[6]);
+    G.pHand = copyList(host.hand);
+    G.oHand = copyList(guest.hand);
+    G.penalty.p = host.penalty | 0;
+    G.penalty.o = guest.penalty | 0;
+    setMsg('Swaps locked in.'); setActions(''); render();
+    setTimeout(beginSilver, T.pause);
+  }
   function afterSwap(handIdx) {
+    if (G.rankedId) return afterRankedSwap(handIdx);
     if (G.phase !== 'SWAP') return;
     stopTimer(); G.swapMode = false;
     if (handIdx != null && G.pHand[handIdx]) {
@@ -423,7 +546,39 @@
     setMsg(msg); setActions(''); render();
     setTimeout(beginSilver, T.pause);
   }
+  function beginRankedSilver() {
+    G.phase = 'SILVER';
+    const has = s => G.boards[s].some(c => c && c.color === 'silver');
+    if (!has('p')) return finishRankedSilver(null);
+    setMsg('You have SILVER cards in play! Pick the color all your silver cards will count as.');
+    setActions(E.PLAYABLE_COLORS.map(c => `<button class="btn colorbtn" data-color="${c}" style="background:${COLORS[c]}">${cap(c)}</button>`).join(''));
+    render();
+    touchRanked();
+    startTimer(T.short, () => finishRankedSilver(G.targets[0] || 'red'));
+  }
+  async function finishRankedSilver(color) {
+    if (!G || G.phase !== 'SILVER' || G.rankBusy) return;
+    G.rankBusy = true;
+    stopTimer(); setActions('');
+    const move = {t: 'silver'};
+    if (color) move.color = color;
+    const res = await window.TOB_PVP.commitRanked(G.rankedId, [move]);
+    G.rankBusy = false;
+    if (!res || !res.ok) { setMsg((res && res.error) || 'Silver was rejected.'); beginRankedSilver(); return; }
+    const host = res.match.state.host || {};
+    const guest = res.match.state.guest || {};
+    G.silver.p = host.silver || null;
+    G.silver.o = guest.silver || null;
+    G.rankedSummary = {delta: res.match.host_delta, winner: res.match.winner, host: res.match.host};
+    G.phase = 'REVEAL_3';
+    setMsg('Final cards flipping…');
+    render();
+    await wait(T.pause / 2);
+    await flipSeq([['p', 6], ['o', 6]]);
+    gameOver();
+  }
   function beginSilver() {
+    if (G.rankedId) return beginRankedSilver();
     G.phase = 'SILVER';
     const has = s => G.boards[s].some(c => c && c.color === 'silver');
     if (has('o')) G.silver.o = null;
@@ -458,16 +613,20 @@
     const line = s => `${ev.total[s]} pts${ev.bonus === s ? ` + ${E.COLOR_BONUS} color bonus` : ''}${G.penalty[s] ? ` − ${G.penalty[s]} swap` : ''} = <b>${ev.score[s]}</b>`;
     const ov = $('#overlay'); ov.classList.remove('hidden');
     const pill = (side, who) => `<div class="go-pill ${side === 'p' ? 'me' : 'opp'}"><div class="go-who">${who}</div><div class="go-num">${ev.score[side]}</div><div class="go-math">${line(side)}</div></div>`;
+    const ranked = !!(G && G.rankedId);
+    const delta = ranked && G.rankedSummary ? G.rankedSummary.delta : null;
+    const rating = delta == null ? '' : `<div class="go-how">Rating ${delta > 0 ? '+' : ''}${delta}</div>`;
     ov.innerHTML = `<div class="panel gameover ${r.winner === 'p' ? 'win' : r.winner === 'o' ? 'lose' : 'tie'}">
       <div class="go-title">${title}</div><div class="go-how">${how}</div>
+      ${rating}
       <div class="go-scores">${pill('p', 'You')}${pill('o', G.oName)}</div>
       ${ev.targets.length ? `<div class="go-colors">${ev.targets.map(c => `<div class="go-color"><span class="gem" style="background:${COLORS[c]}"></span>${cap(c)} cards: You ${ev.counts.p[c] || 0} · ${G.oName} ${ev.counts.o[c] || 0}</div>`).join('')}</div>` : ''}
-      <div class="go-btns"><button class="btn go" id="btnAgain">PLAY AGAIN</button><button class="btn" id="btnPick">CHANGE DECK</button><button class="btn" id="btnBoard">VIEW BOARD</button></div></div>`;
+      <div class="go-btns">${ranked ? '<button class="btn go" id="btnRankedBack">BACK TO RANKED</button>' : '<button class="btn go" id="btnAgain">PLAY AGAIN</button><button class="btn" id="btnPick">CHANGE DECK</button>'}<button class="btn" id="btnBoard">VIEW BOARD</button></div></div>`;
     blip(r.winner === 'p' ? 990 : 220, 0.4, 'triangle', 0.08);
-    setMsg(title + ' ' + how); setActions(`<button class="btn go" id="btnAgain2">PLAY AGAIN</button>`);
+    setMsg(title + ' ' + how); setActions(ranked ? '<button class="btn go" id="btnRankedBack2">BACK TO RANKED</button>' : '<button class="btn go" id="btnAgain2">PLAY AGAIN</button>');
     window.TOB_DONE = results.length;
     let outcome = null;
-    try { outcome = await recordResult(r); }
+    try { outcome = ranked ? null : await recordResult(r); }
     catch (e) { outcome = null; }
     if (outcome && outcome.gained > 0) {
       const btns = ov.querySelector('.go-btns');
@@ -3360,8 +3519,13 @@
     if (t.id === 'btnPreviewClose' || t.id === 'previewBackdrop') { $('#preview').classList.add('hidden'); return; }
     if (t.id === 'btnSwapYes') { G.swapMode = true; setMsg('Tap a card in your hand to put in your last slot (−10).'); setActions('<button class="btn" id="btnSwapNo">CANCEL – NO SWAP</button>'); render(); return; }
     if (t.id === 'btnSwapNo') return afterSwap(null);
-    if (t.classList.contains('colorbtn')) return finishSilver(t.dataset.color, G.pendingSilver);
+    if (t.classList.contains('colorbtn')) return G && G.rankedId ? finishRankedSilver(t.dataset.color) : finishSilver(t.dataset.color, G.pendingSilver);
     if (t.id === 'btnAgain' || t.id === 'btnAgain2') return quickStart();
+    if (t.id === 'btnRankedBack' || t.id === 'btnRankedBack2') {
+      G = null;
+      if (window.TOB_PVP) return window.TOB_PVP.show();
+      return;
+    }
     if (t.id === 'btnHome' || t.id === 'btnDeckHome') {
       if (!window.TOB_AUTH.currentUser()) return showAuth('signup');
       if (routeHash() === 'settings' || routeHash() === 'profile') history.pushState(null, '', location.pathname + location.search);
@@ -3860,5 +4024,5 @@
     showHome();
   }
   window.TOB_UI = {card: cardHTML};
-  window.TOB_GAME = {demoCombo, showRules, showHome, showAuth, openAuction, liveNowMarkup, previewHomeLive};
+  window.TOB_GAME = {demoCombo, showRules, showHome, showAuth, openAuction, liveNowMarkup, previewHomeLive, playRankedBot};
 })();

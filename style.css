@@ -1464,10 +1464,10 @@ body:not(:has(#overlay:not(.hidden))) #timer.wide {
   overflow: hidden;
 }
 body:not(:has(#overlay:not(.hidden))) .handbar {
-  height: 96px;
+  height: auto;
   min-height: 96px;
-  max-height: 96px;
-  overflow: hidden;
+  max-height: none;
+  overflow: visible;
   box-sizing: border-box;
 }
 body:not(:has(#overlay:not(.hidden))) #hand { min-height: 0; overflow: hidden; padding-top: 0; }
@@ -1578,7 +1578,7 @@ body:not(:has(#overlay:not(.hidden))) #inspector {
     flex: 1; min-height: 0; overflow: hidden; gap: 8px; padding: 6px;
     align-items: stretch;
     grid-template-columns: 196px minmax(0, 1fr) minmax(280px, 340px);
-    grid-template-rows: minmax(0, 1fr) 96px;
+    grid-template-rows: minmax(0, 1fr) auto;
     grid-template-areas: "score board preview" "hand hand preview";
   }
   body:not(:has(#overlay:not(.hidden))) .left { min-height: 0; overflow: auto; }
@@ -1593,7 +1593,7 @@ body:not(:has(#overlay:not(.hidden))) #inspector {
   body:not(:has(#overlay:not(.hidden))) #timer,
   body:not(:has(#overlay:not(.hidden))) #timer.wide { width: 52px; height: 52px; font-size: 12px; line-height: 52px; }
   body:not(:has(#overlay:not(.hidden))) .handbar {
-    height: 96px; min-height: 96px; max-height: 96px; margin: 0; padding: 4px 8px; overflow: hidden;
+    height: auto; min-height: 96px; max-height: none; margin: 0; padding: 4px 8px; overflow: visible;
   }
   body:not(:has(#overlay:not(.hidden))) #hand { min-height: 0; padding-top: 0; overflow: hidden; }
   body:not(:has(#overlay:not(.hidden))) .handcard,
