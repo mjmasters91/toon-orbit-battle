@@ -644,7 +644,7 @@
       if (!res.ok) { $('#authError').textContent = res.error; return; }
       renderUser();
       await liveProfile();
-      showHome();
+      if (!openHashedPage()) showHome();
     };
     $('#btnAuthSubmit').onclick = async () => {
       const btn = $('#btnAuthSubmit');
@@ -703,7 +703,7 @@
         await offerLocalDeckImport();
         renderUser();
         await liveProfile();
-        showHome();
+        if (!openHashedPage()) showHome();
       } catch (e) {
         errBox.textContent = (e && e.message) ? e.message : 'Something went wrong. If Confirm email is on, turn it off in Supabase Auth settings, then try again.';
       } finally {
@@ -1242,6 +1242,7 @@
       ov.classList.remove('hidden');
       ov.innerHTML = `<div id="profileScreen">
         <div class="prof-wrap">
+          <h1 class="prof-title">Profile</h1>
           <header class="prof-head">
             <img class="prof-ava" src="assets/cards/${encodeURIComponent(avatarId)}.webp" alt="">
             <div class="prof-id">
@@ -2065,18 +2066,19 @@
   function liveNowMarkup(lots, games) {
     const auc = lots.length ? lots.map(lot => {
       const copy = COPIES.makeCopy(lot.card.id, {gold: !!lot.card.gold, uid: lot.card.uid});
-      return `<button type="button" class="live-row" data-live-auction="${liveEsc(lot.id)}">
+      return `<article class="live-row">
         <span class="live-puck">${copy ? cardHTML(copy) : ''}</span>
         <span class="live-copy"><b>${liveEsc(lot.card.name)}</b><span>${lot.card.gold ? 'GOLD · ' : ''}${lot.bidder ? lot.bid + ' bid' : lot.start + ' start'}</span></span>
         <span class="live-time" data-live-ends="${lot.ends}">${aucClock(lot.ends)}</span>
-      </button>`;
-    }).join('') : '<button type="button" class="live-empty" id="btnLiveAuc">No live auctions. Start one!</button>';
-    const mats = games.length ? games.map(match => `<button type="button" class="live-row" data-live-watch="${liveEsc(match.id)}">
+        <button type="button" class="btn live-bid" data-live-auction="${liveEsc(lot.id)}">Bid</button>
+      </article>`;
+    }).join('') : '<div class="live-empty"><p>Nothing is up for bid yet.</p><button type="button" class="btn" id="btnLiveAuc">See auctions</button></div>';
+    const mats = games.length ? games.map(match => `<article class="live-row">
         <span class="live-avatars"><img src="assets/cards/${encodeURIComponent(isPublicCard(match.host_avatar) ? match.host_avatar : 'zoomer')}.webp" alt=""><img src="assets/cards/${encodeURIComponent(isPublicCard(match.guest_avatar) ? match.guest_avatar : 'zoomer')}.webp" alt=""></span>
         <span class="live-copy"><b>${liveEsc(match.host_name)} vs ${liveEsc(match.guest_name)}</b><span>${liveEsc(liveMatchMeta(match))}</span></span>
-        <span class="live-time">Watch</span>
-      </button>`).join('') : '<button type="button" class="live-empty" id="btnLivePvp">No matches right now. Play a friend!</button>';
-    return `<div class="live-grid"><section><h3>Live auctions</h3>${auc}</section><section><h3>Live matches</h3>${mats}</section></div>`;
+        <button type="button" class="btn live-bid" data-live-watch="${liveEsc(match.id)}">Watch</button>
+      </article>`).join('') : '<div class="live-empty"><p>No public matches right now.</p><button type="button" class="btn" id="btnLivePvp">Play a friend</button></div>';
+    return `<div class="live-grid"><section class="home-panel"><h3>Live auctions</h3>${auc}</section><section class="home-panel"><h3>Live matches</h3>${mats}</section></div>`;
   }
   function bindLive(root) {
     root.querySelectorAll('[data-live-auction]').forEach(btn => { btn.onclick = () => openAuction(btn.dataset.liveAuction); });
@@ -2167,12 +2169,13 @@
           </nav>
           <div class="portal-content">
           <section class="portal-main">
-            <div class="portal-frame">
-              <div class="portal-framehead"><span class="portal-badge" aria-hidden="true"></span> LIVE NOW</div>
-              ${liveNowMarkup(liveLots, liveGames)}
-              ${ready ? `<button type="button" class="portal-clock" id="btnDaily"><span>DAILY PACK</span><b id="homeClock">${dailyClockText()}</b></button>` : `<div class="portal-clock"><span>TIME REMAINING</span><b id="homeClock">${dailyClockText()}</b></div>`}
-              <button type="button" class="portal-cta" id="btnPlay">PLAY NOW</button>
-              <button type="button" class="portal-cta" id="btnPacks">OPEN PACK</button>
+            ${liveNowMarkup(liveLots, liveGames)}
+            <div class="home-actions">
+              ${ready ? `<button type="button" class="home-chip" id="btnDaily"><span>Daily pack</span><b id="homeClock">${dailyClockText()}</b></button>` : `<div class="home-chip"><span>Time remaining</span><b id="homeClock">${dailyClockText()}</b></div>`}
+              <div class="home-pills">
+                <button type="button" class="btn go home-pill" id="btnPlay">Play now</button>
+                <button type="button" class="btn home-pill" id="btnPacks">Open pack</button>
+              </div>
             </div>
           </section>
           <div class="portal-bottom">
@@ -3239,6 +3242,7 @@
     if (t.id === 'btnAgain' || t.id === 'btnAgain2') return quickStart();
     if (t.id === 'btnHome' || t.id === 'btnDeckHome') {
       if (!window.TOB_AUTH.currentUser()) return showAuth('signup');
+      if (routeHash() === 'settings' || routeHash() === 'profile') history.pushState(null, '', location.pathname + location.search);
       return showHome();
     }
     if (t.id === 'btnPlay' || t.id === 'btnPlayTab') return showDeckSelect();
@@ -3270,7 +3274,12 @@
     if (t.id === 'btnPacks' || t.id === 'btnPacksMenu' || t.id === 'btnGetCards' || t.id === 'btnOpenPacks') return showPacks();
     if (t.id === 'btnHomeCollection') return showMyCollection();
     if (t.id === 'btnAdmin' || t.id === 'btnHomeAdmin') return showAdmin();
-    if (t.id === 'btnProfile' || t.id === 'btnProfileGreet' || t.id === 'btnUserProfile') { closeUserMenu(); return showProfile(); }
+    if (t.id === 'btnProfile' || t.id === 'btnProfileGreet' || t.id === 'btnUserProfile') {
+      closeUserMenu();
+      const hash = (location.hash || '').replace(/^#/, '').toLowerCase();
+      if (hash !== 'profile' && hash !== 'settings') history.pushState(null, '', '#profile');
+      return showProfile();
+    }
     if (t.id === 'btnHomeOut') { doLogOut(); return; }
     if (t.dataset.buytheme) return buyThemePack(t.dataset.buytheme);
     if (t.id === 'btnBuyPack') return buyPack();
@@ -3529,7 +3538,7 @@
       decks: ['Decks', 'Twelve cards. Drag or tap to build, then take the deck into Solo or Ranked.'],
       gallery: ['Gallery', 'Every public toon. Tap a card for its power, color, and combos.'],
       collection: ['Binder', 'Gold copies are cosmetic. They score the same as the standard print.'],
-      profile: ['Settings', 'Pin a showcase, answer friend requests, and check your record.'],
+      profile: ['Profile', 'Pin a showcase, answer friend requests, and check your record.'],
       play: ['In a match', 'Drag a card onto a glowing slot, or tap the card and then tap the slot.'],
       auth: ['Welcome', 'Make an account to keep your toons, or play a guest match on this device.'],
     };
@@ -3631,6 +3640,16 @@
   window.addEventListener('tob-auctions', () => {
     if (document.getElementById('auctionScreen')) showAuctions();
   });
+  function routeHash() {
+    return (location.hash || '').replace(/^#\/?/, '').split(/[?#]/)[0].toLowerCase();
+  }
+  function openHashedPage() {
+    const key = routeHash();
+    if (key !== 'settings' && key !== 'profile') return false;
+    if (!window.TOB_AUTH.currentUser()) { showAuth('login'); return true; }
+    if (!document.getElementById('profileScreen')) showProfile();
+    return true;
+  }
   async function boot() {
     try { await window.TOB_AUTH.ready; }
     catch (e) { /* the sign-in screen surfaces initError */ }
@@ -3641,11 +3660,14 @@
       renderUser();
       await liveProfile();
       quickStart(qs.get('deck') || null);
+    } else if (openHashedPage()) {
+      if (window.TOB_AUTH.currentUser()) await liveProfile();
     } else if (window.TOB_AUTH.currentUser()) {
       await liveProfile();
       showHome();
     } else showAuth('signup');
   }
+  window.addEventListener('hashchange', () => { openHashedPage(); });
 
   function demoCombo() {
     const deck = ['redbeard', 'polly', 'zoomer', 'hank', 'nell', 'fritz', 'pip', 'daisy', 'ember', 'glimmer', 'bleep', 'boltz'];
