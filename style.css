@@ -260,6 +260,10 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
 .go-color { background: rgba(255,255,255,.06); border-radius: 999px; padding: 5px 12px; font-size: 13px; }
 .gameover.win .go-title { color: #9dffb0; } .gameover.lose .go-title { color: #ff9b8e; } .gameover.tie .go-title { color: #f0c14a; }
 .go-how { font-size: 16px; font-weight: 500; margin: 8px 0 4px; color: #e7edff; }
+.go-rate { font: 800 42px/1 "Outfit", system-ui, sans-serif; letter-spacing: -.03em; margin: 12px 0 4px; }
+.go-rate.up { color: #7dff6b; } .go-rate.down { color: #ff5c5c; } .go-rate.flat { color: #f0c14a; }
+.go-rate-line { font-size: 16px; font-weight: 650; color: #d7e2ff; }
+.go-promo { margin-top: 6px; font-weight: 800; color: #7ec8f8; }
 #preview { display: none; position: fixed; inset: 0; }
 @media (max-width: 1099px) {
   html, body { height: auto; min-height: 100%; overflow-x: hidden; }

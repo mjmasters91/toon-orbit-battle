@@ -525,6 +525,56 @@
     await flipSeq([['p', 6], ['o', 6]]);
     gameOver();
   }
+  function tierInfo(rating) {
+    const r = rating | 0;
+    let tier = 'Bronze';
+    if (r >= 1700) tier = 'Champion';
+    else if (r >= 1550) tier = 'Diamond';
+    else if (r >= 1400) tier = 'Platinum';
+    else if (r >= 1250) tier = 'Gold';
+    else if (r >= 1100) tier = 'Silver';
+    let division = '';
+    if (tier !== 'Champion') {
+      if (r < 1000) division = 'III';
+      else if (r < 1050) division = 'II';
+      else if (r < 1100) division = 'I';
+      else division = ['III', 'II', 'I'][Math.floor(((r - 1100) % 150) / 50)] || 'III';
+    }
+    return {tier, division, label: division ? tier + ' ' + division : tier};
+  }
+  function rememberLastRanked(delta) {
+    try { localStorage.setItem('tob_last_ranked', JSON.stringify({delta: delta | 0, at: Date.now()})); }
+    catch (e) { /* the panel still shows the change */ }
+  }
+  async function captureStartRating() {
+    if (!G || !G.rankedKind || !window.TOB_AUTH || !window.TOB_AUTH.loadProfile) return;
+    try {
+      const profile = await window.TOB_AUTH.loadProfile();
+      if (!G || !profile || profile.rating == null) return;
+      G.ratingBefore = profile.rating | 0;
+    } catch (e) { /* the result panel omits a number it could not read */ }
+  }
+  async function rankedRatingBlock() {
+    if (!G || !G.rankedKind) return '';
+    let after = null;
+    try {
+      const profile = window.TOB_AUTH && window.TOB_AUTH.loadProfile ? await window.TOB_AUTH.loadProfile() : null;
+      if (profile && profile.rating != null) after = profile.rating | 0;
+    } catch (e) { after = null; }
+    const before = G.ratingBefore;
+    if (after == null || before == null) return '';
+    const delta = after - before;
+    const cls = delta > 0 ? 'up' : delta < 0 ? 'down' : 'flat';
+    const sign = delta > 0 ? '+' : '';
+    const now = tierInfo(after);
+    const then = tierInfo(before);
+    let promo = '';
+    if (then.tier !== now.tier) {
+      promo = `<div class="go-promo">${after > before ? 'Promoted to ' + now.tier : 'Dropped to ' + now.tier}</div>`;
+    }
+    rememberLastRanked(delta);
+    return `<div class="go-rate ${cls}">${sign}${delta} rating</div><div class="go-rate-line">${before} → ${after} · ${now.label}</div>${promo}`;
+  }
   function playServerMatch(match) {
     openServerShell();
     const bot = !!match.is_bot;
@@ -537,7 +587,10 @@
     G.pName = 'You';
     if (bot) G.rankedId = match.id;
     else G.liveId = match.id;
+    G.rankedKind = !!(bot || match.kind === 'bot' || match.kind === 'queue');
     G.alternate = false;
+    G.ratingBefore = null;
+    captureStartRating();
     applyServer(match);
     labelSides();
     render();
@@ -579,6 +632,12 @@
     if (!G || G.spectate || G.rankBusy) return;
     const id = serverId();
     if (!id || !match || id !== match.id) return;
+    if (match.status === 'finished' && match.result === 'timeout' && G.phase !== 'OVER') {
+      G.lastView = match;
+      G.endReason = 'timeout';
+      gameOver();
+      return;
+    }
     if (G.phase.startsWith('PLAY') || G.phase.startsWith('REVEAL') || G.phase === 'DISCARD' || G.phase === 'SWAP' || G.phase === 'SILVER' || G.phase === 'OVER') return;
     if (G.phase !== 'WAIT' && G.phase !== 'INTRO') return;
     const phase = match.state && match.state.phase;
@@ -777,18 +836,19 @@
   async function gameOver() {
     G.phase = 'OVER';
     hidePreview();
+    const timedOut = !!(G && G.endReason === 'timeout');
     const ev = evalNow(true); render();
     const r = ev.result; G.result = r;
-    results.push({winner: r.winner, reason: r.reason, score: ev.score, total: ev.total, counts: ev.counts, targets: ev.targets});
-    const title = r.winner === 'p' ? 'YOU WIN!' : r.winner === 'o' ? 'YOU LOSE!' : 'TIE GAME!';
-    const how = r.reason === 'color' ? `Won by Color — more ${ev.targets.map(cap).join(' AND ')} cards` : r.reason === 'points' ? 'Won by Points' : 'Same score — nobody wins';
+    if (timedOut) r.winner = 'o';
+    results.push({winner: r.winner, reason: timedOut ? 'timeout' : r.reason, score: ev.score, total: ev.total, counts: ev.counts, targets: ev.targets});
+    const title = timedOut ? 'LOST ON TIME' : r.winner === 'p' ? 'YOU WIN!' : r.winner === 'o' ? 'YOU LOSE!' : 'TIE GAME!';
+    const how = timedOut ? 'Lost on time' : r.reason === 'color' ? `Won by Color — more ${ev.targets.map(cap).join(' AND ')} cards` : r.reason === 'points' ? 'Won by Points' : 'Same score — nobody wins';
     const line = s => `${ev.total[s]} pts${ev.bonus === s ? ` + ${E.COLOR_BONUS} color bonus` : ''}${G.penalty[s] ? ` − ${G.penalty[s]} swap` : ''} = <b>${ev.score[s]}</b>`;
     const ov = $('#overlay'); ov.classList.remove('hidden');
     const pill = (side, who) => `<div class="go-pill ${side === 'p' ? 'me' : 'opp'}"><div class="go-who">${who}</div><div class="go-num">${ev.score[side]}</div><div class="go-math">${line(side)}</div></div>`;
     const ranked = !!(G && (G.rankedId || G.liveId));
-    const delta = ranked && G.rankedSummary ? G.rankedSummary.delta : null;
-    const rating = delta == null ? '' : `<div class="go-how">Rating ${delta > 0 ? '+' : ''}${delta}</div>`;
-    ov.innerHTML = `<div class="panel gameover ${r.winner === 'p' ? 'win' : r.winner === 'o' ? 'lose' : 'tie'}">
+    const rating = G && G.rankedKind ? await rankedRatingBlock() : '';
+    ov.innerHTML = `<div class="panel gameover ${timedOut || r.winner === 'o' ? 'lose' : r.winner === 'p' ? 'win' : 'tie'}">
       <div class="go-title">${title}</div><div class="go-how">${how}</div>
       ${rating}
       <div class="go-scores">${pill('p', 'You')}${pill('o', G.oName)}</div>
@@ -4209,5 +4269,5 @@
     showHome();
   }
   window.TOB_UI = {card: cardHTML};
-  window.TOB_GAME = {demoCombo, showRules, showHome, showAuth, openAuction, liveNowMarkup, previewHomeLive, playRankedBot, playServerMatch, syncServerMatch, playSpectate};
+  window.TOB_GAME = {demoCombo, showRules, showHome, showAuth, openAuction, liveNowMarkup, previewHomeLive, playRankedBot, playServerMatch, syncServerMatch, playSpectate, gameOver};
 })();

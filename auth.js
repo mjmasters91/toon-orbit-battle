@@ -445,6 +445,8 @@
         welcomeGranted: true,
         lastDaily: data.last_daily,
         rating: data.rating,
+        rankedWins: data.ranked_wins,
+        rankedLosses: data.ranked_losses,
       }, data.username);
     }
     async loadPublicProfile(username) {

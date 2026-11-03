@@ -242,15 +242,23 @@
       else {
         const next = meRank.next == null ? 'Top tier' : 'Next tier at ' + meRank.next;
         const pct = Math.max(0, Math.min(100, Math.round(Number(meRank.progress || 0) * 100)));
+        let last = '';
+        try {
+          const saved = JSON.parse(localStorage.getItem('tob_last_ranked') || 'null');
+          if (saved && saved.delta != null && saved.delta !== '') {
+            const n = saved.delta | 0;
+            last = `<p class="pvp-note rank-last">Last match: ${n > 0 ? '+' : ''}${n}</p>`;
+          }
+        } catch (e) { last = ''; }
         rank.innerHTML = `<h2>My rank</h2>
           <div class="rank-card">
             ${tierMark(meRank.tier, meRank.division)}
             <b>#${meRank.rank}</b>
             <span class="stand-rating">${meRank.rating}</span>
-            <span class="stand-wl">${meRank.wins}-${meRank.losses}</span>
+            <span class="stand-wl">${meRank.wins}-${meRank.losses} ranked</span>
           </div>
           <div class="rank-bar" aria-hidden="true"><span style="width:${pct}%"></span></div>
-          <p class="pvp-note">${esc(next)}</p>`;
+          <p class="pvp-note">${esc(next)}</p>${last}`;
       }
     }
     box.innerHTML = board.length ? board.map(row => `<div class="stand-row${meRank && row.rank === meRank.rank ? ' mine' : ''}">
@@ -259,7 +267,7 @@
       <span class="stand-name">${esc(row.username)}</span>
       ${tierMark(row.tier, row.division)}
       <span class="stand-rating">${row.rating}</span>
-      <span class="stand-wl">${row.wins}-${row.losses}</span>
+      <span class="stand-wl" title="Ranked wins and losses">${row.wins}-${row.losses}</span>
     </div>`).join('') : '<p class="pvp-note">No ranked games yet.</p>';
   }
   function paintLobby(match) {
