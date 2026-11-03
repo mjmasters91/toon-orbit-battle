@@ -97,18 +97,17 @@
   function backHTML() { return `<div class="card back"><div class="backlogo"><span>TOON</span><b>ORBIT</b></div></div>`; }
 
   const narrow = () => matchMedia('(max-width: 1099px)').matches;
-  function inspect(card, info, force) {
-    const box = $('#inspector');
-    const pop = $('#preview'), body = $('#previewBody');
+  function previewFrame(card, info) {
     if (!card) {
-      const idle = '<div class="tv-idle">Tap a card to preview it.</div>';
-      box.innerHTML = idle;
-      if (body) body.innerHTML = idle;
-      if (pop) { pop.classList.add('hidden'); pop.classList.remove('force'); }
-      return;
+      return `<div class="tv-card is-idle">
+        <div class="tv-art"></div>
+        <div class="tv-name"></div>
+        <div class="tv-meta"></div>
+        <div class="tv-skill"><div class="tv-idle">Hover a card to see its stats</div></div>
+      </div>`;
     }
     const notes = info ? (info.knocked ? [info.knocked] : info.notes) : [];
-    const html = `<div class="tv-card${card.gold ? ' gold' : ''}" style="--cc:${COLORS[card.color]}">
+    return `<div class="tv-card${card.gold ? ' gold' : ''}" style="--cc:${COLORS[card.color]}">
       <div class="tv-art">${faceHTML(card, true)}${card.gold ? '<div class="holo"></div><div class="spark"></div>' : ''}</div>
       <div class="tv-name">${card.name}</div>
       <div class="tv-meta"><span class="gem" style="background:${COLORS[card.color]}"></span>${cap(card.color)} · ${card.pts} pts${card.archetype ? ' · ' + card.archetype : ''}</div>
@@ -120,12 +119,26 @@
         ${info ? `<div class="tv-live">In play: <b>${info.knocked ? 0 : info.value}</b> pts${notes.length ? '<br>' + notes.join('<br>') : ''}</div>` : ''}
       </div>
     </div>`;
+  }
+  function matchBoardOn() {
+    const ov = $('#overlay');
+    return !!(ov && ov.classList.contains('hidden'));
+  }
+  function inspect(card, info, force) {
+    const box = $('#inspector');
+    const pop = $('#preview'), body = $('#previewBody');
+    const html = previewFrame(card, info);
     box.innerHTML = html;
     if (body) body.innerHTML = html;
     if (pop) {
-      const show = !!(narrow() || force);
-      pop.classList.toggle('hidden', !show);
-      pop.classList.toggle('force', !!force);
+      if (matchBoardOn()) {
+        pop.classList.add('hidden');
+        pop.classList.remove('force');
+      } else {
+        const show = !!(narrow() || force);
+        pop.classList.toggle('hidden', !show);
+        pop.classList.toggle('force', !!force);
+      }
     }
   }
 
@@ -1781,6 +1794,7 @@
   }
   function showPackTip(anchor, pull) {
     if (!anchor || !pull) return;
+    if (matchBoardOn()) return;
     let tip = document.getElementById('packTip');
     if (!tip) {
       tip = document.createElement('div');
