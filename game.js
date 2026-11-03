@@ -508,8 +508,21 @@
     });
     return {unique: ids.size, total: CARD_LIST.length, gold};
   }
+  function isOnlinePlayer() {
+    const user = window.TOB_AUTH.currentUser && window.TOB_AUTH.currentUser();
+    return !!(user && !user.guest && window.TOB_AUTH.mode === 'supabase');
+  }
   async function recordResult(r) {
     if (!window.TOB_AUTH.currentUser()) return null;
+    if (isOnlinePlayer()) {
+      const result = r.winner === 'p' ? 'win' : r.winner === 'o' ? 'loss' : 'tie';
+      const res = await window.TOB_AUTH.recordMatch(result, lastDeck);
+      if (!res || !res.ok) { toast((res && res.error) || 'Could not save the match.'); return null; }
+      const profile = await window.TOB_AUTH.loadProfile();
+      if (profile) rememberPacks(profile);
+      const data = res.data || {};
+      return {reward: data.reward || null, gained: data.gained | 0};
+    }
     const profile = await window.TOB_AUTH.loadProfile();
     if (!profile) return null;
     profile.stats = profile.stats || {wins: 0, losses: 0, games: 0};
@@ -559,6 +572,18 @@
     </div>`;
     blip(copy.gold ? 1040 : 880, 0.22, 'triangle', 0.07);
   }
+  async function offerLocalDeckImport() {
+    if (!isOnlinePlayer()) return;
+    const me = window.TOB_AUTH.currentUser();
+    let deck = [];
+    try { deck = JSON.parse(localStorage.getItem('tob_custom') || '[]'); } catch (e) { deck = []; }
+    if (!Array.isArray(deck) || !deck.length) return;
+    if (localStorage.getItem('tob_deck_imported') === me.id) return;
+    localStorage.setItem('tob_deck_imported', me.id);
+    if (!window.confirm('Import your local deck layout onto this account? Coins and cards are not imported.')) return;
+    const res = await window.TOB_AUTH.saveDeck(deck);
+    toast(res && res.ok ? 'Imported your deck layout.' : ((res && res.error) || 'Could not import the deck.'));
+  }
   async function doLogOut() {
     closeUserMenu();
     try { await window.TOB_AUTH.logOut(); } catch (e) { /* leave the table anyway */ }
@@ -578,6 +603,7 @@
     const ov = $('#overlay');
     ov.classList.remove('hidden');
     const remote = window.TOB_AUTH.mode === 'supabase';
+    const soon = !!window.TOB_AUTH.onlineSoon;
     const signup = authMode !== 'login';
     const guest = window.TOB_AUTH.peekGuest();
     const claim = !!(guest && ((guest.collection && guest.collection.length) || (guest.stats && (guest.stats.games || guest.stats.wins || guest.stats.losses))));
@@ -585,9 +611,11 @@
       const gems = [...new Set(d.cards.map(id => CARDS[id].color))].map(c => `<span class="gem" style="background:${COLORS[c]}"></span>`).join('');
       return `<button type="button" class="starterpick${starterPick === k ? ' on' : ''}" data-starter="${k}"><span class="dname">${d.name}</span><span class="dcolors">${gems}</span></button>`;
     }).join('');
-    const tag = remote
-      ? (signup ? 'Create an email account. Your toons sync through Supabase.' : 'Log in with email to open your collection.')
-      : (signup ? 'Accounts stay on this device. Guest toons move over when you sign up.' : 'Welcome back. Your collection is saved on this device.');
+    const tag = soon
+      ? 'Online accounts coming soon. Play is saved on this device for now.'
+      : remote
+        ? (signup ? 'Pick a username and password. Your toons are saved online.' : 'Log in with your username and password.')
+        : (signup ? 'Accounts stay on this device. Guest toons move over when you sign up.' : 'Welcome back. Your collection is saved on this device.');
     ov.innerHTML = `<div class="panel auth">
       <div class="big-logo"><span class="ring"></span>TOON ORBIT <b>BATTLE</b></div>
       <div class="tag">${window.TOB_AUTH.initError || tag}</div>
@@ -596,12 +624,12 @@
         <button type="button" class="btn${signup ? '' : ' go'}" id="tabLogIn">Log in</button>
       </div>
       <div class="auth-form">
-        ${remote ? '<label class="field">Email<input id="authEmail" type="email" autocomplete="email" inputmode="email"></label>' : ''}
-        ${(!remote || signup) ? '<label class="field">Username<input id="authUser" type="text" maxlength="16" autocomplete="username" autocapitalize="off" spellcheck="false"></label>' : ''}
+        <label class="field">Username<input id="authUser" type="text" maxlength="16" autocomplete="username" autocapitalize="off" spellcheck="false"></label>
         <label class="field">Password<input id="authPass" type="password" maxlength="128" autocomplete="${signup ? 'new-password' : 'current-password'}"></label>
         ${signup ? `<div class="field-label">Starter deck</div><div class="starter-grid">${decks}</div>` : ''}
         ${claim && !signup ? '<p class="auth-claim">You have guest toons. Sign up to keep them.</p>' : ''}
-        ${signup && claim ? '<p class="auth-claim" id="authClaim">Your guest cards and record will move to this account.</p>' : ''}
+        ${signup && claim && !remote ? '<p class="auth-claim" id="authClaim">Your guest cards and record will move to this account.</p>' : ''}
+        ${remote ? '<p class="auth-claim">Coins and cards are not copied from this device. You can import a local deck layout after you log in.</p>' : ''}
         <p class="auth-error" id="authError" role="alert"></p>
         <button type="button" class="btn go" id="btnAuthSubmit">${signup ? 'Create account' : 'Log in'}</button>
       </div>
@@ -639,6 +667,10 @@
           const guestSnap = window.TOB_AUTH.peekGuest();
           const res = await window.TOB_AUTH.signUp(creds);
           if (!res.ok) { errBox.textContent = res.error; return; }
+          if (remote) {
+            const started = await window.TOB_AUTH.chooseStarter(starterPick);
+            if (!started.ok) { errBox.textContent = started.error || 'Could not grant the starter deck.'; return; }
+          } else {
           const profile = await window.TOB_AUTH.loadProfile();
           profile.starterDeck = starterPick;
           const starter = starterRecords(starterPick);
@@ -667,10 +699,12 @@
           const saved = await window.TOB_AUTH.saveProfile(profile);
           if (!saved.ok) { errBox.textContent = saved.error || 'Could not save your collection.'; return; }
           if (hasGuest) window.TOB_AUTH.clearGuest();
+          }
         } else {
           const res = await window.TOB_AUTH.logIn(creds);
           if (!res.ok) { errBox.textContent = res.error; return; }
         }
+        await offerLocalDeckImport();
         renderUser();
         await liveProfile();
         showHome();
@@ -797,7 +831,7 @@
       if (saved && saved.ok) profile = await window.TOB_AUTH.loadProfile();
     }
     rememberPacks(profile);
-    if (packState.role === 'admin' && window.TOB_OBSIDIAN) {
+    if (packState.role === 'admin' && window.TOB_OBSIDIAN && window.TOB_AUTH.mode !== 'supabase') {
       const have = new Set((profile.collection || []).map(r => r.id + (r.gold ? ':g' : ':s')));
       let added = false;
       window.TOB_OBSIDIAN.forEach(c => {
@@ -994,6 +1028,15 @@
     draw();
   }
   async function claimDaily() {
+    if (isOnlinePlayer()) {
+      const res = await window.TOB_AUTH.claimDaily();
+      if (!res || !res.ok) { toast((res && res.error) || 'Could not claim the daily pack.'); return; }
+      const profile = await window.TOB_AUTH.loadProfile();
+      if (profile) rememberPacks(profile);
+      packSound('daily');
+      showPacks();
+      return;
+    }
     const profile = await liveProfile();
     if (!profile) return;
     const today = todayKey();
@@ -1007,6 +1050,15 @@
     showPacks();
   }
   async function buyPack() {
+    if (isOnlinePlayer()) {
+      const res = await window.TOB_AUTH.buyPack();
+      if (!res || !res.ok) { toast((res && res.error) || 'Could not buy a pack.'); return; }
+      const profile = await window.TOB_AUTH.loadProfile();
+      if (profile) rememberPacks(profile);
+      packSound('daily');
+      showPacks();
+      return;
+    }
     const profile = await liveProfile();
     if (!profile) return;
     if ((profile.coins | 0) < (ECONOMY.packPrice | 0)) return;
@@ -1208,19 +1260,24 @@
     };
     draw();
   }
-  function showAdmin() {
+  async function showAdmin() {
     if (packState.role !== 'admin') return showHome();
     closeUserMenu();
     hidePreview();
     stopTimer();
     const ov = $('#overlay');
     ov.classList.remove('hidden');
-    const people = window.TOB_AUTH.listProfiles();
+    let people = window.TOB_AUTH.listProfiles();
+    if (window.TOB_AUTH.mode === 'supabase') {
+      const listed = await window.TOB_AUTH.rpc('admin_list_players');
+      if (!listed.ok) { toast(listed.error || 'Admins only.'); return showHome(); }
+      people = (listed.data || []).map(p => ({id: p.id, username: p.username, role: p.role, coins: p.coins, packs: p.unopened_packs, collection: new Array(Number(p.cards) || 0)}));
+    }
     const cardOpts = CARD_LIST.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
     const rows = people.map(p => {
       const count = (p.collection || []).length;
       const key = String(p.username || '').toLowerCase();
-      return `<div class="adminrow" data-user="${key}">
+      return `<div class="adminrow" data-user="${key}" data-id="${p.id || ''}">
         <div class="adminwho"><b>${p.username}</b> <span>${p.role === 'admin' ? 'admin' : 'player'}</span></div>
         <div class="adminmeta">${p.coins | 0} coins · ${p.packs | 0} packs · ${count} cards</div>
         <div class="admingrid">
@@ -1255,21 +1312,57 @@
       <div class="go-btns"><button type="button" class="btn" id="btnAdminBack">BACK</button></div>
     </div>`;
     $('#btnAdminBack').onclick = () => showHome();
-    $('#btnSaveEcon').onclick = () => {
-      saveEconomy({
+    $('#btnSaveEcon').onclick = async () => {
+      const next = {
         winCoins: clampInt($('#ecoWin').value, ECONOMY.winCoins),
         lossCoins: clampInt($('#ecoLoss').value, ECONOMY.lossCoins),
         packPrice: clampInt($('#ecoPrice').value, ECONOMY.packPrice),
         themePrice: clampInt($('#ecoTheme').value, ECONOMY.themePrice | 0),
         themeWeekPrice: clampInt($('#ecoWeek').value, ECONOMY.themeWeekPrice | 0),
         auctionFee: Math.min(50, clampInt($('#ecoFee').value, ECONOMY.auctionFee | 0)),
-      });
+      };
+      if (isOnlinePlayer()) {
+        const res = await window.TOB_AUTH.rpc('admin_set_prices', {p_prices: {
+          win_coins: next.winCoins, loss_coins: next.lossCoins, pack_price: next.packPrice,
+          theme_price: next.themePrice, theme_week_price: next.themeWeekPrice, auction_fee: next.auctionFee,
+        }});
+        if (!res || !res.ok) { toast((res && res.error) || 'Could not save prices.'); return; }
+      }
+      saveEconomy(next);
       toast('Saved economy');
       showAdmin();
     };
     ov.querySelectorAll('[data-act]').forEach(btn => { btn.onclick = () => adminAct(btn); });
   }
+  async function adminActOnline(btn) {
+    const row = btn.closest('.adminrow');
+    const id = row && row.dataset.id;
+    const act = btn.dataset.act;
+    if (!id) { toast('That player is not online'); return; }
+    if (act === 'profile') { showProfile(row.dataset.user, {back: 'admin'}); return; }
+    let res = {ok: false, error: 'That action stays on the device.'};
+    if (act === 'coins') res = await window.TOB_AUTH.rpc('admin_give_coins', {p_user: id, p_amount: clampInt(row.querySelector('[data-field="coins"]').value, 0)});
+    else if (act === 'packs') res = await window.TOB_AUTH.rpc('admin_give_packs', {p_user: id, p_amount: clampInt(row.querySelector('[data-field="packs"]').value, 0)});
+    else if (act === 'card') {
+      const card = row.querySelector('[data-field="card"]').value;
+      res = await window.TOB_AUTH.rpc('admin_give_card', {p_user: id, p_card: card, p_gold: !!row.querySelector('[data-field="gold"]').checked});
+    } else if (act === 'all' || act === 'allgold') {
+      if (!window.confirm('Give cards through the server?')) return;
+      res = await window.TOB_AUTH.rpc('admin_give_all', {p_user: id, p_gold: act === 'allgold'});
+    } else if (act === 'obsidian') {
+      if (!window.confirm('Give Obsidian Order cards, standard and gold?')) return;
+      res = {ok: true};
+      for (const card of (window.TOB_OBSIDIAN || [])) {
+        const a = await window.TOB_AUTH.rpc('admin_give_card', {p_user: id, p_card: card.id, p_gold: false});
+        const b = await window.TOB_AUTH.rpc('admin_give_card', {p_user: id, p_card: card.id, p_gold: true});
+        if (!a.ok || !b.ok) { res = a.ok ? b : a; break; }
+      }
+    }
+    toast(res && res.ok ? 'Saved' : ((res && res.error) || 'Could not save'));
+    if (res && res.ok) showAdmin();
+  }
   function adminAct(btn) {
+    if (window.TOB_AUTH.mode === 'supabase') { adminActOnline(btn); return; }
     const row = btn.closest('.adminrow');
     const username = row && row.dataset.user;
     const profile = window.TOB_AUTH.listProfiles().find(p => String(p.username || '').toLowerCase() === username);
@@ -1334,10 +1427,31 @@
     await playPull();
     return true;
   }
+  async function playServerPull(res, theme) {
+    if (!res || !res.ok) { toast((res && res.error) || 'Could not open that pack.'); return; }
+    const pulls = (res.data && res.data.pulls) || [];
+    const profile = await window.TOB_AUTH.loadProfile();
+    const bag = {};
+    ((profile && profile.collection) || []).forEach(rec => { if (rec) bag[rec.id] = (bag[rec.id] || 0) + 1; });
+    pulls.forEach(p => { if (bag[p.id]) bag[p.id] -= 1; });
+    pullOwnedBefore = new Set(Object.keys(bag).filter(id => bag[id] > 0));
+    currentPulls = pulls.map(p => ({id: p.id, gold: !!p.gold, uid: p.uid, isNew: !!p.isNew, dup: p.isNew ? 1 : 2}));
+    currentPackTheme = theme || null;
+    flipped = currentPulls.map(() => false);
+    packSummaryShown = false;
+    if (profile) rememberPacks(profile);
+    await playPull();
+  }
   async function buyThemePack(key) {
     if (packBusy) return;
     const theme = liveThemes().find(item => item.key === key);
     if (!theme) return;
+    if (isOnlinePlayer()) {
+      packBusy = true;
+      try { await playServerPull(await window.TOB_AUTH.openPack('theme', theme.key), theme); }
+      finally { packBusy = false; }
+      return;
+    }
     const price = priceForTheme(theme.key);
     packBusy = true;
     try {
@@ -1356,6 +1470,12 @@
   }
   async function openPack() {
     if (packBusy) return;
+    if (isOnlinePlayer()) {
+      packBusy = true;
+      try { await playServerPull(await window.TOB_AUTH.openPack('inventory', null), null); }
+      finally { packBusy = false; }
+      return;
+    }
     packBusy = true;
     try {
       const profile = await liveProfile();
@@ -1782,6 +1902,7 @@
       ov.innerHTML = `<div id="homeScreen" class="portal">
         <div class="portal-top">
           <div class="portal-brand"><span class="ring"></span><span class="portal-word">TOON ORBIT <b>TRADING CARDS</b></span></div>
+          ${window.TOB_AUTH.onlineSoon ? '<p class="online-soon">Online accounts coming soon. Play is saved on this device for now.</p>' : ''}
           <button type="button" class="portal-greet" id="btnProfileGreet">HI, ${(user.username || 'PLAYER').toUpperCase()}!</button>
           <div class="portal-tools">
             <div class="portal-pill"><span class="coinicon" aria-hidden="true"></span> YOU HAVE ${packState.coins | 0} ORBIT COINS</div>
@@ -2476,7 +2597,12 @@
       const t = ev.target.closest('button');
       if (!t || !root.contains(t)) return;
       if (t.id === 'btnBack') { buildFrom === 'deck' ? showDeckSelect() : showHome(); return; }
-      if (t.id === 'btnSaveDeck') { localStorage.setItem('tob_custom', JSON.stringify(sel)); quickStart('custom'); return; }
+      if (t.id === 'btnSaveDeck') {
+        localStorage.setItem('tob_custom', JSON.stringify(sel));
+        if (isOnlinePlayer()) window.TOB_AUTH.saveDeck(sel);
+        quickStart('custom');
+        return;
+      }
       if (t.id === 'btnFilters') { buildFiltersOpen = !buildFiltersOpen; paintChrome(); return; }
       if (t.id === 'btnOpenDeck') { showPane(true); return; }
       if (t.id === 'btnCloseSheet') { buildSheet = false; paintDetail(); return; }
@@ -2566,6 +2692,10 @@
     closeUserMenu();
     const profile = await liveProfile();
     if (!profile) return showAuth('login');
+    const houseNow = window.TOB_AUCTIONS;
+    if (houseNow && houseNow.refresh) {
+      try { await houseNow.refresh(); } catch (e) { toast('Could not refresh the auction house.'); }
+    }
     auctionNotices();
     const house = window.TOB_AUCTIONS;
     const me = profile.username;
@@ -2672,15 +2802,19 @@
       showAuctions();
     };
     const cancelBtn = $('#btnAucCancel');
-    if (cancelBtn) cancelBtn.onclick = () => { const res = house.cancel(feature.id); say(res.ok ? '' : res.error); if (res.ok) { aucTab = 'listings'; aucLot = null; liveProfile().then(showAuctions); } };
+    if (cancelBtn) cancelBtn.onclick = async () => {
+      const res = await Promise.resolve(house.cancel(feature.id));
+      say(res && res.ok ? '' : ((res && res.error) || 'Could not cancel.'));
+      if (res && res.ok) { aucTab = 'listings'; aucLot = null; liveProfile().then(showAuctions); }
+    };
     const forceBtn = $('#btnAucForce');
-    if (forceBtn) forceBtn.onclick = () => { house.adminEnd(feature.id); aucTab = 'history'; aucLot = null; showAuctions(); };
+    if (forceBtn) forceBtn.onclick = async () => { await Promise.resolve(house.adminEnd(feature.id)); aucTab = 'history'; aucLot = null; showAuctions(); };
     const adminCancel = $('#btnAucAdminCancel');
-    if (adminCancel) adminCancel.onclick = () => { house.adminCancel(feature.id); aucTab = 'history'; aucLot = null; showAuctions(); };
+    if (adminCancel) adminCancel.onclick = async () => { await Promise.resolve(house.adminCancel(feature.id)); aucTab = 'history'; aucLot = null; showAuctions(); };
     const form = $('#aucListForm');
-    if (form) form.onsubmit = (ev) => {
+    if (form) form.onsubmit = async (ev) => {
       ev.preventDefault();
-      const res = house.create({uid: $('#aucUid').value, start: $('#aucStart').value, ms: $('#aucDur').value});
+      const res = await Promise.resolve(house.create({uid: $('#aucUid').value, start: $('#aucStart').value, ms: $('#aucDur').value}));
       if (!res || !res.ok) { say((res && res.error) || 'Could not list that card.'); return; }
       toast('Listed ' + res.lot.card.name + '.');
       liveProfile().then(() => showAuctions());
@@ -2895,9 +3029,23 @@
   inspect(null);
   boot();
 
+  function applyRemoteEconomy() {
+    const map = window.TOB_ECONOMY_REMOTE;
+    if (!map) return;
+    ECONOMY.winCoins = map.win_coins != null ? map.win_coins : ECONOMY.winCoins;
+    ECONOMY.lossCoins = map.loss_coins != null ? map.loss_coins : ECONOMY.lossCoins;
+    ECONOMY.packPrice = map.pack_price != null ? map.pack_price : ECONOMY.packPrice;
+    ECONOMY.themePrice = map.theme_price != null ? map.theme_price : ECONOMY.themePrice;
+    ECONOMY.themeWeekPrice = map.theme_week_price != null ? map.theme_week_price : ECONOMY.themeWeekPrice;
+    ECONOMY.auctionFee = map.auction_fee != null ? map.auction_fee : ECONOMY.auctionFee;
+  }
+  window.addEventListener('tob-auctions', () => {
+    if (document.getElementById('auctionScreen')) showAuctions();
+  });
   async function boot() {
     try { await window.TOB_AUTH.ready; }
     catch (e) { /* the sign-in screen surfaces initError */ }
+    applyRemoteEconomy();
     renderUser();
     if (AUTO) {
       if (!window.TOB_AUTH.currentUser()) await window.TOB_AUTH.playAsGuest();

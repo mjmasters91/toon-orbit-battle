@@ -422,6 +422,7 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
 .shop-price { font-weight: 800; color: #ffe7a3; margin-bottom: 6px; }
 .shop-price s { color: #8d8d96; font-weight: 600; margin-right: 4px; }
 .shop-note { color: #c8c8ce; font-weight: 600; margin: 8px 0 10px; }
+.online-soon { margin: 8px 0 0; color: #ffb15a; font: 700 13px/1.4 Inter, "Segoe UI", system-ui, sans-serif; }
 #overlay:has(#packScreen) { padding: 0; display: block; overflow: auto; background: #0b0b0d; align-items: stretch; justify-content: stretch; }
 #packScreen { min-height: 100%; color: #f4f4f6; text-align: left; font-family: Inter, "Segoe UI", system-ui, sans-serif;
   background-color: #0b0b0d;

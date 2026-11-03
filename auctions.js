@@ -278,27 +278,111 @@
   }
 
   class SupabaseAuctionHouse extends AuctionHouse {
-    /* Online path. Coins and the card move inside place_bid / settle_auction,
-       which lock the rows. The local house is used until that project is on. */
-    async _rpc(name, args) {
-      const cfg = root.TOB_SUPABASE || {};
-      if (!cfg.url || !cfg.anonKey) return {ok: false, error: 'Online auctions are not configured.'};
-      const mod = await import('https://esm.sh/@supabase/supabase-js@2');
-      const client = mod.createClient(cfg.url, cfg.anonKey);
-      const {data, error} = await client.rpc(name, args || {});
-      if (error) return {ok: false, error: error.message || 'Auction request failed.'};
-      return {ok: true, data};
+    constructor(client) {
+      super();
+      this.client = client;
+      this._lots = [];
+      this._notes = [];
+      const self = this;
+      client.channel('tob-auctions')
+        .on('postgres_changes', {event: '*', schema: 'public', table: 'auctions'}, () => {
+          self.refresh().then(() => {
+            try { root.dispatchEvent(new CustomEvent('tob-auctions')); } catch (e) { /* ignore */ }
+          });
+        })
+        .subscribe();
     }
-    settle() { return this._rpc('settle_auction'); }
-    create(opts) { return this._rpc('create_auction', {card: opts.card, start_price: opts.start, duration_ms: opts.ms}); }
-    bid(id, amount) { return this._rpc('place_bid', {lot: id, amount: amount}); }
-    cancel(id) { return this._rpc('cancel_auction', {lot: id}); }
+    _me() {
+      const auth = root.TOB_AUTH;
+      return auth && auth.currentUser ? auth.currentUser() : null;
+    }
+    async _rpc(name, args) {
+      const {data, error} = await this.client.rpc(name, args || {});
+      if (error) return {ok: false, error: error.message || 'Auction request failed.'};
+      return {ok: true, data: data};
+    }
+    list() { return this._lots.slice(); }
+    get(id) { return this._lots.find(lot => lot.id === id) || null; }
+    pullNotices() {
+      const notes = this._notes.slice();
+      this._notes = [];
+      return notes;
+    }
+    async refresh() {
+      await this._rpc('settle_auction', {p_lot: null});
+      const {data, error} = await this.client.from('auctions').select('id,card_id,gold,start_bid,current_bid,ends_at,status,seller,high_bidder,created_at').order('ends_at');
+      if (error || !data) return;
+      const ids = [...new Set(data.map(row => row.seller).concat(data.map(row => row.high_bidder)).filter(Boolean))];
+      const names = {};
+      if (ids.length) {
+        const profs = await this.client.from('public_profiles').select('id,username').in('id', ids);
+        (profs.data || []).forEach(row => { names[row.id] = row.username; });
+      }
+      const cards = root.TOB_CARDS && root.TOB_CARDS.CARDS;
+      this._lots = data.map(row => {
+        const def = cards && cards[row.card_id];
+        return {
+          id: row.id,
+          card: {id: row.card_id, gold: !!row.gold, uid: row.card_id + (row.gold ? ':g:a' : ':s:a'), name: def ? def.name : row.card_id, archetype: def ? (def.archetype || '') : ''},
+          seller: names[row.seller] || 'Player',
+          start: row.start_bid,
+          bid: row.current_bid | 0,
+          bidder: row.high_bidder ? (names[row.high_bidder] || 'Player') : null,
+          bids: [],
+          created: new Date(row.created_at).getTime(),
+          ends: new Date(row.ends_at).getTime(),
+          status: row.status,
+          feePct: feePct(),
+        };
+      });
+    }
+    async create(opts) {
+      const me = this._me();
+      if (!me) return {ok: false, error: 'Log in first.'};
+      const auth = root.TOB_AUTH;
+      const profile = auth && auth.loadProfile ? await auth.loadProfile() : null;
+      const rec = ((profile && profile.collection) || []).find(row => row && row.uid === opts.uid);
+      if (!rec) return {ok: false, error: 'That copy is not in your collection.'};
+      const res = await this._rpc('create_auction', {p_card: rec.id, p_gold: !!rec.gold, p_start: opts.start, p_ms: opts.ms});
+      if (!res.ok) return res;
+      await this.refresh();
+      if (auth && auth.loadProfile) await auth.loadProfile();
+      return {ok: true, lot: this.get(res.data && res.data.id)};
+    }
+    async bid(id, amount) {
+      const res = await this._rpc('place_bid', {p_lot: id, p_amount: amount});
+      if (res.ok) await this.refresh();
+      return res;
+    }
+    async cancel(id) {
+      const res = await this._rpc('cancel_auction', {p_lot: id, p_admin: false});
+      if (res.ok) await this.refresh();
+      return res;
+    }
+    async adminCancel(id) {
+      const res = await this._rpc('cancel_auction', {p_lot: id, p_admin: true});
+      if (res.ok) await this.refresh();
+      return res;
+    }
+    async adminEnd(id) {
+      const res = await this._rpc('admin_end_auction', {p_lot: id});
+      if (res.ok) await this.refresh();
+      return res;
+    }
+    settle() { return 0; }
   }
 
-  const remote = !!(root.TOB_SUPABASE && root.TOB_SUPABASE.url && root.TOB_SUPABASE.anonKey);
-  const house = remote ? new SupabaseAuctionHouse() : new LocalAuctionHouse();
+  const house = new LocalAuctionHouse();
   house.DURATIONS = DURATIONS;
   house.ADMIN_DURATIONS = ADMIN_DURATIONS;
   house.increment = increment;
   root.TOB_AUCTIONS = house;
+  root.TOB_BIND_AUCTIONS = function (client) {
+    const remote = new SupabaseAuctionHouse(client);
+    remote.DURATIONS = DURATIONS;
+    remote.ADMIN_DURATIONS = ADMIN_DURATIONS;
+    remote.increment = increment;
+    remote.refresh = remote.refresh.bind(remote);
+    root.TOB_AUCTIONS = remote;
+  };
 })(this);
