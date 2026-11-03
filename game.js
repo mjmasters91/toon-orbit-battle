@@ -276,7 +276,6 @@
     stopTimer();
     let left = secs; const t = $('#timer');
     const tick = () => {
-      if (window.TOB.battleLock) return;
       paintClock(t, left, secs);
     };
     tick();
@@ -421,6 +420,7 @@
     const opp = st.opp || {};
     G.serverPhase = st.phase || '';
     G.serverTurn = st.turn || '';
+    G.serverSeq = st.seq;
     G.youSeat = match.you || G.youSeat || 'host';
     G.myTurn = !G.liveId || st.turn === G.youSeat;
     G.pHand = copyList(you.hand);
@@ -588,7 +588,7 @@
     if (bot) G.rankedId = match.id;
     else G.liveId = match.id;
     G.rankedKind = !!(bot || match.kind === 'bot' || match.kind === 'queue');
-    G.alternate = false;
+    G.alternate = !bot && !!match.legacy;
     G.ratingBefore = null;
     captureStartRating();
     applyServer(match);
@@ -638,14 +638,19 @@
       gameOver();
       return;
     }
-    if (G.phase.startsWith('PLAY') || G.phase.startsWith('REVEAL') || G.phase === 'DISCARD' || G.phase === 'SWAP' || G.phase === 'SILVER' || G.phase === 'OVER') return;
-    if (G.phase !== 'WAIT' && G.phase !== 'INTRO') return;
+    if (G.phase === 'OVER' || G.phase.startsWith('REVEAL')) return;
     const phase = match.state && match.state.phase;
     const turn = match.state && match.state.turn;
-    if (phase === G.serverPhase && turn === G.serverTurn && match.status === (G.lastView && G.lastView.status)) return;
+    const seq = match.state && match.state.seq;
+    if (phase === G.serverPhase && String(seq) === String(G.serverSeq) && turn === G.serverTurn && match.status === (G.lastView && G.lastView.status)) return;
+    if (G.phase.startsWith('PLAY') && phase === G.serverPhase && !G.alternate) return;
     const prev = G.serverPhase;
     applyServer(match);
-    afterCommit(prev);
+    if (phase !== prev) afterCommit(prev);
+  }
+  function commitBefore() {
+    const you = G.lastView && G.lastView.state && G.lastView.state.you || {};
+    return {phase: G.serverPhase, seq: G.serverSeq, swapped: !!you.swapped, discarded: !!you.discarded, silverDone: !!you.silverDone};
   }
   async function finishRankedPlay(auto) {
     if (!G.phase.startsWith('PLAY') || G.rankBusy) return;
@@ -667,7 +672,7 @@
       hand.splice(idx, 1);
     }
     const prev = G.serverPhase;
-    const res = await window.TOB_PVP.commitRanked(serverId(), moves, {quiet: !!(G.liveId && !G.alternate)});
+    const res = await window.TOB_PVP.commitRanked(serverId(), moves, {quiet: !!(G.liveId && !G.alternate), before: commitBefore()});
     G.rankBusy = false;
     if (!res || !res.ok) {
       if (G.liveId && !G.alternate && /not your turn/i.test((res && res.error) || '')) {
@@ -690,7 +695,7 @@
     G.rankBusy = true;
     stopTimer();
     const prev = G.serverPhase;
-    const res = await window.TOB_PVP.commitRanked(serverId(), [{t: 'discard', idx: [...G.discardSel]}]);
+    const res = await window.TOB_PVP.commitRanked(serverId(), [{t: 'discard', idx: [...G.discardSel]}], {before: commitBefore()});
     G.rankBusy = false;
     if (!res || !res.ok) { beginDiscard(); setMsg((res && res.error) || 'Discard was rejected.'); return; }
     applyServer(res.match);
@@ -704,7 +709,7 @@
     const move = {t: 'swap'};
     if (handIdx != null) move.hand = handIdx;
     const prev = G.serverPhase;
-    const res = await window.TOB_PVP.commitRanked(serverId(), [move]);
+    const res = await window.TOB_PVP.commitRanked(serverId(), [move], {before: commitBefore()});
     G.rankBusy = false;
     if (!res || !res.ok) { beginSwap(); setMsg((res && res.error) || 'Swap was rejected.'); return; }
     applyServer(res.match);
@@ -717,7 +722,7 @@
     const move = {t: 'silver'};
     if (color) move.color = color;
     const prev = G.serverPhase;
-    const res = await window.TOB_PVP.commitRanked(serverId(), [move]);
+    const res = await window.TOB_PVP.commitRanked(serverId(), [move], {before: commitBefore()});
     G.rankBusy = false;
     if (!res || !res.ok) { beginRankedSilver(); setMsg((res && res.error) || 'Silver was rejected.'); return; }
     applyServer(res.match);

@@ -591,24 +591,45 @@
       opp: seatFor(row.state && row.state[oppSeat], phase, false),
     });
   }
+  let viewMode = 'unknown';
   function viewMissing(res) {
-    return !!(res && /get_match_view|does not exist|PGRST202|schema cache|42883/i.test(res.error || ''));
+    const msg = (res && (res.error || res.message || res.code)) || '';
+    return /get_match_view|does not exist|PGRST202|schema cache|42883|could not find the function/i.test(String(msg));
+  }
+  function serverMoved(match, before) {
+    if (!match || !before) return false;
+    const st = match.state || {};
+    if (st.phase && before.phase && st.phase !== before.phase) return true;
+    if (st.seq != null && before.seq != null && String(st.seq) !== String(before.seq)) return true;
+    const you = st.you || {};
+    if (before.swapped === false && you.swapped) return true;
+    if (before.discarded === false && you.discarded) return true;
+    if (before.silverDone === false && you.silverDone) return true;
+    return false;
   }
   async function loadMatch(id) {
     const db = client();
     if (!db) return null;
-    const rpcRes = await rpc('get_match_view', {p_match: id});
-    if (rpcRes && rpcRes.ok && rpcRes.data && rpcRes.data.you && rpcRes.data.state) {
-      seat = rpcRes.data.you;
-      return normalizeView(rpcRes.data);
+    if (viewMode !== 'legacy') {
+      const rpcRes = await rpc('get_match_view', {p_match: id});
+      if (rpcRes && rpcRes.ok && rpcRes.data && rpcRes.data.you && rpcRes.data.state) {
+        viewMode = 'rpc';
+        seat = rpcRes.data.you;
+        const packed = normalizeView(rpcRes.data);
+        packed.legacy = false;
+        return packed;
+      }
+      if (viewMissing(rpcRes)) viewMode = 'legacy';
+      else if (viewMode === 'rpc') return null;
     }
-    if (!viewMissing(rpcRes)) return null;
-    const {data, error} = await db.from('matches').select('*').eq('id', id).maybeSingle();
+    const {data, error} = await db.from('matches').select('id,status,kind,is_bot,code,host,guest,host_name,guest_name,host_avatar,guest_avatar,bot_name,turn_deadline,winner,result,host_delta,guest_delta,state').eq('id', id).maybeSingle();
     if (error || !data) return null;
     const user = me();
     if (!user) return null;
     seat = data.host === user.id ? 'host' : 'guest';
-    return normalizeLegacy(data, seat);
+    const packed = normalizeLegacy(data, seat);
+    packed.legacy = viewMode !== 'rpc';
+    return packed;
   }
   function stopWatch() {
     if (poll) clearInterval(poll);
@@ -629,11 +650,15 @@
       .subscribe();
     poll = setInterval(refreshActive, 4000);
   }
+  let refreshFlight = null;
   async function refreshActive() {
     if (!activeId) return;
-    await rpc('pvp_heartbeat', {p_match: activeId});
-    const match = await loadMatch(activeId);
-    if (!match) return;
+    if (refreshFlight) return refreshFlight;
+    const id = activeId;
+    refreshFlight = (async () => {
+    await rpc('pvp_heartbeat', {p_match: id});
+    const match = await loadMatch(id);
+    if (!match || activeId !== id) return;
     if (match.status === 'lobby') paintLobby(match);
     else if (match.status === 'active' || match.status === 'disputed') {
       if (root.TOB_GAME && root.TOB_GAME.playServerMatch) {
@@ -649,21 +674,29 @@
       if (live && (live.rankedId === match.id || live.liveId === match.id) && root.TOB_GAME && root.TOB_GAME.syncServerMatch) {
         root.TOB_GAME.syncServerMatch(match);
       } else {
-        toast(match.result === 'forfeit' ? 'Match ended by forfeit.' : 'Match finished.');
+        toast(match.result === 'forfeit' ? 'Match ended by forfeit.' : match.result === 'timeout' ? 'Lost on time.' : 'Match finished.');
         showHub();
       }
     }
+    })().finally(() => { refreshFlight = null; });
+    return refreshFlight;
   }
   async function commitRanked(matchId, moves, opts) {
+    const before = opts && opts.before;
+    let failed = null;
     for (const move of moves) {
       const res = await rpc('submit_move', {p_match: matchId, p_move: move});
       if (!res || !res.ok) {
-        const error = (res && res.error) || 'The server rejected that move.';
-        if (!opts || !opts.quiet) toast(error, true);
-        return {ok: false, error};
+        failed = (res && res.error) || 'The server rejected that move.';
+        break;
       }
     }
     const match = await loadMatch(matchId);
+    if (match && serverMoved(match, before)) return {ok: true, match};
+    if (failed) {
+      if (!opts || !opts.quiet) toast(failed, true);
+      return {ok: false, error: failed, match: match};
+    }
     if (!match) {
       if (!opts || !opts.quiet) toast('That match could not be reloaded.', true);
       return {ok: false, error: 'That match could not be reloaded.'};
