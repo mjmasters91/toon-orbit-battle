@@ -529,11 +529,10 @@
     if (Object.prototype.hasOwnProperty.call(side, 'goalColor')) return side.goalColor || null;
     if (!(side.hand || side.deck || side.goal)) return null;
     const id = side.goal && side.goal.id;
-    if (!id || String(id).indexOf('ob_') === 0) return null;
+    if (!id) return null;
     const cards = root.TOB_CARDS && root.TOB_CARDS.CARDS;
     const card = cards && cards[id];
-    if (!card || card.adminOnly) return null;
-    return card.color || null;
+    return (card && card.color) || null;
   }
   function seatLooksRedacted(side) {
     if (!side || typeof side !== 'object') return false;

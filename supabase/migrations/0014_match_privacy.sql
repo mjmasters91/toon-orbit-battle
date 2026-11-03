@@ -1,12 +1,15 @@
 -- Hide hands, decks, and unrevealed cards from players and spectators.
+-- Applied 2026-11-03.
 -- The full match state lives in match_private, which players cannot read.
 -- matches.state is the redacted copy Realtime and SELECT are allowed to see.
+-- A redacted seat carries handCount, deckCount, goalColor, and goalPublic.
 -- get_match_view builds each player's own view from the private row.
--- Spectators, match_public, and list_live_matches see a goal color only at
--- score, and never for ob_% or admin_only goals. goal_is_public() reads the
--- goalPublic flag stored by redact_seat. The two players still see colors
--- before score, through view_seat. state_has_secrets() is true when either
--- seat still has a hand, deck, or goal, which is how the trigger, the
+-- view_seat does not include goalPublic. seat_goal_color returns the color
+-- for every goal, including ob_% and admin_only, so the two players still
+-- see those colors. Only public_seat hides a goal color: goal_is_public()
+-- is the stored goalPublic flag, or a live card check when a goal is present,
+-- and the color stays null until score. state_has_secrets() is true when
+-- either seat still has a hand, deck, or goal, which is how the trigger, the
 -- redactors, and the backfill tell a private row from an already redacted one.
 -- Friend matches use the same whole-round turns as bot matches: a player
 -- fills the round, then the opponent does, then those cards are revealed.
@@ -15,7 +18,7 @@
 -- Hosted Supabase rejects DELETE and UPDATE with no WHERE (safeupdate).
 -- 0012's bare "delete from es" is already replaced by 0013 ("where true").
 -- 0013's updates all have a WHERE clause. This file does not add a bare one.
--- Do not apply from the client. Review this file, then run it in the Supabase SQL editor.
+-- Applied to production on 2026-11-03. Do not run this file again.
 
 create table if not exists public.match_private (
   match_id uuid primary key references public.matches(id) on delete cascade deferrable initially deferred,
@@ -79,25 +82,27 @@ returns boolean language sql immutable as $$
     );
 $$;
 
--- Stored on the redacted seat. Spectators trust this flag instead of a card id.
+-- Spectators. A redacted seat trusts the stored goalPublic flag. A seat that
+-- still has a goal card is public only when that card is not ob_% or admin_only.
 create or replace function public.goal_is_public(p_side jsonb)
-returns boolean language sql immutable as $$
-  select coalesce((p_side->>'goalPublic')::boolean, false);
+returns boolean language sql stable security definer set search_path = public as $$
+  select case
+    when nullif(p_side->'goal'->>'id', '') is not null then exists (
+      select 1 from public.cards c
+      where c.id = p_side->'goal'->>'id' and c.id not like 'ob_%' and not c.admin_only
+    )
+    else coalesce((p_side->>'goalPublic')::boolean, false)
+  end;
 $$;
 
+-- Players, including an admin whose goal is an Obsidian card. This is not
+-- nulled for ob_% or admin_only. public_seat is what hides those colors.
 create or replace function public.seat_goal_color(p_side jsonb)
 returns text language sql stable security definer set search_path = public as $$
-  select case
-    when p_side->'goal'->>'id' like 'ob_%' then null
-    when exists (
-      select 1 from public.cards c
-      where c.id = p_side->'goal'->>'id' and c.admin_only
-    ) then null
-    else coalesce(
-      nullif(p_side->>'goalColor', ''),
-      (select c.color from public.cards c where c.id = p_side->'goal'->>'id' and not c.admin_only and c.id not like 'ob_%')
-    )
-  end;
+  select coalesce(
+    nullif(p_side->>'goalColor', ''),
+    (select c.color from public.cards c where c.id = p_side->'goal'->>'id')
+  );
 $$;
 
 create or replace function public.redact_seat(p_side jsonb, p_phase text)

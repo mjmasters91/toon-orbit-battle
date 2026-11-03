@@ -240,11 +240,22 @@
     });
   }
   function renderScore(ev) {
-    const tg = G.targets;
-    const dot = c => `<span class="gem" style="background:${COLORS[c]}"></span>${cap(c)}`;
-    const goalTxt = tg.length === 0
-      ? (G.spectate && G.serverPhase !== 'score' ? 'Goal colors show when the match ends.' : 'No goal color — Points only!')
-      : tg.length === 1 ? `Goal color: ${dot(tg[0])} (most cards = +${E.COLOR_BONUS})` : `Goal colors: ${dot(tg[0])} & ${dot(tg[1])} (more of BOTH wins!)`;
+    const tg = G.targets || [];
+    const dealt = (G.goals || []).filter(Boolean);
+    const dot = c => `<span class="gem" style="background:${COLORS[c] || '#888'}"></span>${cap(c)}`;
+    const named = dealt.map(dot).join(' & ');
+    let goalTxt;
+    if (!dealt.length) {
+      goalTxt = G.spectate && G.serverPhase !== 'score' ? 'Goal colors show when the match ends.' : 'No goal color — Points only!';
+    } else if (tg.length === 2) {
+      goalTxt = `Goal colors: ${dot(tg[0])} & ${dot(tg[1])} (more of BOTH wins!)`;
+    } else if (tg.length === 1 && dealt.length === 1) {
+      goalTxt = `Goal color: ${dot(tg[0])} (most cards = +${E.COLOR_BONUS})`;
+    } else if (tg.length === 1) {
+      goalTxt = `Goal colors: ${named} (most ${cap(tg[0])} cards = +${E.COLOR_BONUS})`;
+    } else {
+      goalTxt = `Goal color${dealt.length > 1 ? 's' : ''}: ${named} — Points only!`;
+    }
     const rows = tg.map(c => `<tr><td><span class="gem" style="background:${COLORS[c]}"></span>${cap(c)}</td><td>${ev.counts.p[c] || 0}</td><td>${ev.counts.o[c] || 0}</td></tr>`).join('');
     const pen = s => G.penalty[s] ? `<div class="pen">−${G.penalty[s]} swap</div>` : '';
     const bon = s => ev.bonus === s ? `<div class="bon">+${E.COLOR_BONUS} color</div>` : '';
