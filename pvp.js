@@ -36,13 +36,14 @@
   }
   function deckFromProfile(profile) {
     const raw = [];
+    const allowOb = !!(profile && profile.role === 'admin');
     try {
       const saved = JSON.parse(localStorage.getItem('tob_custom') || '[]');
       if (Array.isArray(saved)) raw.push(...saved);
     } catch (e) { /* ignore */ }
     const owned = {};
     ((profile && profile.collection) || []).forEach(rec => {
-      if (!rec || String(rec.id).indexOf('ob_') === 0) return;
+      if (!rec || (!allowOb && String(rec.id).indexOf('ob_') === 0)) return;
       const key = rec.id + (rec.gold ? ':g' : ':s');
       owned[key] = (owned[key] || 0) + 1;
     });
@@ -57,7 +58,7 @@
       if (out.length >= 12) return;
       const id = typeof entry === 'string' ? entry : entry && entry.id;
       const gold = !!(entry && entry.gold);
-      if (!id || String(id).indexOf('ob_') === 0) return;
+      if (!id || (!allowOb && String(id).indexOf('ob_') === 0)) return;
       const card = take(id, gold) || take(id, !gold);
       if (card) out.push(card);
     });
@@ -75,7 +76,10 @@
   async function myDeck() {
     const profile = await root.TOB_AUTH.loadProfile();
     const deck = deckFromProfile(profile);
-    if (!deck) return {ok: false, error: 'Build a 12-card deck without Obsidian cards first.'};
+    if (!deck) {
+      const admin = profile && profile.role === 'admin';
+      return {ok: false, error: admin ? 'Build a 12-card deck first.' : 'Build a 12-card deck without Obsidian cards first.'};
+    }
     return {ok: true, deck, profile};
   }
   function toast(msg) {
@@ -141,11 +145,15 @@
   function scoreOf(state) {
     const cards = root.TOB_CARDS.CARDS;
     const E = root.TOB_ENGINE;
-    const asCard = (entry) => entry ? Object.assign({}, cards[entry.id], {gold: !!entry.gold}) : null;
+    const asCard = (entry) => {
+      if (!entry || !entry.id || !cards[entry.id]) return null;
+      return Object.assign({}, cards[entry.id], {gold: !!entry.gold});
+    };
     const board = (seat) => (state[seat].board || []).map(asCard);
     const boards = {p: board('host'), o: board('guest')};
     const shown = {p: boards.p.map(Boolean), o: boards.o.map(Boolean)};
-    const goals = [state.host.goal && state.host.goal.color, state.guest.goal && state.guest.goal.color].map(c => c || null);
+    const goalColor = (entry) => (entry && (entry.color || (cards[entry.id] && cards[entry.id].color))) || null;
+    const goals = [goalColor(state.host.goal), goalColor(state.guest.goal)];
     const silver = {p: state.host.silver || null, o: state.guest.silver || null};
     return E.evaluate(boards, shown, {goals, silver, penalty: {p: 0, o: 0}, final: true});
   }
