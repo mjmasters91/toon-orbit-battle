@@ -10,37 +10,81 @@
 <meta name="apple-mobile-web-app-title" content="Toon Orbit">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="stylesheet" href="style.css?v=29.1">
+<link rel="stylesheet" href="style.css?v=30">
 <link rel="icon" href="icon-192.png" sizes="192x192">
 <link rel="apple-touch-icon" href="icon-192.png">
 </head>
 <body>
 <div id="app">
-  <header class="topbar">
-    <div class="logo"><span class="ring"></span>TOON ORBIT <b>BATTLE</b></div>
-    <div class="nav">
-      <div class="coinbal hidden" id="coinBal" title="Orbit Coins"><span class="coinicon" aria-hidden="true"></span><span id="coinCount">0</span></div>
-      <div class="usermenu hidden" id="userMenu">
-        <button type="button" class="btn small userchip" id="btnUser" aria-haspopup="menu" aria-expanded="false" aria-controls="userPop">
-          <span class="avatar" id="userAvatar" aria-hidden="true">?</span>
-          <span class="uname" id="userName">Player</span>
-        </button>
-        <div class="usermenu-pop hidden" id="userPop" role="menu">
-          <button type="button" class="menuitem" id="btnPacksMenu" role="menuitem">Packs <span class="packbadge" data-packbadge></span></button>
-          <button type="button" class="menuitem hidden" id="btnAdmin" role="menuitem">Admin</button>
-          <button type="button" class="menuitem" id="btnUserProfile" role="menuitem">Profile <span class="packbadge" data-friendbadge></span></button>
-          <button type="button" class="menuitem" id="btnMyCollection" role="menuitem">My Collection</button>
-          <button type="button" class="menuitem" id="btnLogOut" role="menuitem">Log out</button>
-        </div>
+  <header class="orbit-head">
+    <button type="button" class="orbit-logo" id="btnLogoHome" aria-label="Toon Orbit Battle home">
+      <svg class="orbit-planet" viewBox="0 0 64 64" aria-hidden="true">
+        <circle cx="32" cy="32" r="16" fill="#7ec8f8"/>
+        <ellipse cx="32" cy="32" rx="28" ry="10" fill="none" stroke="#f4fbff" stroke-width="4"/>
+        <circle cx="48" cy="24" r="5" fill="#7ed321"/>
+        <circle cx="18" cy="40" r="3.5" fill="#ffe56a"/>
+      </svg>
+      <span class="wordmark">Toon Orbit <b>Battle</b></span>
+    </button>
+    <div class="orbit-banner" id="orbitBanner" aria-label="Promotions">
+      <div class="banner-slide on">
+        <svg viewBox="0 0 72 48" aria-hidden="true"><rect x="8" y="6" width="56" height="36" rx="6" fill="#163e86" stroke="#7ec8f8" stroke-width="3"/><path d="M20 30l8-12 8 8 6-6 10 10" fill="none" stroke="#7ed321" stroke-width="3"/></svg>
+        <span><b>Pack of the Week</b><small>Themed packs are on sale</small></span>
       </div>
-      <button class="btn small" id="btnHome"><span class="lbl-full">Home</span><span class="lbl-short">Home</span></button>
-      <button class="btn small" id="btnRules"><span class="lbl-full">How to Play</span><span class="lbl-short">Rules</span></button>
-      <button class="btn small" id="btnNew"><span class="lbl-full">New Game</span><span class="lbl-short">New</span></button>
-      <button class="btn small" id="btnSound"><span class="lbl-full">Sound: On</span><span class="lbl-short">On</span></button>
+      <div class="banner-slide">
+        <svg viewBox="0 0 72 48" aria-hidden="true"><rect x="14" y="8" width="44" height="28" rx="4" fill="#163e86" stroke="#ffb15a" stroke-width="3"/><circle cx="36" cy="22" r="6" fill="#ffe56a"/></svg>
+        <span><b>Live auctions</b><small>Bid before the clock hits zero</small></span>
+      </div>
+      <div class="banner-slide">
+        <svg viewBox="0 0 72 48" aria-hidden="true"><circle cx="36" cy="22" r="12" fill="none" stroke="#7ec8f8" stroke-width="3"/><path d="M36 14v8l6 4" fill="none" stroke="#fff" stroke-width="3"/></svg>
+        <span><b>Ranked season</b><small>Climb from Bronze to Champion</small></span>
+      </div>
     </div>
+    <svg class="orbit-tv" viewBox="0 0 64 52" aria-hidden="true">
+      <rect x="6" y="8" width="52" height="36" rx="6" fill="#0d2f5e" stroke="#d7ecff" stroke-width="3"/>
+      <circle cx="32" cy="26" r="8" fill="none" stroke="#7ec8f8" stroke-width="3"/>
+      <path d="M22 44h20" stroke="#d7ecff" stroke-width="3" stroke-linecap="round"/>
+      <circle cx="18" cy="14" r="2" fill="#7ed321"/>
+    </svg>
   </header>
+  <nav class="orbit-nav" id="orbitNav" aria-label="Site">
+    <button type="button" class="navpill" id="btnNavMenu" aria-expanded="false">Menu</button>
+    <button type="button" class="navpill" id="btnHome">Home</button>
+    <button type="button" class="navpill lime" id="btnNavLogin">Login</button>
+    <button type="button" class="navpill lime hidden" id="btnLogOut">Logout</button>
+    <button type="button" class="navpill" id="btnMyCollection">My Collection</button>
+    <button type="button" class="navpill" id="btnPacks">Shop <span class="packbadge" data-packbadge></span></button>
+    <button type="button" class="navpill" id="btnAuctions">Auctions</button>
+    <button type="button" class="navpill" id="btnTrades">Trades <span class="packbadge" data-tradebadge></span></button>
+    <span class="nav-drop">
+      <button type="button" class="navpill" id="btnPlayMenu" aria-expanded="false">Play</button>
+      <span class="nav-pop hidden" id="playPop">
+        <button type="button" class="navpill" id="btnNew">Solo</button>
+        <button type="button" class="navpill" id="btnPvp">Ranked</button>
+      </span>
+    </span>
+    <button type="button" class="navpill" id="btnCollection">Card Gallery</button>
+    <button type="button" class="navpill" id="btnDecks">Deck Builder</button>
+    <button type="button" class="navpill" id="btnProfile">Settings <span class="packbadge" data-friendbadge></span></button>
+    <span class="nav-drop">
+      <button type="button" class="navpill" id="btnMore" aria-expanded="false">More</button>
+      <span class="nav-pop hidden" id="morePop">
+        <button type="button" class="navpill" id="btnRules">How to Play</button>
+        <button type="button" class="navpill" id="btnSound"><span class="lbl-full">Sound: On</span><span class="lbl-short">On</span></button>
+        <button type="button" class="navpill hidden" id="btnAdmin">Admin</button>
+      </span>
+    </span>
+  </nav>
+  <div id="coinBal" class="hidden" title="Orbit Coins"><span id="coinCount">0</span></div>
+  <div class="orbit-body">
+    <aside class="site-side" id="siteSide">
+      <div class="side-card" id="sideProfile"></div>
+      <div class="side-card" id="sitePanel"></div>
+      <button type="button" class="side-promo" id="sidePromo">Play Ranked!</button>
+    </aside>
+    <div class="orbit-main">
   <main class="layout">
     <aside class="left">
       <div id="scoreboard" class="box"></div>
@@ -77,20 +121,23 @@
       <div id="previewBody"></div>
     </div>
   </div>
+    </div>
+  </div>
 </div>
-<script src="cards.js?v=29.1"></script>
-<script src="cards-set2.js?v=29.1"></script>
-<script src="combos.js?v=29.1"></script>
-<script src="cards-obsidian.js?v=29.1"></script>
-<script src="copies.js?v=29.1"></script>
-<script src="engine.js?v=29.1"></script>
-<script src="ai.js?v=29.1"></script>
-<script src="art.js?v=29.1"></script>
+<script src="cards.js?v=30"></script>
+<script src="cards-set2.js?v=30"></script>
+<script src="combos.js?v=30"></script>
+<script src="cards-obsidian.js?v=30"></script>
+<script src="copies.js?v=30"></script>
+<script src="engine.js?v=30"></script>
+<script src="ai.js?v=30"></script>
+<script src="art.js?v=30"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
-<script src="supabase-config.js?v=29.1"></script>
-<script src="auth.js?v=29.1"></script>
-<script src="auctions.js?v=29.1"></script>
-<script src="game.js?v=29.1"></script>
-<script src="pvp.js?v=29.1"></script>
+<script src="supabase-config.js?v=30"></script>
+<script src="auth.js?v=30"></script>
+<script src="auctions.js?v=30"></script>
+<script src="game.js?v=30"></script>
+<script src="pvp.js?v=30"></script>
+<script src="trades.js?v=30"></script>
 </body>
 </html>

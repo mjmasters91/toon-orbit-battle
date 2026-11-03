@@ -115,6 +115,7 @@
       role,
       welcomeGranted: true,
       lastDaily: typeof profile.lastDaily === 'string' ? profile.lastDaily : null,
+      rating: profile.rating == null || profile.rating === '' ? null : (profile.rating | 0),
     };
   }
   function emptyProfile(username) {
@@ -443,6 +444,7 @@
         role: data.role,
         welcomeGranted: true,
         lastDaily: data.last_daily,
+        rating: data.rating,
       }, data.username);
     }
     async loadPublicProfile(username) {

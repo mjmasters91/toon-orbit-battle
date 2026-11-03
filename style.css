@@ -250,7 +250,6 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
   .topbar { position: sticky; top: 0; z-index: 80; height: auto; min-height: 44px; flex-wrap: nowrap; gap: 4px; padding: 4px 6px; }
   .logo { font-size: 11px; letter-spacing: 0; padding-left: 32px; flex: none; }
   .logo b { display: none; }
-  #btnRules { display: none; }
   .nav { display: flex; flex-wrap: nowrap; justify-content: flex-end; gap: 0; min-width: 0; }
   .lbl-full { display: none; }
   .lbl-short { display: inline; }
@@ -979,3 +978,183 @@ button.portal-greet:hover { color: #ffa733; }
   #deckBuilder.pane-deck .db-listcol { display: block; }
   #deckBuilder.pane-deck .db-deckcol { display: block; position: static; padding: 14px; max-height: none; }
 }
+
+/* Orbit chrome. Original layout, no borrowed art. */
+body {
+  font-family: Nunito, "Noto Sans", "Segoe UI", system-ui, sans-serif;
+  background: linear-gradient(180deg, #4d86c4 0%, #3a6ea5 42%, #2f5f96 100%);
+  color: #f4fbff;
+}
+body::before { display: none; }
+#app { min-width: 0; }
+.btn, .navpill, .side-promo, input, select, textarea {
+  font-family: Nunito, "Noto Sans", "Segoe UI", system-ui, sans-serif;
+}
+.btn {
+  color: #fff; font-weight: 800; border: 2px solid #0c2a52; border-radius: 999px;
+  background: linear-gradient(180deg, #7ec8f8 0%, #3aa0e4 45%, #2d8fd6 100%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.7), 0 2px 0 #143864;
+  text-shadow: 0 1px 0 rgba(0,40,80,.35);
+}
+.btn:hover:not(:disabled) { background: linear-gradient(180deg, #9fd6fb, #2d8fd6); }
+.btn.go, .navpill.lime {
+  color: #17340a; text-shadow: none; border-color: #3d6e12;
+  background: linear-gradient(180deg, #c6f56a, #7ed321);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.75), 0 2px 0 #3f6d10;
+}
+.btn.go:hover:not(:disabled), .navpill.lime:hover { background: linear-gradient(180deg, #d6ff8a, #8ee03a); }
+.btn.ghost { color: #f4fbff; background: transparent; border-color: #f4fbff; box-shadow: none; text-shadow: none; }
+.btn.ghost:hover:not(:disabled) { background: rgba(255,255,255,.12); }
+.orbit-head {
+  display: grid; grid-template-columns: minmax(180px, 1fr) 468px minmax(64px, 1fr);
+  align-items: center; gap: 12px; padding: 8px 12px 4px;
+}
+.orbit-logo {
+  display: flex; align-items: center; gap: 8px; background: transparent; border: 0; color: #fff;
+  cursor: pointer; text-align: left; padding: 0; min-height: 0; min-width: 0;
+}
+.orbit-planet { width: 54px; height: 54px; flex: none; filter: drop-shadow(0 2px 0 #0c2a52); }
+.wordmark { font: 900 22px/1 Nunito, "Noto Sans", sans-serif; letter-spacing: -.02em; text-shadow: 0 2px 0 #0c2a52; }
+.wordmark b { color: #ffe56a; font-weight: 900; }
+.orbit-banner {
+  width: 468px; max-width: 100%; height: 60px; margin: 0 auto; position: relative; overflow: hidden;
+  border: 3px solid #4fa3e0; border-radius: 10px; background: #0d2f5e;
+  box-shadow: inset 0 0 0 2px #163e86;
+}
+.banner-slide {
+  position: absolute; inset: 0; display: flex; align-items: center; gap: 10px; padding: 0 12px;
+  opacity: 0; transition: opacity .35s ease;
+}
+.banner-slide.on { opacity: 1; }
+.banner-slide svg { width: 72px; height: 48px; flex: none; }
+.banner-slide b { display: block; font-size: 16px; }
+.banner-slide small { color: #c5e4ff; font-weight: 700; }
+.orbit-tv { width: 64px; height: 52px; justify-self: end; }
+.orbit-nav {
+  display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 4px 10px 8px;
+}
+.navpill {
+  color: #fff; font-weight: 800; border: 2px solid #0c2a52; border-radius: 999px; cursor: pointer;
+  background: linear-gradient(180deg, #7ec8f8 0%, #3aa0e4 46%, #2d8fd6 100%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.7), 0 2px 0 #143864;
+  text-shadow: 0 1px 0 rgba(0,40,80,.35); padding: 7px 12px; min-height: 36px;
+}
+.navpill.on { outline: 2px solid #ffe56a; }
+.navpill .packbadge { margin-left: 4px; }
+#btnNavMenu { display: none; }
+.nav-drop { position: relative; }
+.nav-pop {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 30; display: flex; flex-direction: column; gap: 4px;
+  padding: 6px; background: #0d2f5e; border: 3px solid #4fa3e0; border-radius: 10px; min-width: 140px;
+}
+.nav-pop.hidden { display: none; }
+.orbit-body { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 10px; padding: 0 10px 12px; align-items: start; }
+.site-side { display: flex; flex-direction: column; gap: 8px; }
+.side-card, .side-promo {
+  background: #0d2f5e; border: 3px solid #4fa3e0; border-radius: 10px; color: #f4fbff;
+}
+.side-card { padding: 8px; }
+.side-ava { width: 64px; height: 64px; border-radius: 50%; object-fit: cover; border: 3px solid #7ec8f8; background: #163e86; display: block; margin: 0 auto 6px; }
+.side-letter { display: flex; align-items: center; justify-content: center; font: 900 28px/1 Nunito, sans-serif; }
+.side-name { text-align: center; font-weight: 900; margin-bottom: 6px; }
+.side-stat { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; font-weight: 800; padding: 2px 0; }
+.side-stat span { color: #b9dcff; font-weight: 700; }
+.side-h { font: 800 12px/1 Nunito, sans-serif; letter-spacing: .08em; text-transform: uppercase; margin: 0 0 6px; color: #9fd6fb; }
+.side-note { margin: 0; color: #d5e9ff; font-weight: 700; font-size: 13px; }
+.side-promo {
+  font: 900 16px/1.2 Nunito, sans-serif; padding: 12px; cursor: pointer; text-align: center;
+  background: linear-gradient(180deg, #1a4f96, #0d2f5e);
+}
+.side-promo small { display: block; color: #ffe56a; }
+.orbit-main { position: relative; min-width: 0; min-height: 70vh; }
+#overlay, #overlay:has(#homeScreen), #overlay:has(#packScreen), #overlay:has(#auctionScreen),
+#overlay:has(#profileScreen), #overlay:has(#deckBuilder), #overlay:has(#pvpScreen) {
+  position: absolute; inset: 0; z-index: 20; padding: 8px; overflow: auto;
+  background: transparent; align-items: stretch; justify-content: flex-start;
+}
+.portal-top, .portal-tabs { display: none !important; }
+#homeScreen.portal, #homeScreen.portal::before {
+  background: transparent !important; background-image: none !important; min-height: 0; color: #f4fbff;
+  font-family: Nunito, "Noto Sans", sans-serif;
+}
+.portal-frame, .portal-box, .panel, .box, .prof-block, .auc-wrap, .pvp-card, .shop-pack, .pack-hold {
+  background: #0d2f5e; border: 3px solid #4fa3e0; border-radius: 10px; color: #f4fbff;
+}
+.panel { width: min(920px, 100%); max-width: 100%; }
+.shop-title { margin: 4px 0 10px; font: 900 28px/1.1 Nunito, sans-serif; text-shadow: 0 2px 0 #0c2a52; }
+.shop-tabs { display: flex; gap: 6px; margin-bottom: 8px; }
+.shop-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.shop-pack { padding: 10px; display: flex; flex-direction: column; gap: 4px; }
+.odds-line { font-size: 13px; font-weight: 800; color: #d7ecff; }
+.shop-price s { color: #ffb0a4; margin-right: 4px; }
+.auc-head { display: flex; justify-content: space-between; gap: 8px; align-items: center; flex-wrap: wrap; }
+.auc-tabs, .auc-tools, .seg { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.auc-tabs .btn { text-transform: uppercase; font-size: 12px; letter-spacing: .04em; border-radius: 8px 8px 0 0; }
+.auc-tabs .btn.go { background: linear-gradient(180deg, #9fd6fb, #5cb8f0); color: #062033; }
+.orbit-lot, .orbit-tile {
+  display: grid; grid-template-columns: 72px minmax(0, 1fr) auto auto auto; gap: 8px; align-items: center;
+  background: #082448; border: 2px solid #1d4f86; border-radius: 8px; padding: 6px; margin: 6px 0;
+}
+.orbit-tile { grid-template-columns: 1fr; justify-items: center; text-align: center; }
+.auc-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.orbit-mini .card { width: 64px; height: 64px; }
+.own-tag { display: inline-block; font-size: 11px; font-weight: 900; letter-spacing: .04em; text-transform: uppercase; color: #ffd0c8; }
+.own-tag.is-own { color: #b6ff72; }
+.rarity { display: inline-block; margin-left: 4px; padding: 1px 6px; border-radius: 999px; font-size: 11px; font-weight: 900; background: #1d4f86; }
+.r-common { background: #3d6e9a; }
+.r-uncommon { background: #2f8f4e; }
+.r-rare { background: #2d6fdb; }
+.r-legendary { background: #b8860b; color: #1a1000; }
+.serial { color: #9ec9ef; font-size: 12px; font-weight: 800; margin-left: 4px; }
+.orbit-price { text-align: right; font-weight: 800; }
+.orbit-price span { display: block; font-size: 11px; letter-spacing: .06em; color: #9ec9ef; }
+.auc-left { color: #ff5d5d; font-weight: 900; min-width: 64px; text-align: right; }
+.auc-pager { display: flex; justify-content: flex-end; gap: 8px; align-items: center; font-weight: 900; }
+.chip-row, .seg { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip { padding: 4px 8px; }
+.side-card .field { display: flex; flex-direction: column; gap: 2px; font-size: 12px; font-weight: 800; margin: 4px 0; }
+.side-card input, .side-card select, .orbit-main input, .orbit-main select {
+  background: #082448; color: #fff; border: 2px solid #4fa3e0; border-radius: 8px; padding: 6px 8px; font-weight: 700;
+}
+.trade-wrap { background: #0d2f5e; border: 3px solid #4fa3e0; border-radius: 10px; padding: 12px; }
+.trade-top { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.trade-points { color: #7ed321; font-size: 18px; }
+.trade-empty { color: #9aa4b2; font-style: italic; }
+.trade-row { background: #082448; border: 2px solid #1d4f86; border-radius: 8px; padding: 8px; margin: 8px 0; }
+.trade-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.trade-pucks { display: flex; flex-wrap: wrap; gap: 4px; }
+.trade-puck { position: relative; }
+.trade-puck .card { width: 54px; height: 54px; }
+.trade-pick { cursor: pointer; border: 2px solid transparent; border-radius: 8px; background: transparent; padding: 2px; color: inherit; }
+.trade-pick.on { border-color: #7ed321; }
+.trade-form { display: grid; gap: 8px; }
+@media (max-width: 800px) {
+  .orbit-head { grid-template-columns: 1fr auto; }
+  .orbit-banner { grid-column: 1 / -1; width: 100%; order: 3; }
+  .orbit-logo { order: 1; }
+  .orbit-tv { order: 2; }
+  #btnNavMenu { display: inline-flex; }
+  .orbit-nav:not(.is-open) .navpill:not(#btnNavMenu),
+  .orbit-nav:not(.is-open) .nav-drop { display: none; }
+  .orbit-body { grid-template-columns: 1fr; }
+  .shop-grid, .trade-sides { grid-template-columns: 1fr; }
+  .orbit-lot { grid-template-columns: 64px minmax(0, 1fr); }
+  .orbit-price, .auc-left { text-align: left; }
+  .site-side { max-height: none; }
+}
+#coinBal { display: none !important; }
+#packScreen, #auctionScreen, #profileScreen, #pvpScreen, #deckBuilder {
+  background: transparent !important; background-image: none !important;
+}
+.auc-wrap { max-width: none; }
+.shop-pack.week, .shop-pack.standard { grid-column: auto; border-color: #4fa3e0; box-shadow: none; }
+.shop-pack .go-btns { margin-top: auto; }
+body:has(#overlay:not(.hidden)) .layout,
+body:has(#overlay:not(.hidden)) .handbar { visibility: hidden; }
+.pack-hold { display: flex; align-items: center; justify-content: space-between; gap: 12px; text-align: left; flex-wrap: wrap; }
+.pack-hold .foilpack { width: 84px; margin: 0; }
+.shop-grid .foilpack.mini, .shop-grid .foilpack.feature { width: 96px; }
+.orbit-lot { grid-template-columns: 64px minmax(0, 1fr) auto auto auto auto; }
+#overlay:not(.hidden) { background: #3a6ea5; }
+.trade-wrap, .auc-wrap, #packScreen, #homeScreen.portal, #tradeScreen { width: 100%; box-sizing: border-box; }
+.site-side { max-height: calc(100vh - 140px); overflow: auto; }

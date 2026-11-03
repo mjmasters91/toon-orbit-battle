@@ -467,23 +467,17 @@
     if (b) b.setAttribute('aria-expanded', 'false');
   }
   function renderUser() {
-    const menu = $('#userMenu');
     const user = window.TOB_AUTH.currentUser();
-    if (!menu) return;
-    if (!user) {
-      menu.classList.add('hidden');
-      closeUserMenu();
-      const bal = $('#coinBal');
-      if (bal) bal.classList.add('hidden');
-      const adminBtn = $('#btnAdmin');
-      if (adminBtn) adminBtn.classList.add('hidden');
-      return;
-    }
-    menu.classList.remove('hidden');
-    const name = user.username || 'Player';
-    $('#userAvatar').textContent = name.slice(0, 1).toUpperCase();
-    $('#userName').textContent = name;
-    $('#btnUser').setAttribute('aria-label', 'Account menu for ' + name);
+    const out = $('#btnLogOut');
+    const inn = $('#btnNavLogin');
+    if (out) out.classList.toggle('hidden', !user);
+    if (inn) inn.classList.toggle('hidden', !!user);
+    const bal = $('#coinBal');
+    if (bal) bal.classList.toggle('hidden', !user);
+    const adminBtn = $('#btnAdmin');
+    if (adminBtn) adminBtn.classList.toggle('hidden', !user || packState.role !== 'admin');
+    closeUserMenu();
+    paintOrbit();
   }
   function randomReward() {
     const id = CARD_LIST[Math.floor(Math.random() * CARD_LIST.length)].id;
@@ -826,8 +820,12 @@
     if (count && user) count.textContent = String(packState.coins);
     const adminBtn = $('#btnAdmin');
     if (adminBtn) adminBtn.classList.toggle('hidden', !user || packState.role !== 'admin');
+    siteProfile = profile || null;
     paintFriendBadge();
+    paintOrbit();
   }
+  let siteProfile = null;
+  let shopTab = 'packs';
   let friendIncoming = 0;
   function paintFriendBadge() {
     document.querySelectorAll('[data-friendbadge]').forEach(el => {
@@ -1019,58 +1017,52 @@
       };
       const buyBtn = theme => {
         const price = priceForTheme(theme.key);
-        return `<button type="button" class="btn go" data-buytheme="${escPack(theme.key)}" ${coins >= price ? '' : 'disabled'}>Buy & open</button>`;
+        return `<button type="button" class="btn go" data-buytheme="${escPack(theme.key)}" ${coins >= price ? '' : 'disabled'}>Buy &amp; Open</button>`;
       };
-      const cardCount = key => CARD_LIST.filter(c => c.archetype === key).length;
-      const hero = week ? `<article class="shop-pack week">
-          <div class="weekbadge">PACK OF THE WEEK</div>
-          ${foilEl(week, 'feature')}
-          <div class="shop-copy">
-            <div class="shop-name">${week.icon} ${escPack(week.key)}</div>
-            <p>${cardCount(week.key)} ${escPack(week.key)} cards. ${Math.round(GOLD_CHANCE * 100)}% gold. No Obsidian cards.</p>
-            ${priceLine(week)}
-            ${buyBtn(week)}
-          </div>
-        </article>` : '';
-      const grid = themes.map(theme => `<article class="shop-pack">
+      const poolFor = key => CARD_LIST.filter(c => isPublicCard(c.id) && (!key || c.archetype === key));
+      const oddsHTML = cards => ['Common', 'Uncommon', 'Rare', 'Legendary'].map(name => {
+        const hit = cards.filter(c => rarityName(c) === name).length;
+        if (!hit || !cards.length) return '';
+        return `<div class="odds-line">${name}: ${Math.round(hit / cards.length * 100)}% — 5 card(s)</div>`;
+      }).join('');
+      const packCard = (theme, weekFlag) => `<article class="shop-pack${weekFlag ? ' week' : ''}">
+          ${weekFlag ? '<div class="weekbadge">PACK OF THE WEEK</div>' : ''}
           ${packArt(theme)}
           <div class="shop-name">${theme.icon} ${escPack(theme.key)}</div>
-          <div class="shop-count">${cardCount(theme.key)} cards</div>
+          ${oddsHTML(poolFor(theme.key))}
           ${priceLine(theme)}
           ${buyBtn(theme)}
-        </article>`).join('');
-      ov.innerHTML = `<div id="packScreen">
-        <header class="pack-top">
-          <div class="pack-title">PACKS</div>
-          <div class="pack-coins"><span class="coinicon" aria-hidden="true"></span> ${coins}</div>
-          <button type="button" class="btn" id="btnPackBack">Home</button>
-        </header>
-        <section class="pack-hold">
+        </article>`;
+      const hero = week ? packCard(week, true) : '';
+      const grid = themes.map(theme => packCard(theme, false)).join('');
+      const cardsPane = `<section class="pack-shop"><p class="shop-note">Singles are not sold here. Win them in packs, or bid in the auction house.</p><button type="button" class="btn" id="btnShopGallery">Card Gallery</button></section>`;
+      const packsPane = `<section class="pack-hold">
           ${foilEl(null, 'idle mini')}
-          <div class="progress-line" id="packCount">${profile.packs | 0} standard pack${(profile.packs | 0) === 1 ? '' : 's'} to open</div>
+          <div class="progress-line" id="packCount">${profile.packs | 0} standard pack${(profile.packs | 0) === 1 ? '' : 's'} waiting</div>
           <div class="go-btns">
-            <button type="button" class="btn go" id="btnOpenPack" ${(profile.packs | 0) < 1 ? 'disabled' : ''}>Open pack</button>
+            <button type="button" class="btn" id="btnOpenPack" ${(profile.packs | 0) < 1 ? 'disabled' : ''}>Open pack</button>
             <button type="button" class="btn" id="btnDaily" ${claimed ? 'disabled' : ''}>${claimed ? 'Daily pack claimed' : 'Claim daily pack'}</button>
           </div>
         </section>
-        <section class="pack-shop">
-          <div class="shop-head">Pack shop</div>
-          <p class="shop-note">Themed packs open immediately and only contain that archetype. A standard pack is any card and waits in your stack.</p>
-          ${hero}
-          <div class="shop-grid">${grid}</div>
-          <article class="shop-pack standard">
-            ${foilEl(null, 'mini')}
-            <div class="shop-copy">
-              <div class="shop-name">Standard pack</div>
-              <p>Any public card. One new card when you still have some to find.</p>
-              <div class="shop-price"><span class="coinicon" aria-hidden="true"></span> ${ECONOMY.packPrice | 0}</div>
-              <button type="button" class="btn go" id="btnBuyPack" ${coins < (ECONOMY.packPrice | 0) ? 'disabled' : ''}>Buy pack</button>
-            </div>
-          </article>
-          <p class="tag">Each copy has a ${Math.round(GOLD_CHANCE * 100)}% chance to be gold. Nothing in these packs is guaranteed gold.</p>
-        </section>
+        <div class="shop-grid">${hero}<article class="shop-pack standard">
+          ${foilEl(null, 'mini')}
+          <div class="shop-name">Standard pack</div>
+          ${oddsHTML(poolFor(null))}
+          <div class="shop-price"><span class="coinicon" aria-hidden="true"></span> ${ECONOMY.packPrice | 0}</div>
+          <div class="go-btns">
+            <button type="button" class="btn go" id="btnBuyOpenPack" ${coins < (ECONOMY.packPrice | 0) ? 'disabled' : ''}>Buy &amp; Open</button>
+            <button type="button" class="btn" id="btnBuyPack" ${coins < (ECONOMY.packPrice | 0) ? 'disabled' : ''}>Buy</button>
+          </div>
+        </article>${grid}</div>
+        <p class="tag">Each copy has a ${Math.round(GOLD_CHANCE * 100)}% chance to be gold. A Buy keeps the pack unopened. Themed packs open right away.</p>`;
+      ov.innerHTML = `<div id="packScreen">
+        <div class="shop-tabs">
+          <button type="button" class="btn${shopTab === 'packs' ? ' go' : ''}" id="btnShopPacks">Packs</button>
+          <button type="button" class="btn${shopTab === 'cards' ? ' go' : ''}" id="btnShopCards">Cards</button>
+        </div>
+        <h1 class="shop-title">Toon Orbit Battle Shop</h1>
+        ${shopTab === 'cards' ? cardsPane : packsPane}
       </div>`;
-      $('#btnPackBack').onclick = () => showHome();
     };
     draw();
   }
@@ -1096,13 +1088,14 @@
     packSound('daily');
     showPacks();
   }
-  async function buyPack() {
+  async function buyPack(andOpen) {
     if (isOnlinePlayer()) {
       const res = await window.TOB_AUTH.buyPack();
       if (!res || !res.ok) { toast((res && res.error) || 'Could not buy a pack.'); return; }
       const profile = await window.TOB_AUTH.loadProfile();
       if (profile) rememberPacks(profile);
       packSound('daily');
+      if (andOpen) return openPack();
       showPacks();
       return;
     }
@@ -1115,6 +1108,7 @@
     if (!saved || !saved.ok) return;
     rememberPacks(profile);
     packSound('daily');
+    if (andOpen) return openPack();
     showPacks();
   }
   function toast(msg) {
@@ -2202,6 +2196,7 @@
       refreshFriendBadge();
       watchHomeLive();
       watchFriendRequests();
+      if (window.TOB_TRADES && window.TOB_TRADES.watch) window.TOB_TRADES.watch();
     };
     draw();
   }
@@ -2929,6 +2924,23 @@
     }
   }
   let aucTab = 'browse', aucLot = null, aucQ = '', aucArch = '', aucGold = '', aucSort = 'ending', aucTimer = null;
+  let aucPage = 1, aucOwn = 'all', aucRarity = '', aucMin = '', aucMax = '', aucFeatured = false, aucHasBids = false, aucWishOnly = false, aucKind = 'all', aucView = 'list';
+  function rarityName(card) {
+    const pts = card && card.pts | 0;
+    if (pts >= 8) return 'Legendary';
+    if (pts >= 6) return 'Rare';
+    if (pts >= 4) return 'Uncommon';
+    return 'Common';
+  }
+  function wishIds() {
+    try { return new Set(JSON.parse(localStorage.getItem('tob_wish') || '[]')); }
+    catch (e) { return new Set(); }
+  }
+  function toggleWish(id) {
+    const set = wishIds();
+    if (set.has(id)) set.delete(id); else set.add(id);
+    localStorage.setItem('tob_wish', JSON.stringify([...set]));
+  }
   function aucClock(ends) {
     let ms = Math.max(0, ends - Date.now());
     const s = Math.floor(ms / 1000);
@@ -2965,22 +2977,61 @@
     const active = all.filter(lot => lot.status === 'open' && lot.ends > Date.now());
     const mineName = String(me || '').toLowerCase();
     const q = aucQ.trim().toLowerCase();
-    let rows = active.filter(lot => {
-      if (q && String(lot.card.name || '').toLowerCase().indexOf(q) === -1) return false;
-      if (aucArch && lot.card.archetype !== aucArch) return false;
-      if (aucGold === 'gold' && !lot.card.gold) return false;
-      if (aucGold === 'standard' && lot.card.gold) return false;
-      return true;
-    });
-    rows.sort((a, b) => aucSort === 'high' ? (b.bid || b.start) - (a.bid || a.start) : aucSort === 'low' ? (a.bid || a.start) - (b.bid || b.start) : a.ends - b.ends);
-    const feature = aucLot ? all.find(lot => lot.id === aucLot) : rows[0];
-    const arches = [...new Set(CARD_LIST.map(c => c.archetype).filter(Boolean))].sort();
+    const minP = aucMin === '' ? null : Number(aucMin);
+    const maxP = aucMax === '' ? null : Number(aucMax);
+    const wishes = wishIds();
+    const lotOwned = lot => (profile.collection || []).some(rec => rec && rec.id === lot.card.id);
+    const filterLots = source => {
+      let rows = source.filter(lot => {
+        if (!lot || !lot.card) return false;
+        if (q && String(lot.card.name || '').toLowerCase().indexOf(q) === -1) return false;
+        if (aucArch && lot.card.archetype !== aucArch) return false;
+        if (aucGold === 'gold' && !lot.card.gold) return false;
+        if (aucGold === 'standard' && lot.card.gold) return false;
+        if (aucRarity && rarityName(CARDS[lot.card.id] || lot.card) !== aucRarity) return false;
+        const price = lot.bidder ? (lot.bid || 0) : lot.start;
+        if (minP != null && !Number.isNaN(minP) && price < minP) return false;
+        if (maxP != null && !Number.isNaN(maxP) && price > maxP) return false;
+        if (aucHasBids && !lot.bidder) return false;
+        if (aucWishOnly && !wishes.has(lot.card.id)) return false;
+        if (aucOwn === 'owned' && !lotOwned(lot)) return false;
+        if (aucOwn === 'unowned' && lotOwned(lot)) return false;
+        if (aucKind === 'packs') return false;
+        return true;
+      });
+      rows.sort((a, b) => aucSort === 'high' ? (b.bid || b.start) - (a.bid || a.start) : aucSort === 'low' ? (a.bid || a.start) - (b.bid || b.start) : a.ends - b.ends);
+      if (aucFeatured && rows.length) rows = rows.slice(0, 1);
+      return rows;
+    };
+    const feature = aucLot ? all.find(lot => lot.id === aucLot) : null;
     const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
     const thumb = lot => {
       const copy = COPIES.makeCopy(lot.card.id, {gold: !!lot.card.gold, uid: lot.card.uid});
       return copy ? cardHTML(copy, null, true) : '';
     };
-    const priceLine = lot => lot.bidder ? lot.bid + ' by ' + lot.bidder : 'No bids yet';
+    const aucRow = lot => {
+      const owned = lotOwned(lot);
+      const price = lot.bidder ? (lot.bid || 0) : lot.start;
+      const label = lot.status !== 'open' ? String(lot.status || '').toUpperCase() : (lot.bidder ? 'CURRENT' : 'START');
+      const bids = (lot.bids || []).length;
+      const serial = String(lot.card.uid || lot.id || '').replace(/[^a-z0-9]/gi, '').slice(-6);
+      const rare = rarityName(CARDS[lot.card.id] || lot.card);
+      const clock = lot.status === 'open' ? `<b class="auc-left" data-ends="${lot.ends}">${aucClock(lot.ends)}</b>` : `<b class="auc-left">${esc(lot.status)}</b>`;
+      const wish = wishes.has(lot.card.id) ? 'on' : '';
+      if (aucView === 'cards') {
+        return `<div class="orbit-tile"><div class="orbit-mini">${thumb(lot)}</div><span class="own-tag${owned ? ' is-own' : ''}">${owned ? 'Owned' : 'Unowned'}</span><b>${esc(lot.card.name)}</b><span class="rarity r-${rare.toLowerCase()}">${rare}</span><button type="button" class="btn ghost" data-wish="${esc(lot.card.id)}">${wish ? 'Wishlisted' : 'Wishlist'}</button><button type="button" class="btn ghost" data-lot="${esc(lot.id)}">View</button></div>`;
+      }
+      return `<div class="orbit-lot"><div class="orbit-mini">${thumb(lot)}</div><div class="orbit-lotmain"><span class="own-tag${owned ? ' is-own' : ''}">${owned ? 'Owned' : 'Unowned'}</span> <b>${esc(lot.card.name)}</b> <span class="rarity r-${rare.toLowerCase()}">${rare}</span> <span class="serial">#${esc(serial)}</span></div><div class="orbit-price"><span>${label}</span><b>${price}</b><span>${bids} bid${bids === 1 ? '' : 's'}</span></div>${clock}<button type="button" class="btn ghost" data-wish="${esc(lot.card.id)}">${wish ? '★' : '☆'}</button><button type="button" class="btn ghost" data-lot="${esc(lot.id)}">View</button></div>`;
+    };
+    const pager = (page, pages) => `<div class="auc-pager"><button type="button" class="btn ghost" id="aucPrev" ${page <= 1 ? 'disabled' : ''}>&lt;</button><span>${page}/${pages}</span><button type="button" class="btn ghost" id="aucNext" ${page >= pages ? 'disabled' : ''}>&gt;</button></div>`;
+    const pageOf = list => {
+      const pages = Math.max(1, Math.ceil(list.length / 8));
+      const page = Math.min(Math.max(1, aucPage), pages);
+      aucPage = page;
+      const slice = list.slice((page - 1) * 8, page * 8);
+      const grid = aucView === 'cards' ? ' auc-cards' : '';
+      return `${pager(page, pages)}<div class="auc-list${grid}">${slice.map(aucRow).join('') || '<p class="prof-note">Nothing here yet.</p>'}</div>${pager(page, pages)}`;
+    };
     let body = '';
     if (aucTab === 'detail' && feature) {
       const floor = house.minBid(feature);
@@ -3004,10 +3055,10 @@
         </div>
         <div class="auc-stage">${thumb(feature)}</div>
       </section>`;
-    } else if (aucTab === 'listings' || aucTab === 'bids' || aucTab === 'history') {
-      const source = aucTab === 'history' ? all.filter(lot => lot.status !== 'open')
-        : aucTab === 'bids' ? all.filter(lot => (lot.bids || []).some(b => String(b.user).toLowerCase() === mineName) || String(lot.bidder || '').toLowerCase() === mineName)
-        : active.filter(lot => String(lot.seller).toLowerCase() === mineName);
+    } else if (aucTab === 'listings' || aucTab === 'bids') {
+      const source = aucTab === 'bids'
+        ? all.filter(lot => (lot.bids || []).some(b => String(b.user).toLowerCase() === mineName) || String(lot.bidder || '').toLowerCase() === mineName)
+        : all.filter(lot => String(lot.seller).toLowerCase() === mineName);
       const durs = house.durations().concat(admin ? house.adminDurations() : []);
       const owned = aucTab === 'listings' ? (profile.collection || []).filter(rec => rec && CARDS[rec.id]) : [];
       body = `${aucTab === 'listings' ? `<form class="auc-form" id="aucListForm">
@@ -3016,36 +3067,17 @@
           <select id="aucDur" aria-label="Duration">${durs.map(d => `<option value="${d.ms}">${d.label}</option>`).join('')}</select>
           <button type="submit" class="btn go">List card</button>
         </form><p class="prof-note">House cut is ${house.feePct()}% of the winning bid. The copy leaves your collection until the auction ends.</p><p class="prof-err" id="aucErr"></p>` : ''}
-        <div class="auc-list">${source.map(lot => `<button type="button" class="auc-row" data-lot="${esc(lot.id)}"><span class="auc-mini">${thumb(lot)}</span><span><b>${esc(lot.card.name)}</b><span>${lot.status === 'open' ? priceLine(lot) : lot.status} · ${esc(lot.seller)}</span></span><span class="auc-digits">${lot.status === 'open' ? aucClock(lot.ends) : ''}</span></button>`).join('') || '<p class="prof-note">Nothing here yet.</p>'}</div>`;
+        ${pageOf(source)}`;
     } else {
-      const feat = rows[0];
-      body = `${feat ? `<section class="auc-feature">
-          <div class="auc-copy">
-            <div class="auc-kicker">FEATURED LOT</div>
-            <div class="auc-name">${esc(feat.card.name)}</div>
-            <div class="auc-meta">Seller <b>${esc(feat.seller)}</b></div>
-            <div class="auc-meta">Starting price <b>${feat.start}</b></div>
-            <div class="auc-meta">High bid <b>${feat.bidder ? feat.bid : '—'}</b></div>
-            <div class="auc-meta">High bidder <b>${feat.bidder ? esc(feat.bidder) : '—'}</b></div>
-            <div class="portal-clock"><span>TIME REMAINING</span><b class="auc-digits" data-ends="${feat.ends}">${aucClock(feat.ends)}</b></div>
-            <button type="button" class="portal-cta" id="btnBidNow" data-lot="${esc(feat.id)}">BID NOW</button>
-          </div>
-          <div class="auc-stage">${thumb(feat)}</div>
-        </section>` : '<p class="prof-note">No live auctions. List a card from My Listings.</p>'}
-        <div class="auc-filters">
-          <input id="aucQ" value="${esc(aucQ)}" placeholder="Search name" aria-label="Search auctions">
-          <select id="aucArch" aria-label="Archetype"><option value="">All types</option>${arches.map(a => `<option value="${esc(a)}"${aucArch === a ? ' selected' : ''}>${esc(a)}</option>`).join('')}</select>
-          <select id="aucGold" aria-label="Finish"><option value="">Any finish</option><option value="gold"${aucGold === 'gold' ? ' selected' : ''}>Gold</option><option value="standard"${aucGold === 'standard' ? ' selected' : ''}>Standard</option></select>
-          <select id="aucSort" aria-label="Sort"><option value="ending"${aucSort === 'ending' ? ' selected' : ''}>Ending soon</option><option value="high"${aucSort === 'high' ? ' selected' : ''}>Highest price</option><option value="low"${aucSort === 'low' ? ' selected' : ''}>Lowest price</option></select>
-        </div>
-        <div class="auc-list">${rows.slice(feat ? 1 : 0).map(lot => `<button type="button" class="auc-row" data-lot="${esc(lot.id)}"><span class="auc-mini">${thumb(lot)}</span><span><b>${esc(lot.card.name)}</b><span>${priceLine(lot)}</span></span><span class="auc-digits" data-ends="${lot.ends}">${aucClock(lot.ends)}</span></button>`).join('')}</div>`;
+      const source = filterLots(aucTab === 'all' ? all : active);
+      const tools = `<div class="auc-tools"><div class="seg">${[['all','All'],['cards','Cards'],['packs','Packs']].map(([id, label]) => `<button type="button" class="btn${aucKind === id ? ' go' : ''}" data-auckind="${id}">${label}</button>`).join('')}</div><div class="seg">${[['list','List'],['cards','Cards']].map(([id, label]) => `<button type="button" class="btn${aucView === id ? ' go' : ''}" data-aucview="${id}">${label}</button>`).join('')}</div></div>`;
+      body = `${tools}${source.length ? pageOf(source) : '<p class="prof-note">No live auctions. List a card from My Auctions.</p>'}`;
     }
-    const tabs = [['browse', 'Browse'], ['listings', 'My Listings'], ['bids', 'My Bids'], ['history', 'Ended']];
+    const tabs = [['browse', 'CURRENT'], ['bids', 'MY BIDS'], ['listings', 'MY AUCTIONS'], ['all', 'ALL']];
     const ov = $('#overlay');
     ov.classList.remove('hidden');
     ov.innerHTML = `<div id="auctionScreen"><div class="auc-wrap">
-      <div class="auc-title">AUCTION HOUSE</div>
-      <div class="auc-tabs">${tabs.map(([id, label]) => `<button type="button" class="btn${aucTab === id ? ' go' : ''}" data-auctab="${id}">${label}</button>`).join('')}</div>
+      <div class="auc-head"><div class="auc-tabs">${tabs.map(([id, label]) => `<button type="button" class="btn${aucTab === id || (id === 'all' && aucTab === 'history') ? ' go' : ''}" data-auctab="${id}">${label}</button>`).join('')}</div></div>
       ${body}
       <div class="go-btns"><button type="button" class="btn" id="btnAucHome">BACK</button></div>
     </div></div>`;
@@ -3069,9 +3101,9 @@
       if (res && res.ok) { aucTab = 'listings'; aucLot = null; liveProfile().then(showAuctions); }
     };
     const forceBtn = $('#btnAucForce');
-    if (forceBtn) forceBtn.onclick = async () => { await Promise.resolve(house.adminEnd(feature.id)); aucTab = 'history'; aucLot = null; showAuctions(); };
+    if (forceBtn) forceBtn.onclick = async () => { await Promise.resolve(house.adminEnd(feature.id)); aucTab = 'all'; aucLot = null; showAuctions(); };
     const adminCancel = $('#btnAucAdminCancel');
-    if (adminCancel) adminCancel.onclick = async () => { await Promise.resolve(house.adminCancel(feature.id)); aucTab = 'history'; aucLot = null; showAuctions(); };
+    if (adminCancel) adminCancel.onclick = async () => { await Promise.resolve(house.adminCancel(feature.id)); aucTab = 'all'; aucLot = null; showAuctions(); };
     const form = $('#aucListForm');
     if (form) form.onsubmit = async (ev) => {
       ev.preventDefault();
@@ -3080,11 +3112,18 @@
       toast('Listed ' + res.lot.card.name + '.');
       liveProfile().then(() => showAuctions());
     };
-    ['aucQ', 'aucArch', 'aucGold', 'aucSort'].forEach(id => {
-      const node = document.getElementById(id);
-      if (!node) return;
-      node.onchange = () => { aucQ = ($('#aucQ') && $('#aucQ').value) || ''; aucArch = $('#aucArch').value; aucGold = $('#aucGold').value; aucSort = $('#aucSort').value; showAuctions(); };
+    ov.querySelectorAll('[data-auckind]').forEach(btn => { btn.onclick = () => { aucKind = btn.dataset.auckind; aucPage = 1; showAuctions(); }; });
+    ov.querySelectorAll('[data-aucview]').forEach(btn => { btn.onclick = () => { aucView = btn.dataset.aucview; aucPage = 1; showAuctions(); }; });
+    ov.querySelectorAll('[data-wish]').forEach(btn => { btn.onclick = (ev) => { ev.stopPropagation(); toggleWish(btn.dataset.wish); showAuctions(); }; });
+    const prev = $('#aucPrev');
+    const next = $('#aucNext');
+    if (prev) prev.onclick = () => { aucPage -= 1; showAuctions(); };
+    if (next) next.onclick = () => { aucPage += 1; showAuctions(); };
+    document.querySelectorAll('#aucPrev, #aucNext').forEach(btn => {
+      if (btn === prev || btn === next) return;
+      btn.onclick = btn.id === 'aucPrev' ? () => { aucPage -= 1; showAuctions(); } : () => { aucPage += 1; showAuctions(); };
     });
+    paintAuctionSide();
     clearInterval(aucTimer);
     aucTimer = setInterval(() => {
       if (!$('#auctionScreen')) { clearInterval(aucTimer); return; }
@@ -3135,6 +3174,12 @@
   /* ---------- events ---------- */
   document.addEventListener('click', e => {
     if (!e.target.closest('.usermenu')) closeUserMenu();
+    if (!e.target.closest('.nav-drop')) {
+      const playPop = $('#playPop');
+      const morePop = $('#morePop');
+      if (playPop) playPop.classList.add('hidden');
+      if (morePop) morePop.classList.add('hidden');
+    }
     const keepTip = e.target.closest('.pullslot, .stagecard, .thumb, #packTip, .panel.collection .ccard, .panel.mine .ccard');
     if (!packCanHover() && !keepTip) hidePackTip();
     if (!packCanHover()) {
@@ -3146,6 +3191,39 @@
     if (pop && !pop.classList.contains('hidden') && !keep) { pop.classList.add('hidden'); pop.classList.remove('force'); }
     const t = e.target.closest('button, .handcard, .slot, .deckpick, .goalcard');
     if (!t) return;
+    if (t.id === 'btnNavMenu') {
+      const nav = $('#orbitNav');
+      if (!nav) return;
+      const open = nav.classList.toggle('is-open');
+      t.setAttribute('aria-expanded', open ? 'true' : 'false');
+      return;
+    }
+    if (t.id === 'btnPlayMenu' || t.id === 'btnMore') {
+      const pop = document.getElementById(t.id === 'btnPlayMenu' ? 'playPop' : 'morePop');
+      const other = document.getElementById(t.id === 'btnPlayMenu' ? 'morePop' : 'playPop');
+      if (other) other.classList.add('hidden');
+      if (pop) {
+        const open = pop.classList.toggle('hidden') === false;
+        t.setAttribute('aria-expanded', open ? 'true' : 'false');
+      }
+      return;
+    }
+    if (t.id === 'btnLogoHome') {
+      if (!window.TOB_AUTH.currentUser()) return showAuth('signup');
+      return showHome();
+    }
+    if (t.id === 'btnNavLogin') return showAuth('login');
+    if (t.id === 'btnTrades') {
+      if (!window.TOB_AUTH.currentUser()) return showAuth('login');
+      if (window.TOB_TRADES) return window.TOB_TRADES.show();
+    }
+    if (t.id === 'sidePromo') {
+      if (window.TOB_PVP) return window.TOB_PVP.show();
+    }
+    if (t.id === 'btnShopPacks') { shopTab = 'packs'; return showPacks(); }
+    if (t.id === 'btnShopCards') { shopTab = 'cards'; return showPacks(); }
+    if (t.id === 'btnShopGallery') return showCollection();
+    if (t.id === 'btnBuyOpenPack') return buyPack(true);
     if (t.id === 'btnReady') return finishPlay(false);
     if (t.id === 'btnDiscard') return finishDiscard();
     if (t.id === 'btnPreviewClose' || t.id === 'previewBackdrop') { $('#preview').classList.add('hidden'); return; }
@@ -3400,7 +3478,138 @@
       document.documentElement.classList.add('tilt');
     }, {passive: true});
   }
+  function tierFromRating(rating) {
+    const n = rating | 0;
+    if (n >= 1700) return 'Champion';
+    if (n >= 1550) return 'Diamond';
+    if (n >= 1400) return 'Platinum';
+    if (n >= 1250) return 'Gold';
+    if (n >= 1100) return 'Silver';
+    return 'Bronze';
+  }
+  function paintSideProfile() {
+    const box = document.getElementById('sideProfile');
+    if (!box) return;
+    const user = window.TOB_AUTH && window.TOB_AUTH.currentUser && window.TOB_AUTH.currentUser();
+    const profile = siteProfile;
+    if (!user) {
+      box.innerHTML = '<div class="side-letter side-ava">?</div><div class="side-name">Hello</div><p class="side-note">Log in to track cards, coins, and trades.</p>';
+      return;
+    }
+    const name = user.username || 'Player';
+    const owned = (profile && profile.collection) || [];
+    const unique = new Set(owned.map(rec => rec && rec.id).filter(Boolean)).size;
+    const avatarId = profile && profile.avatar && isPublicCard(profile.avatar) ? profile.avatar : '';
+    const face = avatarId
+      ? `<img class="side-ava" src="assets/cards/${encodeURIComponent(avatarId)}.webp" alt="">`
+      : `<div class="side-letter side-ava">${escPack(name.slice(0, 1).toUpperCase())}</div>`;
+    const tier = profile && profile.rating != null ? tierFromRating(profile.rating) : '';
+    const daily = profile ? dailyClockText() : '';
+    box.innerHTML = `${face}<div class="side-name">${escPack(name)}</div>
+      <div class="side-stat"><span>Points</span><b>${profile ? (profile.coins | 0) : 0}</b></div>
+      <div class="side-stat"><span>Unique cards</span><b>${unique}</b></div>
+      <div class="side-stat"><span>Total cards</span><b>${owned.length}</b></div>
+      ${daily ? `<div class="side-stat"><span>Daily reset</span><b id="sideDaily">${escPack(daily)}</b></div>` : ''}
+      ${tier ? `<div class="side-stat"><span>Rank</span><b class="tier tier-${tier.toLowerCase()}">${escPack(tier)}</b></div>` : ''}`;
+  }
+  function paintSidePanel(page) {
+    const panel = document.getElementById('sitePanel');
+    if (!panel) return;
+    const copy = {
+      home: ['Today', 'Live auctions and public matches sit on the board. The daily pack resets at midnight.'],
+      shop: ['Shop', 'Buy keeps a standard pack unopened. Buy & Open tears it now. Themed packs open immediately.'],
+      trades: ['Trades', 'Offer your cards and coins, and ask for theirs. Accept checks both collections again.'],
+      pvp: ['Ranked', 'Queue matches change your rating. Friend rooms and private challenges do not.'],
+      decks: ['Decks', 'Twelve cards. Drag or tap to build, then take the deck into Solo or Ranked.'],
+      gallery: ['Gallery', 'Every public toon. Tap a card for its power, color, and combos.'],
+      collection: ['Binder', 'Gold copies are cosmetic. They score the same as the standard print.'],
+      profile: ['Settings', 'Pin a showcase, answer friend requests, and check your record.'],
+      play: ['In a match', 'Drag a card onto a glowing slot, or tap the card and then tap the slot.'],
+      auth: ['Welcome', 'Make an account to keep your toons, or play a guest match on this device.'],
+    };
+    const pair = copy[page] || copy.home;
+    panel.innerHTML = `<div class="side-h">${pair[0]}</div><p class="side-note">${pair[1]}</p>`;
+  }
+  function paintAuctionSide() {
+    const panel = document.getElementById('sitePanel');
+    if (!panel) return;
+    const arches = [...new Set(CARD_LIST.map(c => c.archetype).filter(Boolean))].sort();
+    const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+    const rarities = ['Common', 'Uncommon', 'Rare', 'Legendary'];
+    panel.innerHTML = `<div class="side-h">Filters</div>
+      <label class="field">Search<input id="aucQ" value="${esc(aucQ)}" placeholder="Card name" aria-label="Search auctions"></label>
+      <div class="chip-row">${rarities.map(name => `<button type="button" class="btn chip${aucRarity === name ? ' go' : ''}" data-aucrare="${name}">${name}</button>`).join('')}</div>
+      <label class="field">Series<select id="aucArch" aria-label="Series"><option value="">All series</option>${arches.map(a => `<option value="${esc(a)}"${aucArch === a ? ' selected' : ''}>${esc(a)}</option>`).join('')}</select></label>
+      <label class="field">Finish<select id="aucGold" aria-label="Finish"><option value="">Any</option><option value="gold"${aucGold === 'gold' ? ' selected' : ''}>Gold</option><option value="standard"${aucGold === 'standard' ? ' selected' : ''}>Standard</option></select></label>
+      <label class="field">Min<input id="aucMin" type="number" min="0" value="${esc(aucMin)}" aria-label="Minimum price"></label>
+      <label class="field">Max<input id="aucMax" type="number" min="0" value="${esc(aucMax)}" aria-label="Maximum price"></label>
+      <label class="field">Sort by<select id="aucSort" aria-label="Sort"><option value="ending"${aucSort === 'ending' ? ' selected' : ''}>Ending Soon</option><option value="high"${aucSort === 'high' ? ' selected' : ''}>Highest price</option><option value="low"${aucSort === 'low' ? ' selected' : ''}>Lowest price</option></select></label>
+      <div class="chip-row">
+        <button type="button" class="btn chip${aucFeatured ? ' go' : ''}" id="aucFeatured">Featured</button>
+        <button type="button" class="btn chip${aucHasBids ? ' go' : ''}" id="aucHasBids">Has Bids</button>
+        <button type="button" class="btn chip${aucWishOnly ? ' go' : ''}" id="aucWishOnly">Wishlist</button>
+      </div>
+      <div class="seg">${[['all','All'],['owned','Owned'],['unowned','Unowned']].map(([id, label]) => `<button type="button" class="btn chip${aucOwn === id ? ' go' : ''}" data-aucown="${id}">${label}</button>`).join('')}</div>`;
+    const apply = () => {
+      aucQ = ($('#aucQ') && $('#aucQ').value) || '';
+      aucArch = $('#aucArch') ? $('#aucArch').value : '';
+      aucGold = $('#aucGold') ? $('#aucGold').value : '';
+      aucSort = $('#aucSort') ? $('#aucSort').value : 'ending';
+      aucMin = $('#aucMin') ? $('#aucMin').value : '';
+      aucMax = $('#aucMax') ? $('#aucMax').value : '';
+      aucPage = 1;
+      showAuctions();
+    };
+    ['aucQ', 'aucArch', 'aucGold', 'aucSort', 'aucMin', 'aucMax'].forEach(id => {
+      const node = document.getElementById(id);
+      if (node) node.onchange = apply;
+    });
+    panel.querySelectorAll('[data-aucrare]').forEach(btn => { btn.onclick = () => { aucRarity = aucRarity === btn.dataset.aucrare ? '' : btn.dataset.aucrare; aucPage = 1; showAuctions(); }; });
+    panel.querySelectorAll('[data-aucown]').forEach(btn => { btn.onclick = () => { aucOwn = btn.dataset.aucown; aucPage = 1; showAuctions(); }; });
+    const featBtn = $('#aucFeatured'); if (featBtn) featBtn.onclick = () => { aucFeatured = !aucFeatured; aucPage = 1; showAuctions(); };
+    const bidBtn = $('#aucHasBids'); if (bidBtn) bidBtn.onclick = () => { aucHasBids = !aucHasBids; aucPage = 1; showAuctions(); };
+    const wishBtn = $('#aucWishOnly'); if (wishBtn) wishBtn.onclick = () => { aucWishOnly = !aucWishOnly; aucPage = 1; showAuctions(); };
+  }
+  function orbitPage() {
+    if (document.getElementById('auctionScreen')) return 'auctions';
+    if (document.getElementById('packScreen')) return 'shop';
+    if (document.getElementById('tradeScreen')) return 'trades';
+    if (document.getElementById('pvpScreen')) return 'pvp';
+    if (document.getElementById('deckBuilder')) return 'decks';
+    if (document.getElementById('homeScreen')) return 'home';
+    if (document.getElementById('profileScreen')) return 'profile';
+    if (document.querySelector('#overlay .panel.collection')) return 'gallery';
+    if (document.querySelector('#overlay .panel.mine')) return 'collection';
+    if (document.querySelector('#overlay .panel.auth')) return 'auth';
+    const ov = document.getElementById('overlay');
+    if (ov && ov.classList.contains('hidden')) return 'play';
+    return 'home';
+  }
+  function paintOrbit() {
+    paintSideProfile();
+    const page = orbitPage();
+    const active = {home:'btnHome', shop:'btnPacks', auctions:'btnAuctions', trades:'btnTrades', pvp:'btnPlayMenu', decks:'btnDecks', gallery:'btnCollection', collection:'btnMyCollection', profile:'btnProfile', play:'btnPlayMenu', auth:'btnNavLogin'}[page];
+    document.querySelectorAll('#orbitNav .navpill').forEach(btn => btn.classList.toggle('on', btn.id === active));
+    if (page === 'auctions') paintAuctionSide();
+    else paintSidePanel(page);
+    if (window.TOB_TRADES && window.TOB_TRADES.paintBadge) window.TOB_TRADES.paintBadge();
+  }
+  let bannerStep = 0;
+  setInterval(() => {
+    const slides = document.querySelectorAll('.banner-slide');
+    if (slides.length < 2) return;
+    slides.forEach(slide => slide.classList.remove('on'));
+    bannerStep = (bannerStep + 1) % slides.length;
+    slides[bannerStep].classList.add('on');
+    const daily = document.getElementById('sideDaily');
+    if (daily) daily.textContent = dailyClockText();
+  }, 4000);
   inspect(null);
+  const overlayNode = document.getElementById('overlay');
+  if (overlayNode && window.MutationObserver) {
+    const orbitWatch = new MutationObserver(() => paintOrbit());
+    orbitWatch.observe(overlayNode, {childList: true, attributes: true, attributeFilter: ['class']});
+  }
   boot();
 
   function applyRemoteEconomy() {
