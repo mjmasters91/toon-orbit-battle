@@ -37,7 +37,7 @@ jobs:
         working-directory: desktop
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
-        run: npx electron-builder --win
+        run: npx electron-builder --win --publish never
 
       - name: Publish installer and portable exe
         uses: softprops/action-gh-release@v2
