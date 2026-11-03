@@ -351,14 +351,16 @@ begin
   elsif phase = 'discard' then
     if coalesce((side->>'discarded')::boolean, false) then return; end if;
     newhand := '[]'::jsonb;
-    if tier <> 'Bronze' and jsonb_array_length(hand) > 0 then
-      select value into best from jsonb_array_elements(hand) e
-      order by coalesce((select pts from public.cards where id = e.value->>'id'), 99), e.ordinality
+    best := null;
+    if tier <> 'Bronze' and coalesce(jsonb_array_length(hand), 0) > 0 then
+      select e.value into best
+      from jsonb_array_elements(hand) with ordinality as e(value, ordinality)
+      order by coalesce((select c.pts from public.cards c where c.id = e.value->>'id'), 99), e.ordinality
       limit 1;
     end if;
-    ord := 0;
+    dropped := false;
     for elem in select value from jsonb_array_elements(hand) loop
-      if best is not null and elem = best and ord = 0 then ord := 1;
+      if best is not null and not dropped and elem = best then dropped := true;
       else newhand := newhand || jsonb_build_array(elem); end if;
     end loop;
     draw := side->'deck';
@@ -700,3 +702,6 @@ $$;
 
 revoke execute on function public.pvp_standings() from public;
 grant execute on function public.pvp_standings() to anon, authenticated;
+
+-- Authenticated must not be able to truncate, attach triggers, or add foreign keys.
+revoke truncate, trigger, references on all tables in schema public from anon, authenticated;
