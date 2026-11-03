@@ -8,13 +8,13 @@
   // ===== CONFIG: seconds on the countdown for every timed phase (placement, discard, swap, silver). =====
   const PHASE_SECONDS = 30;
   const GOLD_CHANCE = 0.03;
-  const ECONOMY_DEFAULTS = {winCoins: 100, lossCoins: 25, packPrice: 300, auctionFee: 0};
+  const ECONOMY_DEFAULTS = {winCoins: 100, lossCoins: 25, packPrice: 300, themePrice: 400, themeWeekPrice: 350, auctionFee: 0};
   function readEconomy() {
-    const base = {winCoins: ECONOMY_DEFAULTS.winCoins, lossCoins: ECONOMY_DEFAULTS.lossCoins, packPrice: ECONOMY_DEFAULTS.packPrice};
+    const base = {winCoins: ECONOMY_DEFAULTS.winCoins, lossCoins: ECONOMY_DEFAULTS.lossCoins, packPrice: ECONOMY_DEFAULTS.packPrice, themePrice: ECONOMY_DEFAULTS.themePrice, themeWeekPrice: ECONOMY_DEFAULTS.themeWeekPrice, auctionFee: ECONOMY_DEFAULTS.auctionFee};
     try {
       const saved = JSON.parse(localStorage.getItem('tob_economy') || 'null');
       if (!saved) return base;
-      ['winCoins', 'lossCoins', 'packPrice', 'auctionFee'].forEach(k => {
+      ['winCoins', 'lossCoins', 'packPrice', 'themePrice', 'themeWeekPrice', 'auctionFee'].forEach(k => {
         const n = Math.round(Number(saved[k]));
         const capN = k === 'auctionFee' ? 50 : 1000000;
         if (Number.isFinite(n) && n >= 0 && n <= capN) base[k] = n;
@@ -759,6 +759,8 @@
   let packState = {packs: 0, lastDaily: null, coins: 0, role: 'player'};
   let stageToken = 0;
   let currentPulls = null;
+  let currentPackTheme = null;
+  let pullOwnedBefore = new Set();
   let flipped = [];
   let packSummaryShown = false;
   let packBusy = false;
@@ -815,8 +817,56 @@
     }
     return profile;
   }
-  function rollPack(ownedIds) {
-    const ids = CARD_LIST.map(c => c.id);
+  const THEMED_PACKS = [
+    {key: 'Candy Folk', icon: '🍬', hue: 330},
+    {key: 'Critters', icon: '🐾', hue: 28},
+    {key: 'Dinos', icon: '🦕', hue: 92},
+    {key: 'Dragons', icon: '🐉', hue: 8},
+    {key: 'Elementals', icon: '🔥', hue: 18},
+    {key: 'Fairies', icon: '🧚', hue: 300},
+    {key: 'Ghosts', icon: '👻', hue: 262},
+    {key: 'Knights', icon: '🛡️', hue: 45},
+    {key: 'Ninjas', icon: '🥷', hue: 222},
+    {key: 'Pirates', icon: '🏴‍☠️', hue: 200},
+    {key: 'Robots', icon: '🤖', hue: 188},
+    {key: 'Sea Creatures', icon: '🐙', hue: 168},
+    {key: 'Space Aliens', icon: '👽', hue: 128},
+    {key: 'Undead', icon: '💀', hue: 140},
+    {key: 'Wizards', icon: '🧙', hue: 268},
+  ];
+  function isoWeekNumber(date) {
+    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    const day = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - day);
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+  }
+  function liveThemes() {
+    return THEMED_PACKS.filter(theme => CARD_LIST.some(c => c.archetype === theme.key && !c.adminOnly && String(c.id).indexOf('ob_') !== 0));
+  }
+  function weekPack() {
+    const packs = liveThemes();
+    if (!packs.length) return null;
+    const n = isoWeekNumber(new Date());
+    return packs[(Math.max(1, n) - 1) % packs.length];
+  }
+  function priceForTheme(key) {
+    const full = ECONOMY.themePrice | 0;
+    const week = weekPack();
+    if (week && week.key === key) return ECONOMY.themeWeekPrice | 0;
+    return full;
+  }
+  function escPack(s) {
+    return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+  }
+  function publicPool(archetype) {
+    let pool = CARD_LIST.filter(c => c && !c.adminOnly && String(c.id).indexOf('ob_') !== 0);
+    if (archetype) pool = pool.filter(c => c.archetype === archetype);
+    return pool;
+  }
+  function rollPack(ownedIds, archetype) {
+    const pool = publicPool(archetype);
+    const ids = pool.map(c => c.id);
     const unowned = ids.filter(id => !ownedIds.has(id));
     const pulls = [];
     const forceAt = unowned.length ? Math.floor(Math.random() * 5) : -1;
@@ -843,11 +893,18 @@
     else if (kind === 'gold') { blip(880, 0.08, 'triangle', 0.06); blip(1320, 0.16, 'triangle', 0.05); }
     else blip(720, 0.1, 'triangle', 0.05);
   }
-  function foilMarkup() {
+  function foilMarkup(theme) {
     const bits = Array.from({length: 8}, (_, i) => `<i style="--i:${i}"></i>`).join('');
+    const icon = theme ? `<div class="foil-icon" aria-hidden="true">${theme.icon}</div>` : '<span class="foil-planet" aria-hidden="true"></span>';
+    const label = theme ? escPack(theme.key) : 'TOON PACK';
     return `<div class="foil-sheen"></div><div class="foil-tear"></div>
-      <div class="foil-face"><div class="foil-brand"><span class="foil-planet" aria-hidden="true"></span><span class="foil-words">TOON ORBIT <b>BATTLE</b></span></div><div class="foil-sub">TOON PACK</div></div>
+      <div class="foil-face"><div class="foil-brand">${icon}<span class="foil-words">TOON ORBIT <b>BATTLE</b></span></div><div class="foil-sub">${label}</div></div>
       <div class="foil-bits">${bits}</div>`;
+  }
+  function foilEl(theme, extra) {
+    const cls = 'foilpack' + (theme ? ' theme' : '') + (extra ? ' ' + extra : '');
+    const style = theme ? ` style="--ph:${theme.hue}"` : '';
+    return `<div class="${cls}"${style}>${foilMarkup(theme)}</div>`;
   }
   function goldBurst() {
     packSound('gold');
@@ -857,7 +914,7 @@
     const ray = el('div', 'goldray');
     document.body.appendChild(flash);
     document.body.appendChild(ray);
-    setTimeout(() => { flash.remove(); ray.remove(); }, 520);
+    setTimeout(() => { flash.remove(); ray.remove(); }, 720);
   }
   function showPacks() {
     closeUserMenu();
@@ -869,22 +926,68 @@
       const profile = await liveProfile();
       if (!profile) { showAuth('login'); return; }
       const claimed = profile.lastDaily === todayKey();
-      ov.innerHTML = `<div class="panel packs">
-        <div class="sb-title">Packs</div>
-        <div class="foilpack idle">${foilMarkup()}</div>
-        <div class="progress-line" id="packCount">${profile.packs | 0} unopened</div>
-        <div class="shop" id="packShop">
-          <div class="sb-title">Pack shop</div>
-          <div class="shop-price"><span class="coinicon" aria-hidden="true"></span> ${ECONOMY.packPrice} Orbit Coins</div>
-          <button type="button" class="btn go" id="btnBuyPack" ${(profile.coins | 0) < ECONOMY.packPrice ? 'disabled' : ''}>Buy pack</button>
-          <p class="shop-note" id="shopNote">${(profile.coins | 0) < ECONOMY.packPrice ? `You need ${ECONOMY.packPrice} Orbit Coins for a pack. You have ${profile.coins | 0}.` : 'Buy a pack with Orbit Coins. No real money.'}</p>
-        </div>
-        <div class="tag">Five toons. One is new when you still have cards to find. Each copy has a ${Math.round(GOLD_CHANCE * 100)}% chance to be gold.</div>
-        <div class="go-btns">
-          <button type="button" class="btn go" id="btnOpenPack" ${(profile.packs | 0) < 1 ? 'disabled' : ''}>Open pack</button>
-          <button type="button" class="btn" id="btnDaily" ${claimed ? 'disabled' : ''}>${claimed ? 'Daily pack claimed' : 'Claim daily pack'}</button>
-          <button type="button" class="btn" id="btnPackBack">BACK</button>
-        </div>
+      const coins = profile.coins | 0;
+      const week = weekPack();
+      const full = ECONOMY.themePrice | 0;
+      const themes = liveThemes().filter(theme => !week || theme.key !== week.key);
+      const packArt = theme => foilEl(theme, 'mini');
+      const priceLine = theme => {
+        const price = priceForTheme(theme.key);
+        const sale = week && theme.key === week.key && price < full;
+        return `<div class="shop-price">${sale ? `<s>${full}</s> ` : ''}<span class="coinicon" aria-hidden="true"></span> ${price}</div>`;
+      };
+      const buyBtn = theme => {
+        const price = priceForTheme(theme.key);
+        return `<button type="button" class="btn go" data-buytheme="${escPack(theme.key)}" ${coins >= price ? '' : 'disabled'}>Buy & open</button>`;
+      };
+      const cardCount = key => CARD_LIST.filter(c => c.archetype === key).length;
+      const hero = week ? `<article class="shop-pack week">
+          <div class="weekbadge">PACK OF THE WEEK</div>
+          ${foilEl(week, 'feature')}
+          <div class="shop-copy">
+            <div class="shop-name">${week.icon} ${escPack(week.key)}</div>
+            <p>${cardCount(week.key)} ${escPack(week.key)} cards. ${Math.round(GOLD_CHANCE * 100)}% gold. No Obsidian cards.</p>
+            ${priceLine(week)}
+            ${buyBtn(week)}
+          </div>
+        </article>` : '';
+      const grid = themes.map(theme => `<article class="shop-pack">
+          ${packArt(theme)}
+          <div class="shop-name">${theme.icon} ${escPack(theme.key)}</div>
+          <div class="shop-count">${cardCount(theme.key)} cards</div>
+          ${priceLine(theme)}
+          ${buyBtn(theme)}
+        </article>`).join('');
+      ov.innerHTML = `<div id="packScreen">
+        <header class="pack-top">
+          <div class="pack-title">PACKS</div>
+          <div class="pack-coins"><span class="coinicon" aria-hidden="true"></span> ${coins}</div>
+          <button type="button" class="btn" id="btnPackBack">Home</button>
+        </header>
+        <section class="pack-hold">
+          ${foilEl(null, 'idle mini')}
+          <div class="progress-line" id="packCount">${profile.packs | 0} standard pack${(profile.packs | 0) === 1 ? '' : 's'} to open</div>
+          <div class="go-btns">
+            <button type="button" class="btn go" id="btnOpenPack" ${(profile.packs | 0) < 1 ? 'disabled' : ''}>Open pack</button>
+            <button type="button" class="btn" id="btnDaily" ${claimed ? 'disabled' : ''}>${claimed ? 'Daily pack claimed' : 'Claim daily pack'}</button>
+          </div>
+        </section>
+        <section class="pack-shop">
+          <div class="shop-head">Pack shop</div>
+          <p class="shop-note">Themed packs open immediately and only contain that archetype. A standard pack is any card and waits in your stack.</p>
+          ${hero}
+          <div class="shop-grid">${grid}</div>
+          <article class="shop-pack standard">
+            ${foilEl(null, 'mini')}
+            <div class="shop-copy">
+              <div class="shop-name">Standard pack</div>
+              <p>Any public card. One new card when you still have some to find.</p>
+              <div class="shop-price"><span class="coinicon" aria-hidden="true"></span> ${ECONOMY.packPrice | 0}</div>
+              <button type="button" class="btn go" id="btnBuyPack" ${coins < (ECONOMY.packPrice | 0) ? 'disabled' : ''}>Buy pack</button>
+            </div>
+          </article>
+          <p class="tag">Each copy has a ${Math.round(GOLD_CHANCE * 100)}% chance to be gold. Nothing in these packs is guaranteed gold.</p>
+        </section>
       </div>`;
       $('#btnPackBack').onclick = () => showHome();
     };
@@ -906,8 +1009,8 @@
   async function buyPack() {
     const profile = await liveProfile();
     if (!profile) return;
-    if ((profile.coins | 0) < ECONOMY.packPrice) return;
-    profile.coins = (profile.coins | 0) - ECONOMY.packPrice;
+    if ((profile.coins | 0) < (ECONOMY.packPrice | 0)) return;
+    profile.coins = (profile.coins | 0) - (ECONOMY.packPrice | 0);
     profile.packs = (profile.packs | 0) + 1;
     const saved = await window.TOB_AUTH.saveProfile(profile);
     if (!saved || !saved.ok) return;
@@ -1143,6 +1246,8 @@
         <label>Win <input id="ecoWin" type="number" min="0" value="${ECONOMY.winCoins}"></label>
         <label>Loss <input id="ecoLoss" type="number" min="0" value="${ECONOMY.lossCoins}"></label>
         <label>Pack <input id="ecoPrice" type="number" min="0" value="${ECONOMY.packPrice}"></label>
+        <label>Theme pack <input id="ecoTheme" type="number" min="0" value="${ECONOMY.themePrice | 0}"></label>
+        <label>Week pack <input id="ecoWeek" type="number" min="0" value="${ECONOMY.themeWeekPrice | 0}"></label>
         <label>Auction fee % <input id="ecoFee" type="number" min="0" max="50" value="${ECONOMY.auctionFee | 0}"></label>
         <button type="button" class="btn go" id="btnSaveEcon">Save economy</button>
       </div>
@@ -1155,6 +1260,8 @@
         winCoins: clampInt($('#ecoWin').value, ECONOMY.winCoins),
         lossCoins: clampInt($('#ecoLoss').value, ECONOMY.lossCoins),
         packPrice: clampInt($('#ecoPrice').value, ECONOMY.packPrice),
+        themePrice: clampInt($('#ecoTheme').value, ECONOMY.themePrice | 0),
+        themeWeekPrice: clampInt($('#ecoWeek').value, ECONOMY.themeWeekPrice | 0),
         auctionFee: Math.min(50, clampInt($('#ecoFee').value, ECONOMY.auctionFee | 0)),
       });
       toast('Saved economy');
@@ -1213,6 +1320,40 @@
     toast(customToast || ((labels[act] || 'Saved ') + profile.username));
     showAdmin();
   }
+  async function beginPull(profile, pulls, before) {
+    profile.stats = profile.stats || {};
+    profile.stats.packsOpened = (profile.stats.packsOpened | 0) + 1;
+    profile.collection = before.concat(pulls.map(p => ({id: p.id, gold: !!p.gold, uid: p.uid})));
+    const saved = await window.TOB_AUTH.saveProfile(profile);
+    if (!saved || !saved.ok) return false;
+    rememberPacks(profile);
+    currentPulls = annotatePulls(pulls, before);
+    pullOwnedBefore = new Set(before.map(rec => rec && rec.id).filter(Boolean));
+    flipped = currentPulls.map(() => false);
+    packSummaryShown = false;
+    await playPull();
+    return true;
+  }
+  async function buyThemePack(key) {
+    if (packBusy) return;
+    const theme = liveThemes().find(item => item.key === key);
+    if (!theme) return;
+    const price = priceForTheme(theme.key);
+    packBusy = true;
+    try {
+      const profile = await liveProfile();
+      if (!profile) return;
+      if ((profile.coins | 0) < price) { toast('Not enough Orbit Coins'); return; }
+      const before = (profile.collection || []).slice();
+      const pulls = rollPack(new Set(before.map(rec => rec && rec.id).filter(Boolean)), theme.key);
+      profile.coins = (profile.coins | 0) - price;
+      currentPackTheme = theme;
+      const ok = await beginPull(profile, pulls, before);
+      if (!ok) toast('Could not open that pack');
+    } finally {
+      packBusy = false;
+    }
+  }
   async function openPack() {
     if (packBusy) return;
     packBusy = true;
@@ -1221,18 +1362,9 @@
       if (!profile || (profile.packs | 0) < 1) return;
       const before = (profile.collection || []).slice();
       const pulls = rollPack(new Set(before.map(rec => rec && rec.id).filter(Boolean)));
-      const annotated = annotatePulls(pulls, before);
       profile.packs = (profile.packs | 0) - 1;
-      profile.stats = profile.stats || {};
-      profile.stats.packsOpened = (profile.stats.packsOpened | 0) + 1;
-      profile.collection = before.concat(pulls.map(p => ({id: p.id, gold: !!p.gold, uid: p.uid})));
-      const saved = await window.TOB_AUTH.saveProfile(profile);
-      if (!saved || !saved.ok) return;
-      rememberPacks(profile);
-      currentPulls = annotated;
-      flipped = annotated.map(() => false);
-      packSummaryShown = false;
-      await playPull();
+      currentPackTheme = null;
+      await beginPull(profile, pulls, before);
     } finally {
       packBusy = false;
     }
@@ -1250,35 +1382,112 @@
       ${pullTagHTML(pull)}
       <span class="pull-inner">
         <span class="pull-back">${backHTML()}</span>
-        <span class="pull-front">${cardHTML(copy, null, true)}</span>
+        <span class="pull-front">${cardHTML(copy, null, true)}${pull.gold ? '<span class="goldsweep"></span>' : ''}</span>
       </span>
     </button>`;
   }
-  function thumbHTML(pull) {
-    const copy = COPIES.makeCopy(pull.id, {gold: pull.gold, uid: pull.uid});
-    return `<div class="thumb">${cardHTML(copy, null, true)}</div>`;
+  function pullComboFacts(card, ownedBefore, pullIds) {
+    const book = window.TOB_COMBOS;
+    if (!book || !card) return [];
+    const facts = [];
+    const idState = id => pullIds.has(id) ? 'pack' : ownedBefore.has(id) ? 'own' : 'miss';
+    (book.sets || []).filter(s => s.ids.includes(card.id)).forEach(s => {
+      facts.push({
+        name: s.name,
+        bonus: s.bonus,
+        partners: s.ids.filter(id => id !== card.id).map(id => ({name: CARDS[id] ? CARDS[id].name : id, state: idState(id)})),
+      });
+    });
+    (book.pairs || []).filter(p => card.archetype && (p.a === card.archetype || p.b === card.archetype)).forEach(p => {
+      const other = p.a === card.archetype ? p.b : p.a;
+      const inPull = [...pullIds].some(id => CARDS[id] && CARDS[id].archetype === other);
+      const had = [...ownedBefore].some(id => CARDS[id] && CARDS[id].archetype === other);
+      facts.push({name: p.name, bonus: p.bonus, partners: [{name: other, state: inPull ? 'pack' : had ? 'own' : 'miss'}]});
+    });
+    return facts;
+  }
+  function statsHTML(pull, withPuck) {
+    const card = CARDS[pull.id];
+    if (!card) return '';
+    const copy = COPIES.makeCopy(pull.id, {gold: !!pull.gold, uid: pull.uid});
+    const pullIds = new Set((currentPulls || []).map(item => item.id));
+    const facts = pullComboFacts(card, pullOwnedBefore, pullIds);
+    const mark = state => state === 'pack' ? 'is-pack' : state === 'own' ? 'is-own' : 'is-miss';
+    const markText = state => state === 'pack' ? 'In this pack' : state === 'own' ? 'Owned' : 'Not owned';
+    const factHtml = facts.length ? facts.map(fact => `<div class="ps-fact"><span class="db-badge">COMBO</span> <b>${escPack(fact.name)}</b> +${fact.bonus}<ul>${fact.partners.map(p => `<li class="${mark(p.state)}">${markText(p.state)} · ${escPack(p.name)}</li>`).join('')}</ul></div>`).join('') : '<p class="ps-skill">No named crew or archetype pair on this card.</p>';
+    const power = card.power && card.power !== 'No Power' ? card.power : 'No power.';
+    return `<div class="pullstats">
+      ${withPuck ? `<div class="ps-puck">${cardHTML(copy, null, true)}</div>` : ''}
+      <div class="ps-name">${escPack(card.name)}</div>
+      <div class="ps-line"><b>${card.pts} power</b> · <i class="gem" style="background:${COLORS[card.color]}"></i> ${escPack(cap(card.color))}${pull.gold ? ' · Gold' : ''}</div>
+      <div class="ps-line">${escPack(card.archetype || 'No archetype')} · ${escPack(card.group || '')}</div>
+      <p class="ps-skill">${escPack(power)}</p>
+      ${pull.isNew ? '<div class="pulltags"><span class="newtag">NEW!</span></div>' : ''}
+      <div class="ps-h">Combos</div>
+      ${factHtml}
+    </div>`;
+  }
+  function combosFromPull(pulls) {
+    const pullIds = new Set(pulls.map(p => p.id));
+    const have = new Set(pullOwnedBefore);
+    pullIds.forEach(id => have.add(id));
+    const book = window.TOB_COMBOS || {sets: [], pairs: []};
+    const lines = [];
+    (book.sets || []).forEach(s => {
+      const now = s.ids.every(id => have.has(id));
+      const before = s.ids.every(id => pullOwnedBefore.has(id));
+      if (now && !before && s.ids.some(id => pullIds.has(id))) lines.push(s.name + ' +' + s.bonus);
+    });
+    const arches = ids => {
+      const set = new Set();
+      ids.forEach(id => { const card = CARDS[id]; if (card && card.archetype) set.add(card.archetype); });
+      return set;
+    };
+    const beforeArch = arches(pullOwnedBefore);
+    const nowArch = arches(have);
+    (book.pairs || []).forEach(p => {
+      const now = nowArch.has(p.a) && nowArch.has(p.b);
+      const before = beforeArch.has(p.a) && beforeArch.has(p.b);
+      const touched = pulls.some(pull => {
+        const card = CARDS[pull.id];
+        return card && (card.archetype === p.a || card.archetype === p.b);
+      });
+      if (now && !before && touched) lines.push(p.name + ' +' + p.bonus);
+    });
+    return lines;
   }
   async function playPull() {
     const ov = $('#overlay');
     ov.classList.remove('hidden');
     const reduce = reduceMotion();
-    ov.innerHTML = `<div class="packtake"><div class="foilpack${reduce ? ' tear' : ' shake'}" id="foilPack">${foilMarkup()}</div></div>`;
+    const theme = currentPackTheme;
+    ov.innerHTML = `<div class="packtake"><div class="foilpack${theme ? ' theme' : ''}${reduce ? ' tear' : ' shake'}" id="foilPack"${theme ? ` style="--ph:${theme.hue}"` : ''}>${foilMarkup(theme)}</div></div>`;
     packSound('shake');
-    if (!reduce) await wait(700);
+    if (!reduce) await wait(920);
     const pack = $('#foilPack');
     if (pack) pack.classList.add('tear');
     packSound('tear');
-    if (!reduce) await wait(420);
+    if (!reduce) await wait(560);
     renderStage();
   }
   function renderStage() {
     const i = flipped.findIndex(v => !v);
     if (i < 0) { showPackSummary(); return; }
-    const done = currentPulls.map((pull, idx) => flipped[idx] ? thumbHTML(pull) : '').join('');
+    const done = currentPulls.map((pull, idx) => {
+      if (!flipped[idx]) return '';
+      const copy = COPIES.makeCopy(pull.id, {gold: pull.gold, uid: pull.uid});
+      return `<button type="button" class="thumb" data-pull="${idx}">${cardHTML(copy, null, true)}</button>`;
+    }).join('');
     $('#overlay').innerHTML = `<div class="packtake">
-      <div class="stagehint">Tap to flip</div>
-      <div class="stagewrap">${stageCard(currentPulls[i], i)}</div>
-      <button type="button" class="btn go" id="btnRevealAll">Reveal all</button>
+      <div class="stagehint">${currentPackTheme ? escPack(currentPackTheme.icon + ' ' + currentPackTheme.key) : 'Standard pack'} · tap the card</div>
+      <div class="packstage">
+        <div class="stagewrap">${stageCard(currentPulls[i], i)}</div>
+        <div id="pullStats"><p class="ps-wait">Flip the card to read its power and combos.</p></div>
+      </div>
+      <div class="go-btns">
+        <button type="button" class="btn go" id="btnNextPull" data-i="${i}" hidden>Next card</button>
+        <button type="button" class="btn" id="btnRevealAll">Reveal all</button>
+      </div>
       <div class="dock">${done}</div>
     </div>`;
   }
@@ -1289,14 +1498,18 @@
     node.classList.add('flipped');
     packSound('flip');
     if (currentPulls[i].gold) goldBurst();
-    const token = ++stageToken;
-    const hold = reduceMotion() ? 0 : 1000;
-    setTimeout(() => {
-      if (token !== stageToken || packSummaryShown) return;
-      flipped[i] = true;
-      if (flipped.every(Boolean)) showPackSummary();
-      else renderStage();
-    }, hold);
+    const box = document.getElementById('pullStats');
+    if (box) box.innerHTML = statsHTML(currentPulls[i], false);
+    const next = document.getElementById('btnNextPull');
+    if (next) next.hidden = false;
+  }
+  function advancePull(i) {
+    if (!currentPulls || packSummaryShown || !flipped) return;
+    const node = document.querySelector('.stagecard');
+    if (!node || !node.classList.contains('flipped') || +node.dataset.i !== i) return;
+    flipped[i] = true;
+    if (flipped.every(Boolean)) showPackSummary();
+    else renderStage();
   }
   function revealAll() {
     if (!currentPulls || packSummaryShown) return;
@@ -1306,26 +1519,49 @@
     if (unseenGold) goldBurst();
     showPackSummary();
   }
+  function openPullStats(i) {
+    const pull = currentPulls && currentPulls[i];
+    const host = document.querySelector('.packtake');
+    if (!pull || !host) return;
+    let sheet = document.getElementById('pullSheet');
+    if (!sheet) {
+      sheet = document.createElement('div');
+      sheet.id = 'pullSheet';
+      host.appendChild(sheet);
+    }
+    sheet.className = 'pullsheet open';
+    sheet.innerHTML = `<button type="button" class="btn" id="btnClosePull">Close</button>${statsHTML(pull, true)}`;
+  }
   function showPackSummary() {
     if (packSummaryShown || !currentPulls) return;
     packSummaryShown = true;
     stageToken++;
     const fresh = currentPulls.filter(p => p.isNew).length;
     const golds = currentPulls.filter(p => p.gold).length;
-    const slots = currentPulls.map(pull => {
+    const power = currentPulls.reduce((sum, pull) => sum + ((CARDS[pull.id] && CARDS[pull.id].pts) || 0), 0);
+    const made = combosFromPull(currentPulls);
+    const slots = currentPulls.map((pull, i) => {
+      const card = CARDS[pull.id];
       const copy = COPIES.makeCopy(pull.id, {gold: pull.gold, uid: pull.uid});
-      return `<div class="pullslot">${pullTagHTML(pull)}<div class="pullshown">${cardHTML(copy, null, true)}</div></div>`;
+      const combo = card && window.TOB_COMBOS && window.TOB_COMBOS.cardInCombo(card);
+      return `<button type="button" class="pullslot${pull.gold ? ' is-gold' : ''}" data-pull="${i}">
+        ${pullTagHTML(pull)}
+        <span class="pullshown">${cardHTML(copy, null, true)}</span>
+        <span class="pullname">${escPack(card ? card.name : pull.id)}</span>
+        <span class="pullmeta"><i class="gem" style="background:${card ? COLORS[card.color] : '#888'}"></i> ${card ? card.pts : 0} pts${combo ? '<i class="db-cdot" title="Combo card"></i>' : ''}</span>
+      </button>`;
     }).join('');
     $('#overlay').innerHTML = `<div class="packtake summarytake">
       <div class="reward-title pack-summary" id="packSummary">${fresh} new, ${golds} gold</div>
       <div class="pullgrid">${slots}</div>
+      <div class="pulltotal">Total power ${power}</div>
+      <div class="pullmade"><b>You can now make:</b> ${made.length ? escPack(made.join(', ')) : 'no new combo from this pack.'}</div>
       <div class="go-btns">
         <button type="button" class="btn go" id="btnOpenAnother" ${packState.packs > 0 ? '' : 'disabled'}>Open another</button>
-        <button type="button" class="btn" id="btnViewPackCollection">View collection</button>
+        <button type="button" class="btn" id="btnPackBuilder">Go to Deck Builder</button>
       </div>
     </div>`;
   }
-
   /* ---------- deck selection / builder ---------- */
   let lastDeck = null;
   const OPP_NAMES = {galaxy: 'Commander Kix', spooky: 'Baron Boo', barnyard: 'Farmer Fizz', sprout: 'Professor Sprig', batch1: 'Captain Crumble', custom: 'Mystery Rival'};
@@ -2493,10 +2729,15 @@
     if (t.id === 'btnAdmin' || t.id === 'btnHomeAdmin') return showAdmin();
     if (t.id === 'btnProfile' || t.id === 'btnProfileGreet' || t.id === 'btnUserProfile') { closeUserMenu(); return showProfile(); }
     if (t.id === 'btnHomeOut') { doLogOut(); return; }
+    if (t.dataset.buytheme) return buyThemePack(t.dataset.buytheme);
     if (t.id === 'btnBuyPack') return buyPack();
     if (t.id === 'btnOpenPack' || t.id === 'btnOpenAnother') return openPack();
     if (t.id === 'btnDaily') return claimDaily();
+    if (t.id === 'btnNextPull') return advancePull(+t.dataset.i);
     if (t.id === 'btnRevealAll') return revealAll();
+    if (t.id === 'btnClosePull') { const sheet = document.getElementById('pullSheet'); if (sheet) sheet.remove(); return; }
+    if (t.id === 'btnPackBuilder') return showBuilder('home');
+    if (t.dataset.pull != null && (t.classList.contains('pullslot') || t.classList.contains('thumb'))) return openPullStats(+t.dataset.pull);
     if (t.classList.contains('pullcard')) return flipPull(+t.dataset.i);
     if (t.id === 'btnViewPackCollection') return showMyCollection();
     if (t.id === 'btnMyCollection') return showMyCollection();
