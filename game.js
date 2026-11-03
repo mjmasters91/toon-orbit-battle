@@ -2643,7 +2643,7 @@
       const canAdd = !!row || sel.length < 12;
       return `<div class="db-puck db-hero">${cardHTML(face, null, true)}</div>
         <div class="db-dname">${esc(card.name)}</div>
-        <p class="db-meta">${card.pts} pts · ${esc(cap(card.color))} · ${esc(card.archetype || card.group)}${row && row.gold ? ' · Gold' : ''}</p>
+        <p class="db-meta"><span class="db-chipstat">${card.pts} pts</span><span class="db-chipstat"><i style="background:${COLORS[card.color]}"></i>${esc(cap(card.color))}</span><span class="db-chipstat">${esc(card.archetype || card.group || 'No type')}</span>${row && row.gold ? '<span class="db-chipstat">Gold</span>' : ''}</p>
         <p class="db-power">${esc(card.power && card.power !== 'No Power' ? card.power : 'No power.')}</p>
         ${extras}
         ${factHtml(card, selIds) || '<p class="db-power">No named crew or archetype pair on this card.</p>'}
@@ -2681,7 +2681,7 @@
       }).join('');
       return `<div class="db-deckhead">YOUR DECK <b>${sel.length}/12</b> · ${pts} pts</div>
         <div class="db-decktools"><button type="button" class="btn" id="btnClearDeck" ${sel.length ? '' : 'disabled'}>Clear deck</button></div>
-        <div class="db-colors">${Object.entries(colors).map(([c, n]) => `<span><i style="background:${COLORS[c]}"></i>${n} ${esc(cap(c))}</span>`).join('') || '<span>No colors yet</span>'}</div>
+        <div class="db-colors">${Object.entries(colors).map(([c, n]) => `<span class="db-colorchip" style="--cc:${COLORS[c]}"><i style="background:${COLORS[c]}"></i>${n} ${esc(cap(c))}</span>`).join('') || '<span class="db-colorchip">No colors yet</span>'}</div>
         <div class="yd-list">${deckRows || '<p class="db-empty">Your deck is empty. Add cards from the list. They show up here.</p>'}</div>
         <div class="db-active"><b>Active combos in this deck</b>${report.active.length ? report.active.map(line => `<p>${esc(line)}</p>`).join('') : '<p>None yet. Add a full crew or both sides of a pair.</p>'}</div>
         <div class="db-active"><b>Partners you own</b>${report.suggest.length ? report.suggest.map(line => `<p>${esc(line)}</p>`).join('') : '<p>No missing partner sitting in your collection.</p>'}</div>`;
