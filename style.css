@@ -1050,6 +1050,7 @@ body::before { display: none; }
   padding: 6px; background: #0d2f5e; border: 3px solid #4fa3e0; border-radius: 10px; min-width: 140px;
 }
 .nav-pop.hidden { display: none; }
+.nav-note { margin: 2px 4px 0; max-width: 240px; color: #d7ecff; font: 700 11px/1.35 Nunito, "Noto Sans", sans-serif; }
 .orbit-body { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 10px; padding: 0 10px 12px; align-items: start; }
 .site-side { display: flex; flex-direction: column; gap: 8px; }
 .side-card, .side-promo {

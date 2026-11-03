@@ -1,0 +1,62 @@
+{
+  "name": "toon-orbit-battle",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Windows desktop window for Toon Orbit Battle.",
+  "author": "mjmasters91",
+  "license": "UNLICENSED",
+  "main": "main.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mjmasters91/toon-orbit-battle.git"
+  },
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win"
+  },
+  "dependencies": {
+    "electron-updater": "6.6.2"
+  },
+  "devDependencies": {
+    "electron": "33.4.11",
+    "electron-builder": "25.1.8"
+  },
+  "build": {
+    "appId": "com.mjmasters91.toonorbitbattle",
+    "productName": "Toon Orbit Battle",
+    "executableName": "ToonOrbitBattle",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "offline.html",
+      "package.json"
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "shortcutName": "Toon Orbit Battle",
+      "artifactName": "ToonOrbitBattle-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "ToonOrbitBattle-Portable-${version}.${ext}"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "mjmasters91",
+        "repo": "toon-orbit-battle"
+      }
+    ]
+  }
+}

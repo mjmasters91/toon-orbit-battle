@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Toon Orbit Battle</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  html, body { margin: 0; height: 100%; }
+  body {
+    display: flex; align-items: center; justify-content: center;
+    background: #3a6ea5; color: #f4fbff;
+    font: 700 18px/1.4 Nunito, "Segoe UI", sans-serif;
+  }
+  .card {
+    width: min(440px, calc(100% - 32px)); padding: 28px 24px; text-align: center;
+    background: #0d2f5e; border: 3px solid #4fa3e0; border-radius: 12px;
+  }
+  h1 { margin: 0 0 8px; font-size: 28px; }
+  p { margin: 0 0 18px; color: #d7ecff; font-weight: 650; }
+  button {
+    font: 800 16px/1 Nunito, "Segoe UI", sans-serif; color: #17340a; cursor: pointer;
+    border: 2px solid #3d6e12; border-radius: 999px; padding: 12px 22px;
+    background: linear-gradient(180deg, #c6f56a, #7ed321);
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>You're offline</h1>
+    <p>Toon Orbit Battle couldn't reach the game. Check your connection, then try again.</p>
+    <button type="button" id="retry">Retry</button>
+  </div>
+  <script>
+    document.getElementById('retry').addEventListener('click', () => {
+      location.href = 'https://mjmasters91.github.io/toon-orbit-battle/';
+    });
+  </script>
+</body>
+</html>
