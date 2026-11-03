@@ -183,9 +183,10 @@
     const hidden = G.round < 2 && i >= 4;
     const glowing = ev && ev.combos && ev.combos.some(c => c.side === side && c.slots.includes(i));
     let inner = '';
-    if (card) {
-      if (G.shown[side][i]) inner = cardHTML(card, ev.cells[side][i], true);
-      else if (side === 'p') {
+    if (card && card.hidden) inner = backHTML();
+    else if (card) {
+      if (G.shown[side][i] && card.id) inner = cardHTML(card, ev.cells[side][i], true);
+      else if (side === 'p' && !G.spectate && card.id) {
         const faceDown = i === 6 && !G.phase.startsWith('PLAY');
         inner = `<div class="pending">${cardHTML(card, null, true)}${faceDown ? '<div class="pend-tag">Face down</div>' : ''}</div>`;
       }
@@ -239,7 +240,7 @@
       <div class="sb-title">Score</div>
       <div class="sb-goal">${goalTxt}</div>
       <div class="sb-scores">
-        <div class="sb-side me"><div class="sb-name">YOU</div><div class="sb-num" id="sb-p">${ev.score.p}</div>${bon('p')}${pen('p')}${crew('p') ? `<div class="bon crew">${crew('p')}</div>` : ''}</div>
+        <div class="sb-side me"><div class="sb-name">${G.spectate ? (G.pName || 'HOST').toUpperCase() : 'YOU'}</div><div class="sb-num" id="sb-p">${ev.score.p}</div>${bon('p')}${pen('p')}${crew('p') ? `<div class="bon crew">${crew('p')}</div>` : ''}</div>
         <div class="sb-vs">VS</div>
         <div class="sb-side opp"><div class="sb-name">${G.oName.toUpperCase()}</div><div class="sb-num" id="sb-o">${ev.score.o}</div>${bon('o')}${pen('o')}${crew('o') ? `<div class="bon crew">${crew('o')}</div>` : ''}</div>
       </div>
@@ -255,7 +256,10 @@
 
   /* ---------- phase/timer helpers ---------- */
   function setMsg(t) { $('#phaseMsg').innerHTML = t; }
-  function setActions(html) { $('#actions').innerHTML = html; }
+  function setActions(html) {
+    if (G && G.liveId && !G.spectate) html += '<button class="btn" id="pvpResign">Resign</button>';
+    $('#actions').innerHTML = html;
+  }
   function startTimer(secs, onTimeout) {
     stopTimer();
     let left = secs; const t = $('#timer');
@@ -293,7 +297,8 @@
 
   async function flipSeq(list) {
     for (const [side, slot] of list) {
-      if (!G.boards[side][slot]) continue;
+      const card = G.boards[side][slot];
+      if (!card || card.hidden || !card.id) continue;
       G.shown[side][slot] = true; blip(side === 'p' ? 520 : 440, 0.07);
       render();
       announceCombos();
@@ -338,14 +343,17 @@
     if (G.phase.startsWith('PLAY')) b.disabled = activeSlots().some(i => !G.boards.p[i]);
   }
   function placeCard(handIdx, slot) {
+    if (!G || G.spectate || G.rankBusy || G.myTurn === false) return;
     if (!G.phase.startsWith('PLAY') || !activeSlots().includes(slot) || G.boards.p[slot]) return;
     const [c] = G.pHand.splice(handIdx, 1); G.boards.p[slot] = c; G.selected = -1; blip(700, 0.05);
     lastPlace = performance.now();
     render(); updateReady();
     const cell = document.querySelector(`.slot[data-side="p"][data-slot="${slot}"] .card`);
     if (cell) cell.classList.add('dropin');
+    if (G.liveId && G.alternate) finishServerPlay(false);
   }
   function unplace(slot) {
+    if (G && G.sent && G.sent[slot]) return;
     if (!G.phase.startsWith('PLAY') || !activeSlots().includes(slot) || !G.boards.p[slot]) return;
     G.pHand.push(G.boards.p[slot]); G.boards.p[slot] = null; render(); updateReady();
   }
@@ -365,81 +373,290 @@
     return COPIES.makeCopy(entry.id, {gold: !!entry.gold});
   }
   function copyList(list) { return (list || []).map(copyEntry).filter(Boolean); }
+  function serverOn() { return !!(G && (G.rankedId || G.liveId)); }
+  function serverId() { return G && (G.rankedId || G.liveId); }
   function touchRanked() {
     if (G && G.rankedId && window.TOB_PVP && window.TOB_PVP.bumpBotClock) window.TOB_PVP.bumpBotClock(G.rankedId);
   }
-  async function playRankedBot(match) {
-    window.TOB.battleLock = null;
-    const ov = $('#overlay');
-    if (ov) { ov.classList.add('hidden'); ov.innerHTML = ''; }
-    hidePreview();
-    const host = (match.state && match.state.host) || {};
-    const guest = (match.state && match.state.guest) || {};
-    const pGoal = copyEntry(host.goal);
-    const oGoal = copyEntry(guest.goal);
-    G = {
-      phase: 'INTRO', oName: match.bot_name || match.guest_name || 'Orbit Bot',
-      pDeck: copyList(host.deck), oDeck: copyList(guest.deck),
-      pHand: copyList(host.hand), oHand: copyList(guest.hand),
-      pDiscard: [], oDiscard: [],
-      goalCards: {p: pGoal, o: oGoal},
+  function phaseRevealed(phase, slot) {
+    if (phase === 'score') return true;
+    if (phase === 'swap' || phase === 'silver') return slot <= 5;
+    if (phase === 'discard' || phase === 'place2') return slot <= 3;
+    return false;
+  }
+  function copyBoardSlot(entry) {
+    if (!entry) return null;
+    if (entry.hidden || !entry.id) return entry.hidden ? {hidden: true} : null;
+    return copyEntry(entry);
+  }
+  function freshTable() {
+    return {
+      phase: 'INTRO', pDeck: [], oDeck: [], pHand: [], oHand: [], pDiscard: [], oDiscard: [],
+      goalCards: {p: null, o: null},
       boards: {p: Array(7).fill(null), o: Array(7).fill(null)},
       shown: {p: Array(7).fill(false), o: Array(7).fill(false)},
       penalty: {p: 0, o: 0}, silver: {p: null, o: null},
       selected: -1, discardSel: new Set(), swapMode: false, round: 1,
-      log: [], result: null, seenCombos: new Set(),
-      rankedId: match.id,
-      rankHand: (host.hand || []).map(c => ({id: c.id, gold: !!(c && c.gold)})),
-      rankBusy: false,
+      log: [], result: null, seenCombos: new Set(), rankBusy: false, myTurn: true, sent: {},
     };
-    G.goals = [pGoal && pGoal.color, oGoal && oGoal.color];
-    G.targets = E.targetColors(G.goals);
+  }
+  function openServerShell() {
+    window.TOB.battleLock = null;
+    const ov = $('#overlay');
+    if (ov) { ov.classList.add('hidden'); ov.innerHTML = ''; }
+    hidePreview();
+  }
+  function applyServer(match) {
+    const st = (match && match.state) || {};
+    const you = st.you || {};
+    const opp = st.opp || {};
+    G.serverPhase = st.phase || '';
+    G.serverTurn = st.turn || '';
+    G.youSeat = match.you || G.youSeat || 'host';
+    G.myTurn = !G.liveId || st.turn === G.youSeat;
+    G.pHand = copyList(you.hand);
+    G.pDeck = copyList(you.deck);
+    G.rankHand = (you.hand || []).map(c => (c && c.id ? {id: c.id, gold: !!c.gold} : null)).filter(Boolean);
+    G.oHand = Array(opp.handCount || 0).fill(null);
+    G.goals = [you.goalColor || null, opp.goalColor || null];
+    G.targets = E.targetColors(G.goals.filter(Boolean));
+    G.penalty = {p: you.penalty | 0, o: opp.penalty | 0};
+    G.silver = {p: you.silver || null, o: opp.silver || null};
+    G.sent = {};
+    for (let i = 0; i < 7; i++) {
+      G.boards.p[i] = copyBoardSlot(you.board && you.board[i]);
+      G.boards.o[i] = copyBoardSlot(opp.board && opp.board[i]);
+      if (G.boards.p[i] && G.boards.p[i].id) G.sent[i] = true;
+      const mineUp = !!(G.boards.p[i] && G.boards.p[i].id && phaseRevealed(G.serverPhase, i));
+      const oppUp = !!(G.boards.o[i] && G.boards.o[i].id && phaseRevealed(G.serverPhase, i));
+      G.shown.p[i] = mineUp;
+      G.shown.o[i] = oppUp;
+    }
+    G.lastView = match;
+    const delta = G.youSeat === 'guest' ? match.guest_delta : match.host_delta;
+    if (delta != null || match.winner) G.rankedSummary = {delta: delta, winner: match.winner, host: match.host};
+  }
+  function labelSides() {
+    const opp = document.querySelector('.side.opp .sidelabel');
+    const me = document.querySelector('.side.me .sidelabel');
+    if (opp) opp.textContent = G.oName || 'Opponent';
+    if (me) me.textContent = G.spectate ? (G.pName || 'Host') : 'You';
+  }
+  function beginWait() {
+    G.phase = 'WAIT';
+    G.myTurn = false;
+    stopTimer();
+    setActions('');
+    setMsg('Waiting for ' + (G.oName || 'your opponent') + '…');
     render();
-    setMsg('Ranked match vs ' + G.oName + '.');
-    touchRanked();
-    beginPlay(1);
+  }
+  function seatActed(flag) {
+    const you = G.lastView && G.lastView.state && G.lastView.state.you;
+    return !!(you && you[flag]);
+  }
+  function continueFromServer() {
+    const phase = G.serverPhase;
+    if (matchStatusDone()) return gameOver();
+    if (phase === 'place1' || phase === 'place2') {
+      if (G.myTurn) {
+        beginPlay(phase === 'place1' ? 1 : 2);
+        if (G.alternate) setMsg('Play one card. It is sent right away, then your opponent plays.');
+        return;
+      }
+      return beginWait();
+    }
+    if (phase === 'discard') {
+      if (G.myTurn && !seatActed('discarded')) return beginDiscard();
+      return beginWait();
+    }
+    if (phase === 'swap') {
+      if (G.myTurn && !seatActed('swapped')) return beginSwap();
+      return beginWait();
+    }
+    if (phase === 'silver') {
+      if (G.myTurn && !seatActed('silverDone')) return beginRankedSilver();
+      return beginWait();
+    }
+    if (phase === 'score') return finishScoreReveal();
+    beginWait();
+  }
+  function matchStatusDone() {
+    const match = G.lastView;
+    return !!(match && (match.status === 'finished' || match.status === 'disputed'));
+  }
+  async function afterCommit(prevPhase) {
+    const phase = G.serverPhase;
+    if ((prevPhase === 'place1' || prevPhase === 'place2') && phase !== prevPhase) {
+      const round = prevPhase === 'place1' ? 1 : 2;
+      G.round = round;
+      G.phase = round === 1 ? 'REVEAL_1' : 'REVEAL_2';
+      const slots = round === 1 ? [0, 1, 2, 3] : [4, 5];
+      slots.forEach(i => { G.shown.p[i] = false; G.shown.o[i] = false; });
+      setMsg((G.oName || 'Opponent') + ' is ready… Revealing!');
+      render();
+      await wait(T.pause);
+      await flipSeq(slots.flatMap(i => [['p', i], ['o', i]]));
+      const ev = evalNow(false);
+      setMsg('Round ' + round + ' scored: You <b>' + ev.score.p + '</b> – ' + G.oName + ' <b>' + ev.score.o + '</b>');
+      await wait(T.pause);
+    }
+    if (phase === 'score' && (prevPhase === 'silver' || prevPhase === 'score')) {
+      return finishScoreReveal();
+    }
+    continueFromServer();
+  }
+  async function finishScoreReveal() {
+    if (G.phase === 'OVER' || G.phase === 'REVEAL_3') return;
+    G.phase = 'REVEAL_3';
+    G.shown.p[6] = false;
+    G.shown.o[6] = false;
+    setMsg('Final cards flipping…');
+    render();
+    await wait(T.pause / 2);
+    await flipSeq([['p', 6], ['o', 6]]);
+    gameOver();
+  }
+  function playServerMatch(match) {
+    openServerShell();
+    const bot = !!match.is_bot;
+    G = freshTable();
+    G.isBot = bot;
+    G.youSeat = match.you || 'host';
+    G.oName = bot
+      ? (match.bot_name || match.guest_name || 'Orbit Bot')
+      : (G.youSeat === 'host' ? (match.guest_name || 'Opponent') : (match.host_name || 'Opponent'));
+    G.pName = 'You';
+    if (bot) G.rankedId = match.id;
+    else G.liveId = match.id;
+    G.alternate = false;
+    applyServer(match);
+    labelSides();
+    render();
+    setMsg((bot ? 'Ranked match vs ' : 'Match vs ') + G.oName + '.');
+    continueFromServer();
+  }
+  function playRankedBot(match) { playServerMatch(match); }
+  function playSpectate(data) {
+    openServerShell();
+    const phase = (data && data.phase) || 'place1';
+    const host = (data && data.host) || {};
+    const guest = (data && data.guest) || {};
+    G = freshTable();
+    G.spectate = true;
+    G.myTurn = false;
+    G.phase = 'WATCH';
+    G.oName = guest.name || 'Guest';
+    G.pName = host.name || 'Host';
+    G.goals = [host.goalColor || null, guest.goalColor || null];
+    G.targets = E.targetColors(G.goals.filter(Boolean));
+    G.silver = {p: host.silver || null, o: guest.silver || null};
+    const take = (entry, slot) => {
+      if (!entry || entry.hidden || !entry.id) return entry && entry.hidden ? {hidden: true} : null;
+      if (!phaseRevealed(phase, slot)) return {hidden: true};
+      return copyEntry(entry);
+    };
+    for (let i = 0; i < 7; i++) {
+      G.boards.p[i] = take((host.board || [])[i], i);
+      G.boards.o[i] = take((guest.board || [])[i], i);
+      G.shown.p[i] = !!(G.boards.p[i] && G.boards.p[i].id);
+      G.shown.o[i] = !!(G.boards.o[i] && G.boards.o[i].id);
+    }
+    labelSides();
+    render();
+    setMsg((data.spectators || 1) + ' watching. Unrevealed cards stay face down.');
+    setActions('<button class="btn" id="pvpHome">Back</button>');
+  }
+  function syncServerMatch(match) {
+    if (!G || G.spectate || G.rankBusy) return;
+    const id = serverId();
+    if (!id || !match || id !== match.id) return;
+    if (G.phase.startsWith('PLAY') || G.phase.startsWith('REVEAL') || G.phase === 'DISCARD' || G.phase === 'SWAP' || G.phase === 'SILVER' || G.phase === 'OVER') return;
+    if (G.phase !== 'WAIT' && G.phase !== 'INTRO') return;
+    const phase = match.state && match.state.phase;
+    const turn = match.state && match.state.turn;
+    if (phase === G.serverPhase && turn === G.serverTurn && match.status === (G.lastView && G.lastView.status)) return;
+    const prev = G.serverPhase;
+    applyServer(match);
+    afterCommit(prev);
   }
   async function finishRankedPlay(auto) {
     if (!G.phase.startsWith('PLAY') || G.rankBusy) return;
     const slots = activeSlots();
     if (auto) autoFillPlayer(slots);
-    if (slots.some(s => !G.boards.p[s])) return;
+    const pending = slots.filter(s => G.boards.p[s] && !(G.sent && G.sent[s]));
+    if (!G.alternate && slots.some(s => !G.boards.p[s])) return;
+    if (!pending.length) return;
     G.rankBusy = true;
     stopTimer(); setActions('');
     const hand = (G.rankHand || []).slice();
+    const todo = G.alternate ? pending.slice(0, 1) : pending;
     const moves = [];
-    for (const slot of slots) {
+    for (const slot of todo) {
       const card = G.boards.p[slot];
-      const idx = hand.findIndex(c => c && c.id === card.id && !!c.gold === !!card.gold);
-      if (idx < 0) { G.rankBusy = false; setMsg('That card is not in the dealt hand.'); return; }
+      const idx = hand.findIndex(c => c && card && c.id === card.id && !!c.gold === !!card.gold);
+      if (idx < 0) { G.rankBusy = false; beginPlay(G.round); setMsg('That card is not in the dealt hand.'); return; }
       moves.push({t: 'place', slot, hand: idx});
       hand.splice(idx, 1);
     }
-    const res = await window.TOB_PVP.commitRanked(G.rankedId, moves);
+    const prev = G.serverPhase;
+    const res = await window.TOB_PVP.commitRanked(serverId(), moves, {quiet: !!(G.liveId && !G.alternate)});
     G.rankBusy = false;
-    if (!res || !res.ok) { beginPlay(G.round); setMsg((res && res.error) || 'The server rejected that round.'); return; }
-    const host = res.match.state.host || {};
-    const guest = res.match.state.guest || {};
-    slots.forEach(s => { G.boards.o[s] = copyEntry(guest.board && guest.board[s]); });
-    G.pHand = copyList(host.hand);
-    G.pDeck = copyList(host.deck);
-    G.oHand = copyList(guest.hand);
-    G.oDeck = copyList(guest.deck);
-    G.rankHand = (host.hand || []).map(c => ({id: c.id, gold: !!(c && c.gold)}));
-    const round = G.round;
-    G.phase = round === 1 ? 'REVEAL_1' : 'REVEAL_2';
-    setMsg(G.oName + ' is ready… Revealing!');
-    render();
-    await wait(T.pause);
-    const order = round === 1 ? [0, 1, 2, 3] : [4, 5];
-    await flipSeq(order.flatMap(i => [['p', i], ['o', i]]));
-    const ev = evalNow(false);
-    setMsg(`Round ${round} scored: You <b>${ev.score.p}</b> – ${G.oName} <b>${ev.score.o}</b>`);
-    await wait(T.pause);
-    if (round === 1) beginDiscard(); else beginSwap();
+    if (!res || !res.ok) {
+      if (G.liveId && !G.alternate && /not your turn/i.test((res && res.error) || '')) {
+        G.alternate = true;
+        const fresh = window.TOB_PVP.loadMatch ? await window.TOB_PVP.loadMatch(G.liveId) : null;
+        if (fresh) applyServer(fresh);
+        setMsg('This match still plays one card at a time until the server update. ' + ((res && res.error) || ''));
+        continueFromServer();
+        return;
+      }
+      beginPlay(G.round);
+      setMsg((res && res.error) || 'The server rejected that round.');
+      return;
+    }
+    applyServer(res.match);
+    await afterCommit(prev);
+  }
+  async function finishRankedDiscard() {
+    if (G.rankBusy) return;
+    G.rankBusy = true;
+    stopTimer();
+    const prev = G.serverPhase;
+    const res = await window.TOB_PVP.commitRanked(serverId(), [{t: 'discard', idx: [...G.discardSel]}]);
+    G.rankBusy = false;
+    if (!res || !res.ok) { beginDiscard(); setMsg((res && res.error) || 'Discard was rejected.'); return; }
+    applyServer(res.match);
+    G.discardSel = new Set();
+    await afterCommit(prev);
+  }
+  async function afterRankedSwap(handIdx) {
+    if (G.phase !== 'SWAP' || G.rankBusy) return;
+    G.rankBusy = true;
+    stopTimer(); G.swapMode = false;
+    const move = {t: 'swap'};
+    if (handIdx != null) move.hand = handIdx;
+    const prev = G.serverPhase;
+    const res = await window.TOB_PVP.commitRanked(serverId(), [move]);
+    G.rankBusy = false;
+    if (!res || !res.ok) { beginSwap(); setMsg((res && res.error) || 'Swap was rejected.'); return; }
+    applyServer(res.match);
+    await afterCommit(prev);
+  }
+  async function finishRankedSilver(color) {
+    if (!G || G.phase !== 'SILVER' || G.rankBusy) return;
+    G.rankBusy = true;
+    stopTimer(); setActions('');
+    const move = {t: 'silver'};
+    if (color) move.color = color;
+    const prev = G.serverPhase;
+    const res = await window.TOB_PVP.commitRanked(serverId(), [move]);
+    G.rankBusy = false;
+    if (!res || !res.ok) { beginRankedSilver(); setMsg((res && res.error) || 'Silver was rejected.'); return; }
+    applyServer(res.match);
+    await afterCommit(prev);
   }
   async function finishPlay(auto) {
-    if (G && G.rankedId) return finishRankedPlay(auto);
+    if (serverOn()) return finishRankedPlay(auto);
     if (!G.phase.startsWith('PLAY')) return;
     const slots = activeSlots();
     if (auto) autoFillPlayer(slots);
@@ -447,7 +664,6 @@
     stopTimer(); setActions('');
     const round = G.round;
     G.phase = round === 1 ? 'REVEAL_1' : 'REVEAL_2';
-    // AI places using only face-up information
     const pick = AI.choosePlacement(aiState(), G.oHand, slots);
     slots.forEach((s, i) => { G.boards.o[s] = pick[i]; G.oHand.splice(G.oHand.indexOf(pick[i]), 1); });
     setMsg(`${G.oName} is ready… Revealing!`); render();
@@ -465,31 +681,12 @@
     setActions(`<button class="btn go" id="btnDiscard">DONE</button>`);
     render();
     touchRanked();
-    startTimer(T.short, () => { G.discardSel = new Set(); finishDiscard(); }); // time's up = discard nothing
+    startTimer(T.short, () => { G.discardSel = new Set(); finishDiscard(); });
     if (AUTO) setTimeout(() => { if (Math.random() < .5 && G.pHand.length) G.discardSel.add(0); finishDiscard(); }, 10);
-  }
-  async function finishRankedDiscard() {
-    if (G.rankBusy) return;
-    G.rankBusy = true;
-    stopTimer();
-    const res = await window.TOB_PVP.commitRanked(G.rankedId, [{t: 'discard', idx: [...G.discardSel]}]);
-    G.rankBusy = false;
-    if (!res || !res.ok) { beginDiscard(); setMsg((res && res.error) || 'Discard was rejected.'); return; }
-    const host = res.match.state.host || {};
-    const guest = res.match.state.guest || {};
-    G.pHand = copyList(host.hand);
-    G.pDeck = copyList(host.deck);
-    G.oHand = copyList(guest.hand);
-    G.oDeck = copyList(guest.deck);
-    G.rankHand = (host.hand || []).map(c => ({id: c.id, gold: !!(c && c.gold)}));
-    G.discardSel = new Set();
-    setMsg(G.oName + ' discarded. Hands refilled!');
-    render();
-    setTimeout(() => beginPlay(2), T.pause);
   }
   function finishDiscard() {
     if (G.phase !== 'DISCARD') return;
-    if (G.rankedId) return finishRankedDiscard();
+    if (serverOn()) return finishRankedDiscard();
     stopTimer();
     const keep = G.pHand.filter((c, i) => !G.discardSel.has(i));
     G.pDiscard.push(...G.pHand.filter((c, i) => G.discardSel.has(i)));
@@ -512,28 +709,8 @@
     startTimer(T.short, () => afterSwap(null));
     if (AUTO) setTimeout(() => afterSwap(Math.random() < .3 ? 0 : null), 10);
   }
-  async function afterRankedSwap(handIdx) {
-    if (G.phase !== 'SWAP' || G.rankBusy) return;
-    G.rankBusy = true;
-    stopTimer(); G.swapMode = false;
-    const move = {t: 'swap'};
-    if (handIdx != null) move.hand = handIdx;
-    const res = await window.TOB_PVP.commitRanked(G.rankedId, [move]);
-    G.rankBusy = false;
-    if (!res || !res.ok) { beginSwap(); setMsg((res && res.error) || 'Swap was rejected.'); return; }
-    const host = res.match.state.host || {};
-    const guest = res.match.state.guest || {};
-    G.boards.p[6] = copyEntry(host.board && host.board[6]);
-    G.boards.o[6] = copyEntry(guest.board && guest.board[6]);
-    G.pHand = copyList(host.hand);
-    G.oHand = copyList(guest.hand);
-    G.penalty.p = host.penalty | 0;
-    G.penalty.o = guest.penalty | 0;
-    setMsg('Swaps locked in.'); setActions(''); render();
-    setTimeout(beginSilver, T.pause);
-  }
   function afterSwap(handIdx) {
-    if (G.rankedId) return afterRankedSwap(handIdx);
+    if (serverOn()) return afterRankedSwap(handIdx);
     if (G.phase !== 'SWAP') return;
     stopTimer(); G.swapMode = false;
     if (handIdx != null && G.pHand[handIdx]) {
@@ -546,39 +723,9 @@
     setMsg(msg); setActions(''); render();
     setTimeout(beginSilver, T.pause);
   }
-  function beginRankedSilver() {
-    G.phase = 'SILVER';
-    const has = s => G.boards[s].some(c => c && c.color === 'silver');
-    if (!has('p')) return finishRankedSilver(null);
-    setMsg('You have SILVER cards in play! Pick the color all your silver cards will count as.');
-    setActions(E.PLAYABLE_COLORS.map(c => `<button class="btn colorbtn" data-color="${c}" style="background:${COLORS[c]}">${cap(c)}</button>`).join(''));
-    render();
-    touchRanked();
-    startTimer(T.short, () => finishRankedSilver(G.targets[0] || 'red'));
-  }
-  async function finishRankedSilver(color) {
-    if (!G || G.phase !== 'SILVER' || G.rankBusy) return;
-    G.rankBusy = true;
-    stopTimer(); setActions('');
-    const move = {t: 'silver'};
-    if (color) move.color = color;
-    const res = await window.TOB_PVP.commitRanked(G.rankedId, [move]);
-    G.rankBusy = false;
-    if (!res || !res.ok) { beginRankedSilver(); setMsg((res && res.error) || 'Silver was rejected.'); return; }
-    const host = res.match.state.host || {};
-    const guest = res.match.state.guest || {};
-    G.silver.p = host.silver || null;
-    G.silver.o = guest.silver || null;
-    G.rankedSummary = {delta: res.match.host_delta, winner: res.match.winner, host: res.match.host};
-    G.phase = 'REVEAL_3';
-    setMsg('Final cards flipping…');
-    render();
-    await wait(T.pause / 2);
-    await flipSeq([['p', 6], ['o', 6]]);
-    gameOver();
-  }
+
   function beginSilver() {
-    if (G.rankedId) return beginRankedSilver();
+    if (serverOn()) return beginRankedSilver();
     G.phase = 'SILVER';
     const has = s => G.boards[s].some(c => c && c.color === 'silver');
     if (has('o')) G.silver.o = null;
@@ -602,6 +749,22 @@
     await flipSeq([['p', 6], ['o', 6]]);
     gameOver();
   }
+  async function confirmLiveResult() {
+    if (!G || !G.liveId || !window.TOB_PVP || !window.TOB_PVP.confirmLive) return;
+    const hostBoard = G.youSeat === 'host' ? G.boards.p : G.boards.o;
+    const guestBoard = G.youSeat === 'host' ? G.boards.o : G.boards.p;
+    const pack = (board) => (board || []).map(c => c && c.id ? c.id + (c.gold ? 'g' : 's') : '-').join(',');
+    const ev = evalNow(true);
+    const hostScore = G.youSeat === 'host' ? ev.score.p : ev.score.o;
+    const guestScore = G.youSeat === 'host' ? ev.score.o : ev.score.p;
+    let side = 'tie';
+    if (ev.result && ev.result.winner === 'p') side = G.youSeat;
+    else if (ev.result && ev.result.winner === 'o') side = G.youSeat === 'host' ? 'guest' : 'host';
+    const mine = side === 'tie' ? 'tie' : side === G.youSeat ? 'me' : 'them';
+    const hash = ['score', pack(hostBoard), pack(guestBoard), (G.youSeat === 'host' ? G.silver.p : G.silver.o) || '', (G.youSeat === 'host' ? G.silver.o : G.silver.p) || '', hostScore, guestScore, side].join('|');
+    const res = await window.TOB_PVP.confirmLive(G.liveId, mine, hash);
+    setMsg(res && res.ok ? 'Result sent.' : ((res && res.error) || 'Could not confirm the result.'));
+  }
   async function gameOver() {
     G.phase = 'OVER';
     hidePreview();
@@ -613,7 +776,7 @@
     const line = s => `${ev.total[s]} pts${ev.bonus === s ? ` + ${E.COLOR_BONUS} color bonus` : ''}${G.penalty[s] ? ` − ${G.penalty[s]} swap` : ''} = <b>${ev.score[s]}</b>`;
     const ov = $('#overlay'); ov.classList.remove('hidden');
     const pill = (side, who) => `<div class="go-pill ${side === 'p' ? 'me' : 'opp'}"><div class="go-who">${who}</div><div class="go-num">${ev.score[side]}</div><div class="go-math">${line(side)}</div></div>`;
-    const ranked = !!(G && G.rankedId);
+    const ranked = !!(G && (G.rankedId || G.liveId));
     const delta = ranked && G.rankedSummary ? G.rankedSummary.delta : null;
     const rating = delta == null ? '' : `<div class="go-how">Rating ${delta > 0 ? '+' : ''}${delta}</div>`;
     ov.innerHTML = `<div class="panel gameover ${r.winner === 'p' ? 'win' : r.winner === 'o' ? 'lose' : 'tie'}">
@@ -621,7 +784,7 @@
       ${rating}
       <div class="go-scores">${pill('p', 'You')}${pill('o', G.oName)}</div>
       ${ev.targets.length ? `<div class="go-colors">${ev.targets.map(c => `<div class="go-color"><span class="gem" style="background:${COLORS[c]}"></span>${cap(c)} cards: You ${ev.counts.p[c] || 0} · ${G.oName} ${ev.counts.o[c] || 0}</div>`).join('')}</div>` : ''}
-      <div class="go-btns">${ranked ? '<button class="btn go" id="btnRankedBack">BACK TO RANKED</button>' : '<button class="btn go" id="btnAgain">PLAY AGAIN</button><button class="btn" id="btnPick">CHANGE DECK</button>'}<button class="btn" id="btnBoard">VIEW BOARD</button></div></div>`;
+      <div class="go-btns">${ranked ? '<button class="btn go" id="btnRankedBack">BACK TO RANKED</button>' + (G.liveId && !G.isBot ? '<button class="btn" id="btnConfirmLive">CONFIRM RESULT</button>' : '') : '<button class="btn go" id="btnAgain">PLAY AGAIN</button><button class="btn" id="btnPick">CHANGE DECK</button>'}<button class="btn" id="btnBoard">VIEW BOARD</button></div></div>`;
     blip(r.winner === 'p' ? 990 : 220, 0.4, 'triangle', 0.08);
     setMsg(title + ' ' + how); setActions(ranked ? '<button class="btn go" id="btnRankedBack2">BACK TO RANKED</button>' : '<button class="btn go" id="btnAgain2">PLAY AGAIN</button>');
     window.TOB_DONE = results.length;
@@ -3519,7 +3682,20 @@
     if (t.id === 'btnPreviewClose' || t.id === 'previewBackdrop') { $('#preview').classList.add('hidden'); return; }
     if (t.id === 'btnSwapYes') { G.swapMode = true; setMsg('Tap a card in your hand to put in your last slot (−10).'); setActions('<button class="btn" id="btnSwapNo">CANCEL – NO SWAP</button>'); render(); return; }
     if (t.id === 'btnSwapNo') return afterSwap(null);
-    if (t.classList.contains('colorbtn')) return G && G.rankedId ? finishRankedSilver(t.dataset.color) : finishSilver(t.dataset.color, G.pendingSilver);
+    if (t.classList.contains('colorbtn')) return G && (G.rankedId || G.liveId) ? finishRankedSilver(t.dataset.color) : finishSilver(t.dataset.color, G.pendingSilver);
+    if (t.id === 'pvpResign') {
+      if (!G || !G.liveId || !window.confirm('Resign this match?')) return;
+      const id = G.liveId;
+      G = null;
+      if (window.TOB_PVP && window.TOB_PVP.resignMatch) return window.TOB_PVP.resignMatch(id);
+      return;
+    }
+    if (t.id === 'pvpHome') {
+      G = null;
+      if (window.TOB_PVP && window.TOB_PVP.show) return window.TOB_PVP.show();
+      return showHome();
+    }
+    if (t.id === 'btnConfirmLive') return confirmLiveResult();
     if (t.id === 'btnAgain' || t.id === 'btnAgain2') return quickStart();
     if (t.id === 'btnRankedBack' || t.id === 'btnRankedBack2') {
       G = null;
@@ -3723,7 +3899,7 @@
     id: 'play',
     selector: '.handcard',
     nativeDrag: true,
-    canStart(el) { return !!(G && G.phase.startsWith('PLAY') && el.dataset.idx != null); },
+    canStart(el) { return !!(G && G.phase.startsWith('PLAY') && el.dataset.idx != null && !G.spectate && G.myTurn !== false); },
     targets: '.slot.open',
     drop(source, target) { placeCard(+source.dataset.idx, +target.dataset.slot); },
   });
@@ -4024,5 +4200,5 @@
     showHome();
   }
   window.TOB_UI = {card: cardHTML};
-  window.TOB_GAME = {demoCombo, showRules, showHome, showAuth, openAuction, liveNowMarkup, previewHomeLive, playRankedBot};
+  window.TOB_GAME = {demoCombo, showRules, showHome, showAuth, openAuction, liveNowMarkup, previewHomeLive, playRankedBot, playServerMatch, syncServerMatch, playSpectate};
 })();

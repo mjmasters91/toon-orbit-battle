@@ -507,14 +507,102 @@
     toast('Rematch sent.');
     openMatch(res.data.id);
   }
+  function phaseRevealed(phase, slot) {
+    if (phase === 'score') return true;
+    if (phase === 'swap' || phase === 'silver') return slot <= 5;
+    if (phase === 'discard' || phase === 'place2') return slot <= 3;
+    return false;
+  }
+  function cardRef(entry) {
+    if (!entry || entry.hidden || !entry.id) return null;
+    return {id: entry.id, gold: !!entry.gold};
+  }
+  function goalColorOf(side) {
+    if (!side) return null;
+    if (side.goalColor) return side.goalColor;
+    const id = side.goal && side.goal.id;
+    const cards = root.TOB_CARDS && root.TOB_CARDS.CARDS;
+    return id && cards && cards[id] ? cards[id].color : null;
+  }
+  function boardFor(side, phase, own) {
+    const board = (side && side.board) || [];
+    const out = [];
+    for (let i = 0; i < 7; i++) {
+      const card = board[i];
+      if (!card || card.hidden || !card.id) out.push(card && card.hidden ? {hidden: true} : null);
+      else if (own || phaseRevealed(phase, i)) out.push(cardRef(card));
+      else out.push({hidden: true});
+    }
+    return out;
+  }
+  function seatFor(side, phase, own) {
+    const hand = (side && Array.isArray(side.hand) && side.hand) || [];
+    const deck = (side && Array.isArray(side.deck) && side.deck) || [];
+    const seatView = {
+      board: boardFor(side, phase, own),
+      handCount: side && side.handCount != null ? side.handCount : hand.length,
+      deckCount: side && side.deckCount != null ? side.deckCount : deck.length,
+      goalColor: goalColorOf(side),
+      silver: own || (side && side.silverDone) ? (side && side.silver) || null : null,
+      silverDone: !!(side && side.silverDone),
+      discarded: !!(side && side.discarded),
+      swapped: !!(side && side.swapped),
+      penalty: side && side.penalty | 0,
+    };
+    if (own) {
+      seatView.hand = hand.map(cardRef).filter(Boolean);
+      seatView.deck = deck.map(cardRef).filter(Boolean);
+    }
+    return seatView;
+  }
+  function packMatch(meta, you, state) {
+    return {
+      id: meta.id, status: meta.status, kind: meta.kind, is_bot: !!meta.is_bot, code: meta.code,
+      host: meta.host, guest: meta.guest, host_name: meta.host_name, guest_name: meta.guest_name,
+      host_avatar: meta.host_avatar, guest_avatar: meta.guest_avatar, bot_name: meta.bot_name,
+      turn_deadline: meta.turn_deadline, winner: meta.winner, result: meta.result,
+      host_delta: meta.host_delta, guest_delta: meta.guest_delta, you: you, state: state,
+    };
+  }
+  function normalizeView(data) {
+    const phase = data.state && data.state.phase;
+    return packMatch(data, data.you, {
+      phase: phase,
+      turn: data.state.turn,
+      seq: data.state.seq,
+      you: seatFor(data.state.you, phase, true),
+      opp: seatFor(data.state.opp, phase, false),
+    });
+  }
+  function normalizeLegacy(row, youSeat) {
+    const phase = row.state && row.state.phase;
+    const oppSeat = youSeat === 'host' ? 'guest' : 'host';
+    return packMatch(row, youSeat, {
+      phase: phase,
+      turn: row.state && row.state.turn,
+      seq: row.state && row.state.seq,
+      you: seatFor(row.state && row.state[youSeat], phase, true),
+      opp: seatFor(row.state && row.state[oppSeat], phase, false),
+    });
+  }
+  function viewMissing(res) {
+    return !!(res && /get_match_view|does not exist|PGRST202|schema cache|42883/i.test(res.error || ''));
+  }
   async function loadMatch(id) {
     const db = client();
     if (!db) return null;
+    const rpcRes = await rpc('get_match_view', {p_match: id});
+    if (rpcRes && rpcRes.ok && rpcRes.data && rpcRes.data.you && rpcRes.data.state) {
+      seat = rpcRes.data.you;
+      return normalizeView(rpcRes.data);
+    }
+    if (!viewMissing(rpcRes)) return null;
     const {data, error} = await db.from('matches').select('*').eq('id', id).maybeSingle();
     if (error || !data) return null;
     const user = me();
+    if (!user) return null;
     seat = data.host === user.id ? 'host' : 'guest';
-    return data;
+    return normalizeLegacy(data, seat);
   }
   function stopWatch() {
     if (poll) clearInterval(poll);
@@ -542,27 +630,36 @@
     if (!match) return;
     if (match.status === 'lobby') paintLobby(match);
     else if (match.status === 'active' || match.status === 'disputed') {
-      paintMatch(match);
-      if (match.turn_deadline && new Date(match.turn_deadline).getTime() + 5000 < Date.now()) {
+      if (root.TOB_GAME && root.TOB_GAME.playServerMatch) {
+        const live = root.TOB && root.TOB.G;
+        if (!live || (live.rankedId !== match.id && live.liveId !== match.id)) root.TOB_GAME.playServerMatch(match);
+        else if (root.TOB_GAME.syncServerMatch) root.TOB_GAME.syncServerMatch(match);
+      } else paintMatch(match);
+      if (match.turn_deadline && match.state && match.state.turn === match.you && new Date(match.turn_deadline).getTime() + 5000 < Date.now()) {
         rpc('claim_forfeit', {p_match: match.id});
       }
     } else if (match.status === 'finished') {
-      toast(match.result === 'forfeit' ? 'Match ended by forfeit.' : 'Match finished.');
-      showHub();
+      const live = root.TOB && root.TOB.G;
+      if (live && (live.rankedId === match.id || live.liveId === match.id) && root.TOB_GAME && root.TOB_GAME.syncServerMatch) {
+        root.TOB_GAME.syncServerMatch(match);
+      } else {
+        toast(match.result === 'forfeit' ? 'Match ended by forfeit.' : 'Match finished.');
+        showHub();
+      }
     }
   }
-  async function commitRanked(matchId, moves) {
+  async function commitRanked(matchId, moves, opts) {
     for (const move of moves) {
       const res = await rpc('submit_move', {p_match: matchId, p_move: move});
       if (!res || !res.ok) {
         const error = (res && res.error) || 'The server rejected that move.';
-        toast(error, true);
+        if (!opts || !opts.quiet) toast(error, true);
         return {ok: false, error};
       }
     }
     const match = await loadMatch(matchId);
     if (!match) {
-      toast('That match could not be reloaded.', true);
+      if (!opts || !opts.quiet) toast('That match could not be reloaded.', true);
       return {ok: false, error: 'That match could not be reloaded.'};
     }
     return {ok: true, match};
@@ -573,14 +670,31 @@
   async function openMatch(id) {
     const match = await loadMatch(id);
     if (!match) { toast('Match not found.', true); return; }
-    if (match.is_bot && match.status === 'active' && root.TOB_GAME && root.TOB_GAME.playRankedBot) {
-      stopWatch();
-      root.TOB_GAME.playRankedBot(match);
+    if (match.status === 'lobby') { watch(id); paintLobby(match); return; }
+    if ((match.status === 'active' || match.status === 'disputed') && root.TOB_GAME && root.TOB_GAME.playServerMatch) {
+      watch(id);
+      root.TOB_GAME.playServerMatch(match);
       return;
     }
     watch(id);
     if (match.status === 'lobby') paintLobby(match);
     else paintMatch(match);
+  }
+  function resignMatch(id) {
+    return rpc('resign_match', {p_match: id}).then(res => {
+      if (!res || !res.ok) toast((res && res.error) || 'Could not resign.', true);
+      else toast('You resigned.');
+      stopWatch();
+      showHub();
+      return res;
+    });
+  }
+  function confirmLive(id, winner, hash) {
+    return rpc('finish_match', {p_match: id, p_winner: winner, p_hash: hash}).then(res => {
+      if (!res || !res.ok) toast((res && res.error) || 'Could not confirm the result.', true);
+      else toast(res.data && res.data.disputed ? 'Results did not match. No coins awarded.' : res.data && res.data.waiting ? 'Waiting for your opponent to confirm.' : 'Result saved.');
+      return res;
+    });
   }
   async function createRoom() {
     const deck = await myDeck();
@@ -834,6 +948,10 @@
     return id;
   }
   function paintSpectate(data) {
+    if (root.TOB_GAME && root.TOB_GAME.playSpectate) {
+      root.TOB_GAME.playSpectate(data);
+      return;
+    }
     const state = {
       phase: data.phase,
       host: {board: (data.host && data.host.board) || [], goal: data.host && data.host.goalColor ? {color: data.host.goalColor} : null, silver: data.host && data.host.silver},
@@ -918,5 +1036,5 @@
     leaveQueue();
   }, true);
   window.addEventListener('pagehide', keepaliveDequeue);
-  root.TOB_PVP = {show, boot, challenge, spectate, previewLobby, previewMatch, previewSpectate, probe, leaveQueue, commitRanked, bumpBotClock};
+  root.TOB_PVP = {show, boot, challenge, spectate, previewLobby, previewMatch, previewSpectate, probe, leaveQueue, commitRanked, bumpBotClock, loadMatch, resignMatch, confirmLive};
 })(window);
