@@ -16,19 +16,41 @@
     items.forEach((it, i) => { if (!used.has(i)) { used.add(i); pre.push(it); perms(items, k, cb, pre, used); pre.pop(); used.delete(i); } });
   }
   // st: {boards, shown, goals, silver, penalty}; slots: target slot indices; hand: AI's hand.
-  function choosePlacement(st, hand, slots) {
+  function difficultyForRating(rating) {
+    const n = rating | 0;
+    if (n >= 1700) return 'champion';
+    if (n >= 1550) return 'diamond';
+    if (n >= 1400) return 'platinum';
+    if (n >= 1250) return 'gold';
+    if (n >= 1100) return 'silver';
+    return 'bronze';
+  }
+  function jitterFor(level) {
+    if (level === 'champion') return 0;
+    if (level === 'diamond') return 0.15;
+    if (level === 'platinum') return 0.4;
+    if (level === 'silver') return 3;
+    if (level === 'bronze') return 8;
+    return 1.5;
+  }
+  function choosePlacement(st, hand, slots, level) {
+    if (level === 'bronze') return hand.slice(0, Math.min(slots.length, hand.length));
+    if (level === 'silver') return hand.slice().sort((a, b) => b.pts - a.pts).slice(0, Math.min(slots.length, hand.length));
     let best = null, bestU = -Infinity;
+    const jitter = jitterFor(level);
     perms(hand, Math.min(slots.length, hand.length), pick => {
       const ob = st.boards.o.slice(), osh = st.shown.o.slice();
       slots.forEach((s, i) => { ob[s] = pick[i]; osh[s] = true; });
       const ev = E.evaluate({p: st.boards.p, o: ob}, {p: st.shown.p, o: osh}, {goals: st.goals, penalty: st.penalty});
-      const u = util(ev) + Math.random() * 1.5; // small jitter so it isn't robotic
+      const u = util(ev) + Math.random() * jitter;
       if (u > bestU) { bestU = u; best = pick.slice(); }
     });
     return best;
   }
   // Discard weak cards: keep goal-color cards and cards whose powers combo with the board/hand.
-  function chooseDiscards(hand, goals, board) {
+  function chooseDiscards(hand, goals, board, level) {
+    if (level === 'bronze') return [];
+    if (level === 'silver') return hand.slice().sort((a, b) => a.pts - b.pts).slice(0, 1);
     const targets = E.targetColors(goals);
     const pool = hand.concat((board || []).filter(Boolean));
     const book = root.TOB_COMBOS;
@@ -60,7 +82,12 @@
     hand.forEach(c => { const u = withOwn(c, E.SWAP_PENALTY); if (u > bestU) { bestU = u; best = c; } });
     return best;
   }
-  function chooseSilver(st) {
+  function chooseSilver(st, level) {
+    if (level === 'bronze' || level === 'silver') {
+      const counts = {};
+      (st.boards.o || []).forEach(card => { if (card && !E.NEUTRAL.has(card.color)) counts[card.color] = (counts[card.color] || 0) + 1; });
+      return Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0] || 'red';
+    }
     let best = null, bestU = -Infinity;
     E.PLAYABLE_COLORS.forEach(c => {
       const shownO = st.shown.o.slice(); shownO[6] = true;
@@ -69,6 +96,6 @@
     });
     return best;
   }
-  const api = {choosePlacement, chooseDiscards, chooseSwap, chooseSilver, util};
+  const api = {choosePlacement, chooseDiscards, chooseSwap, chooseSilver, util, difficultyForRating};
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.TOB_AI = api;
 })(this);

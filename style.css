@@ -445,6 +445,24 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
 .pvp-card h2, .pvp-kicker { margin: 0 0 6px; color: #ffa733; letter-spacing: .08em; font-size: 13px; }
 .pvp-status { min-height: 1.3em; margin: 12px 12px 0; color: #ffb15a; font-weight: 800; }
 .pvp-status.bad { color: #ffb0a4; }
+.bot-badge, .tier { display: inline-block; margin-left: 6px; padding: 2px 6px; border-radius: 999px; font: 800 10px/1.4 Inter, "Segoe UI", system-ui, sans-serif; letter-spacing: .06em; vertical-align: 1px; }
+.bot-badge { background: #ff7a00; color: #1a0d00; }
+.tier-bronze { background: #8a5a32; color: #fff; }
+.tier-silver { background: #c5c8d0; color: #1a1a1e; }
+.tier-gold { background: #ffb15a; color: #1a0d00; }
+.tier-platinum { background: #7fd0ff; color: #062033; }
+.tier-diamond { background: #b9a7ff; color: #1a1033; }
+.tier-champion { background: #ff7a00; color: #1a0d00; }
+.rank-card { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.rank-card b, .stand-rating { color: #fff; }
+.stand-wl, .stand-rating { font-weight: 800; color: #ffb15a; }
+.rank-bar { height: 8px; margin-top: 8px; border-radius: 999px; background: #2a2a2e; overflow: hidden; }
+.rank-bar span { display: block; height: 100%; background: linear-gradient(90deg, #ff7a00, #ffb15a); }
+.stand-row { display: grid; grid-template-columns: 28px 32px minmax(0, 1fr) auto auto auto; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid #2a2a2e; }
+.stand-row img { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; }
+.stand-row.mine { background: rgba(255, 122, 0, .12); }
+.stand-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 800; }
+#pvpStandings { max-height: 360px; overflow: auto; }
 .pvp-code { font: 800 36px/1 Inter, sans-serif; letter-spacing: .18em; color: #ffb15a; }
 .pvp-link { word-break: break-all; color: #c8c8ce; font-size: 13px; }
 .pvp-join { display: flex; gap: 8px; margin-top: 8px; }

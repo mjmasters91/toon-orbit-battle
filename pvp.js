@@ -8,8 +8,11 @@
   let activeId = null;
   let seat = 'host';
   let searching = false;
+  let searchStarted = 0;
+  let botTried = false;
   let queuePoll = null;
   let queueChannel = null;
+  const BOT_WAIT = 18000;
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -124,7 +127,8 @@
     if (!user || user.guest) {
       shell(`<header class="pvp-top"><div class="pvp-title">PVP</div><button type="button" class="btn" id="pvpHome">Home</button></header>
         <section class="pvp-card"><h2>Sign in to play friends</h2><p>Guest matches stay on this device. An online account can challenge friends, share a room code, or join the queue.</p>
-        <button type="button" class="btn go" id="pvpSign">Sign in</button></section>`);
+        <button type="button" class="btn go" id="pvpSign">Sign in</button></section>
+        ${standingsShell()}`);
       return;
     }
     if (mode !== 'on') {
@@ -139,9 +143,10 @@
         <button type="button" class="btn go" id="pvpRoom">Create room</button>
         <form class="pvp-join" id="pvpJoin"><input id="pvpCode" maxlength="5" placeholder="Room code" aria-label="Room code"><button class="btn" type="submit">Join</button></form>
       </section>
-      <section class="pvp-card"><h2>Quick match</h2><p>Wait for the next player with a 12-card deck.</p>
+      <section class="pvp-card"><h2>Quick match</h2><p>Ranked. If nobody joins, a bot of your tier steps in.</p>
         <button type="button" class="btn go" id="pvpQueue">Join queue</button>
       </section>
+      ${standingsShell()}
       <div id="pvpExtra"></div>`);
     if (extra) { const line = document.getElementById('pvpStatus'); if (line) line.classList.add('bad'); }
   }
@@ -149,6 +154,63 @@
     stopWatch();
     paintHub(note);
     bindHub();
+    loadStandings();
+  }
+  function standingsShell() {
+    return `<section class="pvp-card pvp-rank" id="pvpRank"></section>
+      <section class="pvp-card"><h2>Standings</h2><div id="pvpStandings"><p class="pvp-note">Loading standings…</p></div></section>`;
+  }
+  function tierMark(tier, division) {
+    const name = tier || 'Bronze';
+    const slug = name.toLowerCase();
+    return `<span class="tier tier-${slug}">${esc(name + (division ? ' ' + division : ''))}</span>`;
+  }
+  function safePublicAvatar(id) {
+    if (!id || String(id).indexOf('ob_') === 0) return 'zoomer';
+    return id;
+  }
+  async function loadStandings() {
+    const box = document.getElementById('pvpStandings');
+    const rank = document.getElementById('pvpRank');
+    if (!box) return;
+    let res;
+    try { res = await rpc('pvp_standings'); }
+    catch (err) {
+      console.error('PvP standings', err);
+      res = {ok: false, error: err && err.message};
+    }
+    if (!res || !res.ok) {
+      box.innerHTML = '<p class="pvp-note">Standings coming soon.</p>';
+      if (rank) rank.innerHTML = '';
+      return;
+    }
+    const data = rpcBody(res);
+    const meRank = data.me;
+    const board = Array.isArray(data.board) ? data.board : [];
+    if (rank) {
+      if (!meRank) rank.innerHTML = '';
+      else {
+        const next = meRank.next == null ? 'Top tier' : 'Next tier at ' + meRank.next;
+        const pct = Math.max(0, Math.min(100, Math.round(Number(meRank.progress || 0) * 100)));
+        rank.innerHTML = `<h2>My rank</h2>
+          <div class="rank-card">
+            ${tierMark(meRank.tier, meRank.division)}
+            <b>#${meRank.rank}</b>
+            <span class="stand-rating">${meRank.rating}</span>
+            <span class="stand-wl">${meRank.wins}-${meRank.losses}</span>
+          </div>
+          <div class="rank-bar" aria-hidden="true"><span style="width:${pct}%"></span></div>
+          <p class="pvp-note">${esc(next)}</p>`;
+      }
+    }
+    box.innerHTML = board.length ? board.map(row => `<div class="stand-row${meRank && row.rank === meRank.rank ? ' mine' : ''}">
+      <b>${row.rank}</b>
+      <img src="assets/cards/${encodeURIComponent(safePublicAvatar(row.avatar))}.webp" alt="">
+      <span class="stand-name">${esc(row.username)}</span>
+      ${tierMark(row.tier, row.division)}
+      <span class="stand-rating">${row.rating}</span>
+      <span class="stand-wl">${row.wins}-${row.losses}</span>
+    </div>`).join('') : '<p class="pvp-note">No ranked games yet.</p>';
   }
   function paintLobby(match) {
     const code = match.code || '';
@@ -188,15 +250,16 @@
     const state = match.state || {};
     const mine = seat;
     const opp = seat === 'host' ? 'guest' : 'host';
-    const oppName = opp === 'host' ? match.host_name : match.guest_name;
-    const oppAva = opp === 'host' ? match.host_avatar : match.guest_avatar;
+    const bot = !!match.is_bot;
+    const oppName = bot ? (match.bot_name || match.guest_name || 'Orbit Bot') : (opp === 'host' ? match.host_name : match.guest_name);
+    const oppAva = safePublicAvatar(opp === 'host' ? match.host_avatar : match.guest_avatar);
     const myTurn = state.turn === mine;
     const ev = state.phase === 'score' ? scoreOf(state) : null;
     const hand = ((state[mine] && state[mine].hand) || []).map((card, i) => `<button type="button" class="pvp-hand" data-hand="${i}">${cardFace(card)}</button>`).join('');
     const row = (who) => (state[who].board || []).map((card, i) => `<div class="pvp-slot${card ? ' filled' : ''}" data-slot="${i}" data-who="${who}">${card ? cardFace(card) : ''}</div>`).join('');
     shell(`<header class="pvp-top">
         <img class="pvp-ava" src="assets/cards/${encodeURIComponent(oppAva || 'zoomer')}.webp" alt="">
-        <div class="pvp-title">${esc(oppName || 'Opponent')}</div>
+        <div class="pvp-title">${esc(oppName || 'Opponent')}${bot ? ' <span class="bot-badge">BOT</span>' : ''}</div>
         <div class="pvp-turn">${myTurn ? 'Your turn' : 'Their turn'}</div>
         <button type="button" class="btn" id="pvpResign">Resign</button>
       </header>
@@ -205,7 +268,7 @@
         <div class="pvp-row opp">${row(opp)}</div>
         <div class="pvp-row mine">${row(mine)}</div>
       </section>
-      <div class="pvp-score">${ev ? `You ${seat === 'host' ? ev.score.p : ev.score.o} · Them ${seat === 'host' ? ev.score.o : ev.score.p}` : esc(phaseLabel(state.phase))}</div>
+      <div class="pvp-score">${ev ? `You ${seat === 'host' ? ev.score.p : ev.score.o} · Them ${seat === 'host' ? ev.score.o : ev.score.p}` : esc(phaseLabel(state.phase))}${bot && state.phase === 'score' ? '<p class="pvp-note">The server scores this bot match.</p>' : ''}</div>
       <div class="pvp-hands">${hand}</div>
       <div class="pvp-actions" id="pvpActions"></div>`);
     wireMatch(match, ev);
@@ -298,9 +361,18 @@
   }
   async function sendMove(id, move) {
     const res = await rpc('submit_move', {p_match: id, p_move: move});
-    if (!res.ok) { toast(res.error || 'Illegal move.'); return; }
+    if (!res.ok) { toast(res.error || 'Illegal move.', true); return; }
     const match = await loadMatch(id);
-    if (match) paintMatch(match);
+    if (!match) return;
+    if (match.status === 'finished') {
+      const delta = seat === 'host' ? match.host_delta : match.guest_delta;
+      const change = delta == null ? '' : (delta > 0 ? ' +' : ' ') + delta + ' rating';
+      toast((match.winner === (seat === 'host' ? match.host : match.guest) ? 'You won.' : match.result === 'tie' ? 'Tie.' : 'You lost.') + change);
+      stopWatch();
+      showHub();
+      return;
+    }
+    paintMatch(match);
   }
   async function confirmResult(match, ev) {
     const winnerSide = !ev.result || !ev.result.winner ? 'tie' : ev.result.winner === 'p' ? 'host' : 'guest';
@@ -435,7 +507,7 @@
     const db = client();
     const user = me();
     if (!db || !user || user.guest) return null;
-    const {data, error} = await db.from('matches').select('id,status,kind').or('host.eq.' + user.id + ',guest.eq.' + user.id).eq('status', 'active').eq('kind', 'queue').order('created_at', {ascending: false}).limit(1);
+    const {data, error} = await db.from('matches').select('id,status,kind').or('host.eq.' + user.id + ',guest.eq.' + user.id).eq('status', 'active').in('kind', ['queue', 'bot']).order('created_at', {ascending: false}).limit(1);
     if (error) { console.error('PvP queue poll', error); return null; }
     const rows = Array.isArray(data) ? data : (data ? [data] : []);
     return rows[0] || null;
@@ -447,12 +519,40 @@
     stopQueue();
     openMatch(match.id);
   }
+  async function maybeBot() {
+    if (!searching || botTried || Date.now() - searchStarted < BOT_WAIT) return;
+    botTried = true;
+    const wait = document.getElementById('pvpWait');
+    if (wait) wait.textContent = 'No players found, matching you with a bot…';
+    toast('No players found, matching you with a bot…');
+    let res;
+    try { res = await rpc('start_bot_match'); }
+    catch (err) { console.error('PvP bot', err); res = {ok: false, error: err && err.message}; }
+    if (!searching) return;
+    if (!res || !res.ok) {
+      botTried = false;
+      if (/start_bot_match|does not exist|PGRST202|schema cache/i.test((res && res.error) || '')) {
+        toast('Ranked bots are coming soon. Still searching…');
+        botTried = true;
+      } else toast((res && res.error) || 'Could not start a bot match.', true);
+      return;
+    }
+    const id = rpcBody(res).id;
+    if (!id || !searching) return;
+    stopQueue();
+    openMatch(id);
+  }
   function watchQueue() {
     stopQueue();
     searching = true;
+    searchStarted = Date.now();
+    botTried = false;
     const db = client();
     const user = me();
-    queuePoll = setInterval(() => { claimQueueMatch().catch(err => console.error('PvP queue poll', err)); }, 2000);
+    queuePoll = setInterval(() => {
+      claimQueueMatch().catch(err => console.error('PvP queue poll', err));
+      maybeBot().catch(err => console.error('PvP bot', err));
+    }, 2000);
     if (db && user && !user.guest) {
       queueChannel = db.channel('pvp-queue-' + user.id)
         .on('postgres_changes', {event: '*', schema: 'public', table: 'matches'}, () => claimQueueMatch())
@@ -568,6 +668,7 @@
     mode = await probe();
     paintHub(opts && opts.note);
     bindHub();
+    loadStandings();
     if (mode === 'on') pollInvites();
   }
   async function boot() {
