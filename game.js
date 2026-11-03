@@ -2663,7 +2663,7 @@
         const bag = bags.get(row.id);
         const copy = COPIES.makeCopy(row.id, {gold: !!row.gold, uid: row.uid});
         const both = bag && bag.gold && bag.standard;
-        return `<article class="yd-row${buildFlash === row.id ? ' db-flash' : ''}">
+        return `<article class="yd-row${buildFlash === row.id ? ' db-flash' : ''}" data-cid="${c.id}">
           <button type="button" class="yd-main" data-focus="${c.id}">
             <span class="db-puck yd-puck">${cardHTML(copy)}</span>
             <span class="db-copy">
@@ -2902,6 +2902,19 @@
     refreshList();
     paintDeck();
     paintDetail();
+    deckDrag = {
+      add(id) { if (!chosen(id) && sel.length < 12) toggleDeck(id); },
+      remove(id) { if (chosen(id)) toggleDeck(id); },
+      move(id, beforeId) {
+        const from = sel.findIndex(row => row.id === id);
+        let to = sel.findIndex(row => row.id === beforeId);
+        if (from < 0 || to < 0 || from === to) return;
+        const [row] = sel.splice(from, 1);
+        if (from < to) to -= 1;
+        sel.splice(to, 0, row);
+        afterDeck(id);
+      },
+    };
     if (!showBuilder._keys) {
       showBuilder._keys = true;
       document.addEventListener('keydown', e => {
@@ -3245,6 +3258,113 @@
     if (!h || !h.isConnected || !G || !G.phase.startsWith('PLAY')) return;
     const free = activeSlots().find(s => !G.boards.p[s]); if (free != null) placeCard(+h.dataset.idx, free);
   });
+  let deckDrag = null;
+  const cardDrags = [];
+  let cardDrag = null;
+  let swallowClick = false;
+  function registerCardDrag(spec) {
+    const at = cardDrags.findIndex(item => item.id === spec.id);
+    if (at >= 0) cardDrags[at] = spec;
+    else cardDrags.push(spec);
+  }
+  function dragSource(e) {
+    if (e.button > 0) return null;
+    for (const spec of cardDrags) {
+      const el = e.target.closest && e.target.closest(spec.selector);
+      if (!el || (spec.canStart && !spec.canStart(el, e))) continue;
+      if (e.pointerType === 'mouse' && spec.nativeDrag) return null;
+      return {el, spec};
+    }
+    return null;
+  }
+  function dragTargets(spec, source) {
+    const selector = typeof spec.targets === 'function' ? spec.targets(source) : spec.targets;
+    return [...document.querySelectorAll(selector)].filter(node => !spec.accept || spec.accept(source, node));
+  }
+  function clearDragMarks() {
+    document.querySelectorAll('.drop-ready, .drop-hot').forEach(node => node.classList.remove('drop-ready', 'drop-hot'));
+  }
+  function endCardDrag(e, commit) {
+    if (!cardDrag || e.pointerId !== cardDrag.pointerId) return;
+    const current = cardDrag;
+    cardDrag = null;
+    clearDragMarks();
+    current.source.classList.remove('dragging');
+    if (current.ghost) current.ghost.remove();
+    if (!current.dragging) return;
+    swallowClick = true;
+    setTimeout(() => { swallowClick = false; }, 0);
+    if (!commit) return;
+    const hit = document.elementFromPoint(e.clientX, e.clientY);
+    const target = dragTargets(current.spec, current.source).find(node => hit && (node === hit || node.contains(hit)));
+    if (target) current.spec.drop(current.source, target);
+  }
+  document.addEventListener('pointerdown', e => {
+    const found = dragSource(e);
+    if (!found) return;
+    cardDrag = {pointerId: e.pointerId, x: e.clientX, y: e.clientY, source: found.el, spec: found.spec, dragging: false, ghost: null};
+  });
+  document.addEventListener('pointermove', e => {
+    if (!cardDrag || e.pointerId !== cardDrag.pointerId) return;
+    const dx = e.clientX - cardDrag.x;
+    const dy = e.clientY - cardDrag.y;
+    if (!cardDrag.dragging) {
+      if (Math.hypot(dx, dy) < 10) return;
+      cardDrag.dragging = true;
+      cardDrag.source.classList.add('dragging');
+      if (cardDrag.source.setPointerCapture) cardDrag.source.setPointerCapture(e.pointerId);
+      const face = cardDrag.source.querySelector('.card');
+      const ghost = document.createElement('div');
+      ghost.className = 'drag-ghost';
+      ghost.innerHTML = face ? face.outerHTML : cardDrag.source.innerHTML;
+      document.body.appendChild(ghost);
+      cardDrag.ghost = ghost;
+      dragTargets(cardDrag.spec, cardDrag.source).forEach(node => node.classList.add('drop-ready'));
+    }
+    e.preventDefault();
+    cardDrag.ghost.style.left = e.clientX + 'px';
+    cardDrag.ghost.style.top = e.clientY + 'px';
+    const hit = document.elementFromPoint(e.clientX, e.clientY);
+    document.querySelectorAll('.drop-hot').forEach(node => node.classList.remove('drop-hot'));
+    const hot = dragTargets(cardDrag.spec, cardDrag.source).find(node => hit && (node === hit || node.contains(hit)));
+    if (hot) hot.classList.add('drop-hot');
+  }, {passive: false});
+  document.addEventListener('pointerup', e => endCardDrag(e, true));
+  document.addEventListener('pointercancel', e => endCardDrag(e, false));
+  document.addEventListener('click', e => {
+    if (!swallowClick) return;
+    swallowClick = false;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  }, true);
+  registerCardDrag({
+    id: 'play',
+    selector: '.handcard',
+    nativeDrag: true,
+    canStart(el) { return !!(G && G.phase.startsWith('PLAY') && el.dataset.idx != null); },
+    targets: '.slot.open',
+    drop(source, target) { placeCard(+source.dataset.idx, +target.dataset.slot); },
+  });
+  registerCardDrag({
+    id: 'deck-add',
+    selector: '.db-item',
+    canStart(el, e) { return !!(deckDrag && el.dataset.cid && !e.target.closest('.db-remove, .yd-gold')); },
+    targets: '#dbDeck, #btnOpenDeck',
+    drop(source) { deckDrag.add(source.dataset.cid); },
+  });
+  registerCardDrag({
+    id: 'deck-row',
+    selector: '.yd-row',
+    canStart(el, e) { return !!(deckDrag && el.dataset.cid && !e.target.closest('.db-remove, .yd-gold, [data-goldpick]')); },
+    targets: '.yd-row, #dbRows',
+    accept(source, target) { return target !== source; },
+    drop(source, target) {
+      const row = target.closest('.yd-row');
+      if (row && row.dataset.cid) deckDrag.move(source.dataset.cid, row.dataset.cid);
+      else deckDrag.remove(source.dataset.cid);
+    },
+  });
+  window.TOB_DRAG = {register: registerCardDrag};
   document.addEventListener('dragstart', e => { const h = e.target.closest('.handcard'); if (h) e.dataTransfer.setData('text/plain', h.dataset.idx); });
   document.addEventListener('dragover', e => { const s = e.target.closest('.slot.open'); if (s) { e.preventDefault(); s.classList.add('hover'); } });
   document.addEventListener('dragleave', e => { const s = e.target.closest('.slot'); if (s) s.classList.remove('hover'); });

@@ -255,6 +255,28 @@
     document.querySelectorAll('.pvp-hand').forEach(btn => {
       btn.onclick = () => btn.classList.toggle('on');
     });
+    if (root.TOB_DRAG) {
+      root.TOB_DRAG.register({
+        id: 'pvp',
+        selector: '.pvp-hand',
+        canStart() {
+          const phase = (match.state || {}).phase;
+          return state.turn === seat && (phase === 'place1' || phase === 'place2');
+        },
+        targets: '.pvp-slot',
+        accept(source, target) {
+          if (target.dataset.who !== seat || target.classList.contains('filled')) return false;
+          const slot = +target.dataset.slot;
+          const phase = (match.state || {}).phase;
+          if (phase === 'place1') return slot >= 0 && slot <= 3;
+          if (phase === 'place2') return slot >= 4 && slot <= 6;
+          return false;
+        },
+        drop(source, target) {
+          sendMove(match.id, {t: 'place', slot: +target.dataset.slot, hand: +source.dataset.hand});
+        },
+      });
+    }
     document.querySelectorAll('.pvp-slot').forEach(slot => {
       slot.onclick = async () => {
         if (slot.dataset.who !== seat || state.turn !== seat) return;

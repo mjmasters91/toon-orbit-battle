@@ -109,7 +109,12 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
 .slot.locked { display: none; }
 .row:not(:has(.slot:not(.locked))) { display: none; }
 .slot.open { background: rgba(240, 193, 74, .08); box-shadow: inset 0 0 0 1.5px rgba(240,193,74,.95), 0 0 0 4px rgba(240,193,74,.16); animation: glow 1.4s ease-in-out infinite alternate; }
-.slot.hover { background: rgba(240, 193, 74, .2); }
+.slot.hover, .slot.drop-hot, .pvp-slot.drop-hot, .db-deckcol.drop-hot, .db-tray.drop-hot, .yd-row.drop-hot { background: rgba(255, 122, 0, .28); }
+.slot.drop-ready, .pvp-slot.drop-ready { outline: 3px solid #ff7a00; outline-offset: 2px; background: rgba(255, 122, 0, .22); box-shadow: 0 0 16px rgba(255, 122, 0, .55); }
+.db-deckcol.drop-ready, .db-tray.drop-ready { box-shadow: inset 0 0 0 2px #ff7a00; }
+.handcard.dragging, .pvp-hand.dragging, .db-item.dragging, .yd-row.dragging { opacity: .35; }
+.drag-ghost { position: fixed; z-index: 500; margin: 0; pointer-events: none; transform: translate(-50%, -50%) scale(1.06); filter: drop-shadow(0 14px 18px rgba(0,0,0,.5)); }
+.drag-ghost .card { width: 84px; height: 84px; }
 .slot.swaptarget { outline: 2px solid #ff7d72; outline-offset: 3px; }
 .slot:has(.card) { background: transparent; box-shadow: none; animation: none; }
 .slotnum { font: 600 16px/1 "Outfit", system-ui, sans-serif; color: rgba(255,255,255,.72); }
@@ -184,7 +189,7 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
   background: rgba(16, 22, 46, .55); backdrop-filter: blur(18px); border: 1px solid rgba(255,255,255,.12); border-radius: 24px; box-shadow: 0 12px 32px rgba(0,0,0,.28); }
 .handlabel { writing-mode: vertical-rl; transform: rotate(180deg); font: 600 12px/1 "Outfit", system-ui, sans-serif; letter-spacing: .16em; text-transform: uppercase; color: rgba(255,255,255,.86); }
 #hand { display: flex; gap: 8px; flex: 1; min-height: 100px; align-items: center; padding-top: 8px; }
-.handcard { position: relative; width: 96px; height: 96px; flex: none; cursor: pointer; transition: transform .16s ease; }
+.handcard { position: relative; width: 96px; height: 96px; flex: none; cursor: pointer; transition: transform .16s ease; touch-action: none; }
 .handcard .card { width: 100%; height: 100%; aspect-ratio: auto; }
 .handcard:hover { transform: translateY(-6px); }
 .handcard.sel { transform: translateY(-8px); }
@@ -257,7 +262,8 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
   .cname { font-size: 9px; }
   .cname.long { font-size: 8px; }
   .cpts { width: auto; height: auto; min-width: 12px; font-size: 9px; line-height: 1; padding: 2px 4px; bottom: 20%; right: 10%; }
-  .btn, .deckpick, .bcard, .handcard, .slot, .goalcard { touch-action: manipulation; }
+  .btn, .deckpick, .bcard, .slot, .goalcard { touch-action: manipulation; }
+  .handcard, .pvp-hand, .db-puck, .yd-puck { touch-action: none; }
   .btn { min-height: 44px; min-width: 44px; }
   .btn.small { min-height: 44px; }
   .layout { display: flex; flex-direction: column; gap: 4px; padding: 4px; }
@@ -448,7 +454,7 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
 .pvp-slot { min-height: 64px; border-radius: 12px; background: rgba(255,255,255,.04); display: flex; align-items: center; justify-content: center; }
 .pvp-slot .card { width: 64px; height: 64px; }
 .pvp-hands { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; padding: 8px 12px; }
-.pvp-hand { border: 0; background: transparent; padding: 0; }
+.pvp-hand { border: 0; background: transparent; padding: 0; touch-action: none; }
 .pvp-hand .card { width: 72px; height: 72px; }
 .pvp-hand.on .card { box-shadow: 0 0 0 3px #ff7a00; }
 .pvp-score, .pvp-clock { text-align: center; color: #ffb15a; font-weight: 800; }
@@ -842,7 +848,7 @@ button.portal-greet:hover { color: #ffa733; }
 .db-item.focus { background: rgba(255, 122, 0, .08); }
 .db-row { display: flex; gap: 8px; width: 100%; text-align: left; color: #f4f4f6; background: transparent; border: 0; padding: 6px 8px; cursor: pointer; align-items: center; }
 .db-thumb { width: 54px; height: 54px; object-fit: cover; border-radius: 8px; flex: none; background: #0b0b0d; }
-.db-puck { position: relative; display: inline-flex; }
+.db-puck, .yd-puck { position: relative; display: inline-flex; touch-action: none; }
 .db-puck .cname { display: none; }
 .db-puck .card { width: 64px; height: 64px; }
 .db-item.in .db-puck .card { box-shadow: 0 0 0 2px #ff7a00, 0 0 12px rgba(255, 90, 0, .45); }
