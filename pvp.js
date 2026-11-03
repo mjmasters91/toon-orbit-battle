@@ -25,12 +25,14 @@
     const user = me();
     if (!user || user.guest || !root.TOB_AUTH || root.TOB_AUTH.mode !== 'supabase') return 'guest';
     const db = client();
-    if (!db) return 'soon';
+    if (!db) {
+      console.error('PvP probe: Supabase client is missing, so PvP stays off.');
+      return 'soon';
+    }
     const {error} = await db.from('matches').select('id').limit(1);
-    const msg = error ? ((error.message || '') + ' ' + (error.code || '')) : '';
-    if (error && /PGRST205|42P01|schema cache|does not exist|Could not find the table/i.test(msg)) return 'soon';
-    if (error && /42501|permission denied/i.test(msg)) return 'soon';
-    return error ? 'soon' : 'on';
+    if (!error) return 'on';
+    console.error('PvP probe: matches select failed', error.code || '', error.message || error);
+    return 'soon';
   }
   function deckFromProfile(profile) {
     const raw = [];

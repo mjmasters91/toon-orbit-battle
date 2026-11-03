@@ -563,6 +563,7 @@
     get mode() { return modeName; },
     get onlineSoon() { return onlineSoon; },
     get providerName() { return modeName === 'supabase' ? 'SupabaseAuthProvider' : 'LocalAuthProvider'; },
+    client() { return modeName === 'supabase' && provider.client ? provider.client : null; },
     ready,
     get initError() { return provider.initError || ''; },
     signUp(creds) {
