@@ -417,7 +417,7 @@
     }
     const res = await window.TOB_PVP.commitRanked(G.rankedId, moves);
     G.rankBusy = false;
-    if (!res || !res.ok) { setMsg((res && res.error) || 'The server rejected that round.'); beginPlay(G.round); return; }
+    if (!res || !res.ok) { beginPlay(G.round); setMsg((res && res.error) || 'The server rejected that round.'); return; }
     const host = res.match.state.host || {};
     const guest = res.match.state.guest || {};
     slots.forEach(s => { G.boards.o[s] = copyEntry(guest.board && guest.board[s]); });
@@ -474,7 +474,7 @@
     stopTimer();
     const res = await window.TOB_PVP.commitRanked(G.rankedId, [{t: 'discard', idx: [...G.discardSel]}]);
     G.rankBusy = false;
-    if (!res || !res.ok) { setMsg((res && res.error) || 'Discard was rejected.'); beginDiscard(); return; }
+    if (!res || !res.ok) { beginDiscard(); setMsg((res && res.error) || 'Discard was rejected.'); return; }
     const host = res.match.state.host || {};
     const guest = res.match.state.guest || {};
     G.pHand = copyList(host.hand);
@@ -520,7 +520,7 @@
     if (handIdx != null) move.hand = handIdx;
     const res = await window.TOB_PVP.commitRanked(G.rankedId, [move]);
     G.rankBusy = false;
-    if (!res || !res.ok) { setMsg((res && res.error) || 'Swap was rejected.'); beginSwap(); return; }
+    if (!res || !res.ok) { beginSwap(); setMsg((res && res.error) || 'Swap was rejected.'); return; }
     const host = res.match.state.host || {};
     const guest = res.match.state.guest || {};
     G.boards.p[6] = copyEntry(host.board && host.board[6]);
@@ -564,7 +564,7 @@
     if (color) move.color = color;
     const res = await window.TOB_PVP.commitRanked(G.rankedId, [move]);
     G.rankBusy = false;
-    if (!res || !res.ok) { setMsg((res && res.error) || 'Silver was rejected.'); beginRankedSilver(); return; }
+    if (!res || !res.ok) { beginRankedSilver(); setMsg((res && res.error) || 'Silver was rejected.'); return; }
     const host = res.match.state.host || {};
     const guest = res.match.state.guest || {};
     G.silver.p = host.silver || null;

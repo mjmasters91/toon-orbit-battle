@@ -554,10 +554,17 @@
   async function commitRanked(matchId, moves) {
     for (const move of moves) {
       const res = await rpc('submit_move', {p_match: matchId, p_move: move});
-      if (!res || !res.ok) return {ok: false, error: (res && res.error) || 'The server rejected that move.'};
+      if (!res || !res.ok) {
+        const error = (res && res.error) || 'The server rejected that move.';
+        toast(error, true);
+        return {ok: false, error};
+      }
     }
     const match = await loadMatch(matchId);
-    if (!match) return {ok: false, error: 'That match could not be reloaded.'};
+    if (!match) {
+      toast('That match could not be reloaded.', true);
+      return {ok: false, error: 'That match could not be reloaded.'};
+    }
     return {ok: true, match};
   }
   function bumpBotClock(matchId) {
