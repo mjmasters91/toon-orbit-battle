@@ -126,9 +126,13 @@
     const user = me();
     if (!user || user.guest) {
       shell(`<header class="pvp-top"><div class="pvp-title">PVP</div><button type="button" class="btn" id="pvpHome">Home</button></header>
-        <section class="pvp-card"><h2>Sign in to play friends</h2><p>Guest matches stay on this device. An online account can challenge friends, share a room code, or join the queue.</p>
-        <button type="button" class="btn go" id="pvpSign">Sign in</button></section>
-        ${standingsShell()}`);
+        <div class="pvp-layout">
+          <div class="pvp-main">
+            <section class="pvp-card"><h2>Sign in to play friends</h2><p>Guest matches stay on this device. An online account can challenge friends, share a room code, or join the queue.</p>
+            <button type="button" class="btn go" id="pvpSign">Sign in</button></section>
+          </div>
+          ${boardShell()}
+        </div>`);
       return;
     }
     if (mode !== 'on') {
@@ -138,16 +142,23 @@
     }
     shell(`<header class="pvp-top"><div class="pvp-title">PVP</div><button type="button" class="btn" id="pvpHome">Home</button></header>
       <p class="pvp-status" id="pvpStatus" role="status">${esc(extra || '')}</p>
-      <section class="pvp-card"><h2>Play a friend</h2><p>Share a room code or open the link. Rooms expire in 10 minutes.</p>
-        <label class="pvp-private"><input type="checkbox" id="pvpPrivate"> Private match</label>
-        <button type="button" class="btn go" id="pvpRoom">Create room</button>
-        <form class="pvp-join" id="pvpJoin"><input id="pvpCode" maxlength="5" placeholder="Room code" aria-label="Room code"><button class="btn" type="submit">Join</button></form>
-      </section>
-      <section class="pvp-card"><h2>Quick match</h2><p>Ranked. If nobody joins, a bot of your tier steps in.</p>
-        <button type="button" class="btn go" id="pvpQueue">Join queue</button>
-      </section>
-      ${standingsShell()}
-      <div id="pvpExtra"></div>`);
+      <section class="pvp-card pvp-rank" id="pvpRank"></section>
+      <div class="pvp-layout">
+        <div class="pvp-main">
+          <div class="pvp-plays">
+            <section class="pvp-card pvp-play"><h2>Play a friend</h2><p>Share a room code or open the link. Rooms expire in 10 minutes.</p>
+              <label class="pvp-private"><input type="checkbox" id="pvpPrivate"> Private match</label>
+              <button type="button" class="btn go" id="pvpRoom">Create room</button>
+              <form class="pvp-join" id="pvpJoin"><input id="pvpCode" maxlength="5" placeholder="Room code" aria-label="Room code"><button class="btn" type="submit">Join</button></form>
+            </section>
+            <section class="pvp-card pvp-play"><h2>Quick match</h2><p>Ranked. If nobody joins, a bot of your tier steps in.</p>
+              <button type="button" class="btn go" id="pvpQueue">Join queue</button>
+            </section>
+          </div>
+          <div id="pvpExtra"></div>
+        </div>
+        ${boardShell()}
+      </div>`);
     if (extra) { const line = document.getElementById('pvpStatus'); if (line) line.classList.add('bad'); }
   }
   function showHub(note) {
@@ -156,9 +167,8 @@
     bindHub();
     loadStandings();
   }
-  function standingsShell() {
-    return `<section class="pvp-card pvp-rank" id="pvpRank"></section>
-      <section class="pvp-card"><h2>Standings</h2><div id="pvpStandings"><p class="pvp-note">Loading standings…</p></div></section>`;
+  function boardShell() {
+    return `<aside class="pvp-side"><section class="pvp-card"><h2>Standings</h2><div id="pvpStandings"><p class="pvp-note">Loading standings…</p></div></section></aside>`;
   }
   function tierMark(tier, division) {
     const name = tier || 'Bronze';

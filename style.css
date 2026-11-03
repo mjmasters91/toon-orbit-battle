@@ -443,6 +443,23 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opa
 .pvp-ava { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; border: 1px solid #ff7a00; }
 .pvp-card, .pvp-lobby { margin: 12px; padding: 14px; background: #141417; border: 1px solid #ff7a00; border-radius: 16px; }
 .pvp-card h2, .pvp-kicker { margin: 0 0 6px; color: #ffa733; letter-spacing: .08em; font-size: 13px; }
+.pvp-rank { margin: 12px 12px 0; }
+.pvp-layout { display: block; }
+.pvp-plays { display: grid; grid-template-columns: 1fr; }
+.pvp-play { margin: 8px 12px; padding: 10px 12px; }
+.pvp-play h2 { font-size: 11px; margin-bottom: 4px; }
+.pvp-play p { margin: 0 0 6px; font-size: 13px; line-height: 1.35; }
+.pvp-play .btn { padding: 6px 12px; font-size: 13px; margin: 2px 2px 2px 0; }
+.pvp-play .pvp-private { margin: 4px 0; }
+.pvp-play .pvp-join { margin-top: 6px; }
+.pvp-side .pvp-card { margin: 8px 12px 12px; }
+@media (min-width: 801px) {
+  .pvp-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 380px); align-items: start; }
+  .pvp-plays { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+  .pvp-side { position: sticky; top: 58px; max-height: calc(100vh - 70px); overflow: auto; }
+  .pvp-side .pvp-card { margin-left: 0; }
+  #pvpStandings { max-height: none; }
+}
 .pvp-status { min-height: 1.3em; margin: 12px 12px 0; color: #ffb15a; font-weight: 800; }
 .pvp-status.bad { color: #ffb0a4; }
 .bot-badge, .tier { display: inline-block; margin-left: 6px; padding: 2px 6px; border-radius: 999px; font: 800 10px/1.4 Inter, "Segoe UI", system-ui, sans-serif; letter-spacing: .06em; vertical-align: 1px; }
