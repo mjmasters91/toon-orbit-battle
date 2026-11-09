@@ -1618,7 +1618,7 @@ body:not(:has(#overlay:not(.hidden))) #inspector {
 #inspector .tv-power, #inspector .tv-combo, #inspector .tv-group, #inspector .tv-feat, #inspector .tv-live {
   margin-top: 4px;
 }
-@media (max-height: 820px) {
+@media (max-height: 820px) and (min-width: 1024px) {
   body:not(:has(#overlay:not(.hidden))) { overflow: hidden; }
   body:not(:has(#overlay:not(.hidden))) #app {
     height: 100vh; display: flex; flex-direction: column; overflow: hidden;
@@ -1669,4 +1669,120 @@ body:not(:has(#overlay:not(.hidden))) #inspector {
 }
 @media (max-width: 1099px) {
   body:not(:has(#overlay:not(.hidden))) .right .tv { display: none; }
+}
+
+/* Phones and short landscape phones. Desktop at 1024px and wider is unchanged. */
+@media (max-width: 1023px) {
+  html, body { overflow-x: hidden; }
+  #app { min-width: 0; max-width: 100%; }
+  .orbit-head { grid-template-columns: minmax(0, 1fr) auto; }
+  .orbit-banner { grid-column: 1 / -1; width: 100%; max-width: 100%; order: 3; }
+  .orbit-nav {
+    flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden;
+    -webkit-overflow-scrolling: touch; max-width: 100%;
+  }
+  .orbit-nav:not(.is-open) .navpill:not(#btnNavMenu),
+  .orbit-nav:not(.is-open) .nav-drop { display: inline-flex; }
+  .navpill, .nav-drop { flex: none; }
+  .nav-auth { margin-left: 0; }
+  .orbit-body, body:not(:has(#overlay:not(.hidden))) .orbit-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  body:has(#deckBuilder) .site-side { display: flex; max-height: 180px; }
+
+  body:not(:has(#overlay:not(.hidden))) .site-side,
+  body:not(:has(#overlay:not(.hidden))) .orbit-banner,
+  body:not(:has(#overlay:not(.hidden))) .right,
+  body:not(:has(#overlay:not(.hidden))) .tv,
+  body:not(:has(#overlay:not(.hidden))) #preview {
+    display: none !important;
+  }
+  body:not(:has(#overlay:not(.hidden))) .layout {
+    display: flex; flex-direction: column; width: 100%; min-width: 0; max-width: 100%;
+    height: 100%; overflow: hidden; gap: 4px; padding: 4px;
+    grid-template-columns: minmax(0, 1fr); grid-template-areas: none;
+  }
+  body:not(:has(#overlay:not(.hidden))) .left {
+    flex: none; width: 100%; max-height: 22vh; overflow: auto; order: 1;
+  }
+  body:not(:has(#overlay:not(.hidden))) .sb-num { font-size: 22px; }
+  body:not(:has(#overlay:not(.hidden))) .sb-goal { font-size: 11px; }
+  body:not(:has(#overlay:not(.hidden))) .arena {
+    flex: 1 1 auto; order: 2; width: 100%; min-width: 0; min-height: 0;
+    overflow: hidden; padding: 4px; justify-content: space-evenly;
+  }
+  body:not(:has(#overlay:not(.hidden))) .side {
+    width: 100%; min-width: 0; container-type: inline-size;
+    --slot: min(calc((100cqi - 18px) / 4), calc((100dvh - 300px) / 2.4));
+  }
+  body:not(:has(#overlay:not(.hidden))) .row {
+    width: 100%; max-width: 100%; flex-wrap: nowrap; justify-content: center; gap: 4px;
+  }
+  body:not(:has(#overlay:not(.hidden))) .row.outer {
+    width: calc(var(--slot) * 3 + 8px); max-width: 100%;
+  }
+  body:not(:has(#overlay:not(.hidden))) .slot {
+    flex: 0 0 var(--slot); width: var(--slot); height: var(--slot);
+    min-width: 0; min-height: 0; max-width: none; aspect-ratio: 1;
+  }
+  body:not(:has(#overlay:not(.hidden))) .midline {
+    position: relative; display: flex; align-items: center; justify-content: center;
+    height: auto; min-height: 44px; max-height: none; margin: 2px 0; padding: 0 4px;
+    overflow: visible; gap: 8px;
+  }
+  body:not(:has(#overlay:not(.hidden))) #phaseMsg {
+    flex: 1; min-width: 0; height: auto; max-height: 2.6em; font-size: 13px;
+  }
+  body:not(:has(#overlay:not(.hidden))) #timer,
+  body:not(:has(#overlay:not(.hidden))) #timer.low,
+  body:not(:has(#overlay:not(.hidden))) #timer.warn,
+  body:not(:has(#overlay:not(.hidden))) #timer.idle {
+    position: static; margin: 0; flex: none;
+    width: 48px; height: 48px; min-width: 48px; min-height: 48px; font-size: 13px;
+  }
+  body:not(:has(#overlay:not(.hidden))) .handbar {
+    flex: none; order: 3; width: 100%; min-width: 0; max-width: 100%;
+    flex-direction: column; align-items: stretch; gap: 4px;
+    margin: 0; padding: 4px 6px calc(6px + env(safe-area-inset-bottom));
+    min-height: 0; overflow: visible;
+  }
+  body:not(:has(#overlay:not(.hidden))) #hand {
+    display: flex; flex-wrap: nowrap; justify-content: flex-start; align-items: center;
+    width: 100%; min-width: 0; min-height: 76px; gap: 8px; padding: 4px 2px 2px;
+    overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch;
+  }
+  body:not(:has(#overlay:not(.hidden))) .handcard,
+  body:not(:has(#overlay:not(.hidden))) .handcard:hover,
+  body:not(:has(#overlay:not(.hidden))) .handcard.sel,
+  body:not(:has(#overlay:not(.hidden))) .handcard.sel:hover,
+  body:not(:has(#overlay:not(.hidden))) .handcard:active {
+    flex: 0 0 72px; width: 72px; height: 72px; min-width: 72px; max-width: 72px;
+    transform: none; touch-action: manipulation;
+  }
+  body:not(:has(#overlay:not(.hidden))) #actions {
+    width: 100%; max-width: none; justify-content: center;
+  }
+  body:not(:has(#overlay:not(.hidden))) #actions .btn {
+    flex: 1 1 auto; min-height: 44px; min-width: 44px;
+  }
+}
+@media (max-width: 1023px) and (max-height: 500px) {
+  body:not(:has(#overlay:not(.hidden))) .left { max-height: 64px; }
+  body:not(:has(#overlay:not(.hidden))) .side {
+    --slot: min(calc((100cqi - 18px) / 4), 56px);
+  }
+  body:not(:has(#overlay:not(.hidden))) #timer,
+  body:not(:has(#overlay:not(.hidden))) #timer.low,
+  body:not(:has(#overlay:not(.hidden))) #timer.warn,
+  body:not(:has(#overlay:not(.hidden))) #timer.idle {
+    width: 40px; height: 40px; min-width: 40px; min-height: 40px;
+  }
+  body:not(:has(#overlay:not(.hidden))) #hand { min-height: 60px; }
+  body:not(:has(#overlay:not(.hidden))) .handcard,
+  body:not(:has(#overlay:not(.hidden))) .handcard:hover,
+  body:not(:has(#overlay:not(.hidden))) .handcard.sel,
+  body:not(:has(#overlay:not(.hidden))) .handcard.sel:hover,
+  body:not(:has(#overlay:not(.hidden))) .handcard:active {
+    flex-basis: 56px; width: 56px; height: 56px; min-width: 56px; max-width: 56px;
+  }
 }

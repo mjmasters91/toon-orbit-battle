@@ -4254,7 +4254,10 @@
     id: 'play',
     selector: '.handcard',
     nativeDrag: true,
-    canStart(el) { return !!(G && G.phase.startsWith('PLAY') && el.dataset.idx != null && !G.spectate && G.myTurn !== false); },
+    canStart(el) {
+      if (window.matchMedia('(max-width: 1023px)').matches) return false;
+      return !!(G && G.phase.startsWith('PLAY') && el.dataset.idx != null && !G.spectate && G.myTurn !== false);
+    },
     targets: '.slot.open',
     drop(source, target) { placeCard(+source.dataset.idx, +target.dataset.slot); },
   });
