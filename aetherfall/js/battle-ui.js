@@ -6,6 +6,16 @@ import { ELEMENT, basicMat } from "./materials.js";
 import { mountView } from "./stage.js";
 import { MAPS } from "./stages.js";
 
+function groundRing(position, color) {
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.32, 0.48, 28),
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.55, side: THREE.DoubleSide }),
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.set(position.x, 0.04, position.z);
+  return ring;
+}
+
 function h(tag, props, ...kids) {
   const node = document.createElement(tag);
   for (const [key, val] of Object.entries(props || {})) {
@@ -45,8 +55,8 @@ export function renderBattleScreen(parent, options) {
   const fx = [];
   let sceneRef = null;
   let cameraRef = null;
-  let camHome = new THREE.Vector3(0.1, 2.15, 5.6);
-  let camLook = new THREE.Vector3(0, 0.7, 0);
+  let camHome = new THREE.Vector3(0.2, 2.7, 7.6);
+  let camLook = new THREE.Vector3(0.15, 0.65, 0);
   let focusUntil = 0;
   let focusPos = camHome.clone();
 
@@ -92,6 +102,7 @@ export function renderBattleScreen(parent, options) {
       figure.position.set(-1.45, 0, (index - 1.5) * 0.95);
       figure.rotation.y = -Math.PI / 2;
       scene.add(figure);
+      scene.add(groundRing(figure.position, "#f0d48a"));
       actors.set(unit.id, { figure, unit, bar: barFor(unit) });
     });
   }
@@ -109,6 +120,7 @@ export function renderBattleScreen(parent, options) {
       figure.position.set(1.65, 0, (index - (battle.enemies.length - 1) / 2) * 1.15);
       figure.rotation.y = Math.PI / 2;
       scene.add(figure);
+      scene.add(groundRing(figure.position, unit.boss ? "#ffb15a" : "#f4efe4"));
       actors.set(unit.id, { figure, unit, bar: barFor(unit) });
     });
   }
@@ -208,6 +220,10 @@ export function renderBattleScreen(parent, options) {
     stage.addEventListener("pointerdown", onPick);
     return {
       tick(now) {
+        const narrow = camera.aspect < 0.9;
+        camera.fov = narrow ? 50 : 32;
+        camera.updateProjectionMatrix();
+        camHome.set(0.15, narrow ? 3.3 : 2.7, narrow ? 9.4 : 7.6);
         const blend = now < focusUntil ? 0.08 : 0.06;
         const goal = now < focusUntil ? focusPos : camHome;
         camera.position.lerp(goal, blend);
@@ -215,7 +231,7 @@ export function renderBattleScreen(parent, options) {
         for (const actor of actors.values()) {
           const clip = actor.figure.userData.clip || "idle";
           if (actor.unit.hp <= 0) actor.figure.userData.clip = "death";
-          actor.figure.userData.phase = (actor.figure.userData.phase || 0) + 0.05 * (speed === 2 ? 1.6 : 1);
+          actor.figure.userData.phase = (actor.figure.userData.phase || 0) + 0.028 * (speed === 2 ? 1.7 : 1);
           poseFigure(actor.figure, actor.figure.userData.clip || "idle", now / 1000 + actor.figure.position.x);
           if ((actor.figure.userData.phase || 0) > 1 && clip !== "death") actor.figure.userData.clip = "idle";
         }
@@ -289,12 +305,12 @@ export function renderBattleScreen(parent, options) {
     const artsReady = actor.unit.gauge >= 100;
     commands.replaceChildren(
       h("p", { class: "turn-line", text: `${actor.unit.name} · ${actor.unit.role}` }),
-      h("div", { class: "row" },
-        h("button", { class: "btn", type: "button", id: "act-attack", text: "Attack", onclick: () => act("attack") }),
-        h("button", { class: "btn", type: "button", id: "act-skill", title: skillText(actor.unit, "Skill"), text: skillName(actor.unit, "Skill", "Skill"), onclick: () => act("skill") }),
-        h("button", { class: `btn ${artsReady ? "arts-ready" : ""}`, type: "button", id: "act-arts", title: skillText(actor.unit, "Art"), text: skillName(actor.unit, "Art", "Arts"), disabled: !artsReady, onclick: () => act("arts") }),
+      h("div", { class: "skill-dock" },
+        h("button", { class: "orb", type: "button", id: "act-attack", title: "Attack", onclick: () => act("attack") }, h("b", { text: "Attack" })),
+        h("button", { class: "orb", type: "button", id: "act-skill", title: skillText(actor.unit, "Skill"), onclick: () => act("skill") }, h("b", { text: skillName(actor.unit, "Skill", "Skill") })),
+        h("button", { class: `orb arts ${artsReady ? "arts-ready" : ""}`, type: "button", id: "act-arts", title: skillText(actor.unit, "Art"), disabled: !artsReady, onclick: () => act("arts") }, h("b", { text: skillName(actor.unit, "Art", "Arts") })),
       ),
-      h("div", { class: "row" },
+      h("div", { class: "row utility" },
         h("button", { class: `btn ghost ${auto ? "on" : ""}`, type: "button", id: "battle-auto", text: auto ? "Auto on" : "Auto", onclick: toggleAuto }),
         h("button", { class: "btn ghost", type: "button", id: "battle-speed", text: speed === 2 ? "Speed 2x" : "Speed 1x", onclick: () => { speed = speed === 2 ? 1 : 2; renderCommands(); } }),
         h("button", { class: "btn ghost", type: "button", text: "Retreat", onclick: () => shutdown(() => options.onExit("retreat")) }),

@@ -1,5 +1,5 @@
 import * as THREE from "../vendor/three/three.module.js";
-import { dressAltar, dressGallery, pedestal } from "./arena.js";
+import { dressAltar, dressSanctuary, pedestal } from "./arena.js";
 import { buildUnit, poseFigure } from "./figures.js";
 import { mountView, releaseView, snapshotUnit } from "./stage.js";
 
@@ -36,7 +36,7 @@ function bindYaw(container, apply) {
   };
 }
 
-function showFigure(container, id, { spin = true, pedestalOn = true, cam = [0.25, 1.05, 2.35], look = [0, 0.82, 0] } = {}) {
+function showFigure(container, id, { spin = true, pedestalOn = true, cam = [0.4, 1.25, 3.25], look = [0, 0.72, 0] } = {}) {
   if (!container || !id) return;
   let yaw = 0.4;
   let dragging = false;
@@ -45,8 +45,8 @@ function showFigure(container, id, { spin = true, pedestalOn = true, cam = [0.25
     yaw += dx * 0.01;
   });
   mountView(container, ({ scene, camera }) => {
-    dressGallery(scene);
-    if (pedestalOn) scene.add(pedestal());
+    dressSanctuary(scene);
+    if (pedestalOn) scene.add(pedestal(0.55));
     const figure = buildUnit(id);
     figure.position.y = 0;
     const pivot = new THREE.Group();
@@ -68,13 +68,13 @@ function showFigure(container, id, { spin = true, pedestalOn = true, cam = [0.25
 export function presentView(route, state) {
   const leaderId = state?.save?.party?.[state.save.leader] || state?.save?.party?.find(Boolean) || "pip";
   const title = document.querySelector("[data-stage='title']");
-  if (title) showFigure(title, "veyra", { cam: [0.3, 1.02, 2.2] });
+  if (title) showFigure(title, "veyra", { cam: [0.45, 1.3, 3.5] });
   const leader = document.querySelector("[data-stage='leader']");
   if (leader) showFigure(leader, leader.dataset.unit || leaderId);
   const detail = document.querySelector("[data-stage='detail']");
   if (detail) showFigure(detail, detail.dataset.unit);
   const hero = document.querySelector("[data-stage='hero']");
-  if (hero) showFigure(hero, hero.dataset.unit, { cam: [0.15, 1.0, 2.15] });
+  if (hero) showFigure(hero, hero.dataset.unit, { cam: [0.35, 1.2, 3.05] });
   const altar = document.querySelector("[data-stage='altar']");
   if (altar) {
     mountView(altar, ({ scene, camera }) => {
@@ -98,7 +98,7 @@ export function presentView(route, state) {
     let yaw = 0.2;
     const unbind = bindYaw(party, (dx) => { yaw += dx * 0.008; });
     mountView(party, ({ scene, camera }) => {
-      dressGallery(scene);
+      dressSanctuary(scene);
       const group = new THREE.Group();
       ids.forEach((id, index) => {
         const figure = buildUnit(id);

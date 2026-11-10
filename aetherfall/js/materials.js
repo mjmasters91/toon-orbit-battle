@@ -9,18 +9,49 @@ export const ELEMENT = {
   dark: "#7d5cc4",
 };
 
+let ramp = null;
+let shell = null;
+
+function gradientMap() {
+  if (ramp) return ramp;
+  const data = new Uint8Array([
+    42, 40, 48, 255,
+    108, 104, 112, 255,
+    186, 182, 176, 255,
+    255, 250, 242, 255,
+  ]);
+  ramp = new THREE.DataTexture(data, 4, 1, THREE.RGBAFormat);
+  ramp.magFilter = THREE.NearestFilter;
+  ramp.minFilter = THREE.NearestFilter;
+  ramp.wrapS = THREE.ClampToEdgeWrapping;
+  ramp.colorSpace = THREE.NoColorSpace;
+  ramp.needsUpdate = true;
+  return ramp;
+}
+
+export function outlineMaterial() {
+  if (shell) return shell;
+  shell = new THREE.MeshBasicMaterial({ color: "#1a1218", side: THREE.BackSide });
+  shell.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader.replace(
+      "#include <begin_vertex>",
+      "vec3 transformed = vec3(position) + normal * 0.028;",
+    );
+  };
+  return shell;
+}
+
 const cache = new Map();
 
 export function mat(color, opts = {}) {
-  const key = `${color}|${opts.roughness ?? 0.52}|${opts.metalness ?? 0.08}|${opts.emissive || ""}|${opts.emissiveIntensity ?? 0}`;
+  const key = `${color}|${opts.emissive || ""}|${opts.emissiveIntensity ?? 0}`;
   let material = cache.get(key);
   if (!material) {
-    material = new THREE.MeshStandardMaterial({
+    material = new THREE.MeshToonMaterial({
       color,
-      roughness: opts.roughness ?? 0.52,
-      metalness: opts.metalness ?? 0.08,
+      gradientMap: gradientMap(),
       emissive: new THREE.Color(opts.emissive || "#000000"),
-      emissiveIntensity: opts.emissiveIntensity ?? (opts.emissive ? 0.35 : 0),
+      emissiveIntensity: opts.emissiveIntensity ?? (opts.emissive ? 0.45 : 0),
     });
     cache.set(key, material);
   }
@@ -28,12 +59,11 @@ export function mat(color, opts = {}) {
 }
 
 export function ownMat(color, opts = {}) {
-  const material = new THREE.MeshStandardMaterial({
+  const material = new THREE.MeshToonMaterial({
     color,
-    roughness: opts.roughness ?? 0.45,
-    metalness: opts.metalness ?? 0.12,
+    gradientMap: gradientMap(),
     emissive: new THREE.Color(opts.emissive || color),
-    emissiveIntensity: opts.emissiveIntensity ?? 0.2,
+    emissiveIntensity: opts.emissiveIntensity ?? 0.35,
     transparent: Boolean(opts.transparent),
     opacity: opts.opacity ?? 1,
   });
@@ -47,6 +77,7 @@ export function basicMat(color, opacity = 1) {
     transparent: opacity < 1,
     opacity,
     depthWrite: opacity >= 1,
+    blending: opacity < 1 ? THREE.AdditiveBlending : THREE.NormalBlending,
   });
   material.userData.own = true;
   return material;
