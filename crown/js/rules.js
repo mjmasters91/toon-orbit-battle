@@ -29,6 +29,25 @@ export const LIMITS = {
   peopleCap: 2000000,
 };
 
+/**
+ * Hourly yields. Food upkeep is in hundredths (200 = 2 food an hour).
+ * Kept in step with crown/sql/0006_income_10x.sql.
+ * Production is 10× the original rates. Peasant and soldier upkeep is 10×
+ * as well, so a starting levy's net food stays about 10× the old surplus.
+ */
+export const ECONOMY = {
+  farmFood: 140,
+  granaryFood: 60,
+  marketGold: 100,
+  mineGold: 120,
+  peasantTax: 30,
+  shrineMana: 40,
+  manaCapBase: 2500,
+  shrineManaCap: 900,
+  scholarResearch: 20,
+  peasantUpkeep: 200,
+};
+
 export const REALM_SIZE = 20;
 
 export const REALM_CATALOG = [
@@ -161,7 +180,7 @@ export const BUILDINGS = {
     cost: 180,
     seconds: 120,
     networth: 12,
-    effect: "+14 food an hour, before land and study.",
+    effect: "+140 food an hour, before land and study.",
   },
   home: {
     id: "home",
@@ -177,7 +196,7 @@ export const BUILDINGS = {
     cost: 340,
     seconds: 180,
     networth: 28,
-    effect: "+10 gold an hour, before land and study.",
+    effect: "+100 gold an hour, before land and study.",
   },
   mine: {
     id: "mine",
@@ -185,7 +204,7 @@ export const BUILDINGS = {
     cost: 420,
     seconds: 240,
     networth: 32,
-    effect: "+12 gold an hour. Slower to open than a market, richer per hall.",
+    effect: "+120 gold an hour. Slower to open than a market, richer per hall.",
   },
   barracks: {
     id: "barracks",
@@ -225,7 +244,7 @@ export const BUILDINGS = {
     cost: 660,
     seconds: 280,
     networth: 44,
-    effect: "+4 mana an hour and +90 to the mana well.",
+    effect: "+40 mana an hour and +900 to the mana well.",
   },
   granary: {
     id: "granary",
@@ -233,7 +252,7 @@ export const BUILDINGS = {
     cost: 260,
     seconds: 160,
     networth: 18,
-    effect: "+6 food an hour from dry stores.",
+    effect: "+60 food an hour from dry stores.",
   },
   guild: {
     id: "guild",
@@ -268,7 +287,7 @@ export const UNITS = {
     food: 8,
     peasants: 1,
     housing: 1,
-    upkeep: 6,
+    upkeep: 60,
     seconds: 40,
     batch: 10,
     networth: 2,
@@ -284,7 +303,7 @@ export const UNITS = {
     food: 16,
     peasants: 1,
     housing: 1,
-    upkeep: 12,
+    upkeep: 120,
     seconds: 60,
     batch: 8,
     networth: 5,
@@ -300,7 +319,7 @@ export const UNITS = {
     food: 18,
     peasants: 1,
     housing: 1,
-    upkeep: 12,
+    upkeep: 120,
     seconds: 60,
     batch: 8,
     networth: 6,
@@ -316,7 +335,7 @@ export const UNITS = {
     food: 14,
     peasants: 1,
     housing: 1,
-    upkeep: 10,
+    upkeep: 100,
     seconds: 60,
     batch: 8,
     networth: 7,
@@ -332,7 +351,7 @@ export const UNITS = {
     food: 48,
     peasants: 1,
     housing: 2,
-    upkeep: 28,
+    upkeep: 280,
     seconds: 100,
     batch: 4,
     networth: 18,
@@ -348,7 +367,7 @@ export const UNITS = {
     food: 36,
     peasants: 2,
     housing: 4,
-    upkeep: 22,
+    upkeep: 220,
     seconds: 120,
     batch: 2,
     networth: 22,
@@ -364,7 +383,7 @@ export const UNITS = {
     food: 32,
     peasants: 1,
     housing: 2,
-    upkeep: 20,
+    upkeep: 200,
     seconds: 100,
     batch: 4,
     networth: 14,
@@ -380,7 +399,7 @@ export const UNITS = {
     food: 28,
     peasants: 1,
     housing: 1,
-    upkeep: 16,
+    upkeep: 160,
     seconds: 100,
     batch: 4,
     networth: 16,
@@ -396,7 +415,7 @@ export const UNITS = {
     food: 70,
     peasants: 2,
     housing: 3,
-    upkeep: 40,
+    upkeep: 400,
     seconds: 160,
     batch: 2,
     networth: 40,

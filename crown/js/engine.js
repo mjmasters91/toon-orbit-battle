@@ -9,6 +9,7 @@ import {
   BUILDING_ORDER,
   CREWS,
   DAY_MS,
+  ECONOMY,
   LANDS,
   LIMITS,
   STARTING,
@@ -180,8 +181,8 @@ export function scholars(state) {
 export function foodRates(state) {
   const land = LANDS[state.landType];
   const foodPct = Math.floor(land.foodPct * (100 + state.research.food * 4) / 100);
-  const produced = Math.floor((state.buildings.farm * 14 + state.buildings.granary * 6) * foodPct / 100);
-  let upkeep = state.peasants * 20;
+  const produced = Math.floor((state.buildings.farm * ECONOMY.farmFood + state.buildings.granary * ECONOMY.granaryFood) * foodPct / 100);
+  let upkeep = state.peasants * ECONOMY.peasantUpkeep;
   for (const id of UNIT_ORDER) upkeep += (state.units[id] || 0) * UNITS[id].upkeep;
   const consumed = Math.floor(upkeep / 100);
   return { produced, consumed, net: produced - consumed };
@@ -190,22 +191,22 @@ export function foodRates(state) {
 export function goldPerHour(state) {
   const land = LANDS[state.landType];
   const pct = Math.floor(land.goldPct * (100 + state.research.economy * 4) / 100);
-  const base = state.buildings.market * 10 + state.buildings.mine * 12 + Math.floor(state.peasants * 3 / 100);
+  const base = state.buildings.market * ECONOMY.marketGold + state.buildings.mine * ECONOMY.mineGold + Math.floor(state.peasants * ECONOMY.peasantTax / 100);
   return Math.floor(base * pct / 100);
 }
 
 export function manaRates(state) {
   const land = LANDS[state.landType];
   const pct = Math.floor(land.manaPct * (100 + state.research.magic * 5) / 100);
-  const perHour = Math.floor((state.buildings.shrine || 0) * 4 * pct / 100);
-  const cap = 250 + (state.buildings.shrine || 0) * 90;
+  const perHour = Math.floor((state.buildings.shrine || 0) * ECONOMY.shrineMana * pct / 100);
+  const cap = ECONOMY.manaCapBase + (state.buildings.shrine || 0) * ECONOMY.shrineManaCap;
   return { perHour, cap };
 }
 
 export function researchPerHour(state) {
   const land = LANDS[state.landType];
   const pct = Math.floor(land.researchPct * (100 + state.research.magic * 4) / 100);
-  return Math.floor(scholars(state) * 2 * pct / 100);
+  return Math.floor(scholars(state) * ECONOMY.scholarResearch * pct / 100);
 }
 
 export function armyScores(state) {

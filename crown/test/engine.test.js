@@ -47,21 +47,21 @@ test("names", () => {
 test("a fresh highlands tick matches the bank math", () => {
   const state = player();
   assert.equal(freeLand(state), 195);
-  assert.equal(foodRates(state).produced, 212);
-  assert.equal(foodRates(state).consumed, 64);
-  assert.equal(goldPerHour(state), 73);
-  assert.equal(researchPerHour(state), 28);
+  assert.equal(foodRates(state).produced, 2124);
+  assert.equal(foodRates(state).consumed, 649);
+  assert.equal(goldPerHour(state), 730);
+  assert.equal(researchPerHour(state), 280);
   assert.equal(popCap(state), 477);
   assert.equal(exploreCap(state), 19);
   const { state: next } = settle(state, NOW + TICK_SECONDS * 1000);
-  assert.equal(next.food, 4202);
-  assert.equal(next.foodBank, 1680);
-  assert.equal(next.gold, 6501);
-  assert.equal(next.goldBank, 780);
+  assert.equal(next.food, 4224);
+  assert.equal(next.foodBank, 2100);
+  assert.equal(next.gold, 6512);
+  assert.equal(next.goldBank, 600);
   assert.equal(next.mana, 80);
-  assert.equal(next.manaBank, 180);
-  assert.equal(next.researchPoints, 70);
-  assert.equal(next.researchBank, 1680);
+  assert.equal(next.manaBank, 2160);
+  assert.equal(next.researchPoints, 74);
+  assert.equal(next.researchBank, 2400);
   assert.equal(next.peasants, 300);
   assert.equal(next.popProgress, 42);
   assert.equal(next.lastTickAt, NOW + TICK_SECONDS * 1000);
@@ -69,9 +69,9 @@ test("a fresh highlands tick matches the bank math", () => {
 
 test("one full hour pays the hourly rates exactly when the bank starts empty", () => {
   const { state } = settle(player(), NOW + 60 * TICK_SECONDS * 1000, { maxTicks: 60 });
-  assert.equal(state.gold, 6500 + 73);
+  assert.equal(state.gold, 6500 + 730);
   assert.equal(state.goldBank, 0);
-  assert.equal(state.researchPoints, 70 + 28);
+  assert.equal(state.researchPoints, 70 + 280);
   assert.equal(state.researchBank, 0);
   assert.ok(state.food > 4200);
   assert.ok(state.peasants >= 300);
