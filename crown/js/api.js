@@ -167,6 +167,14 @@ export async function adminLogOnline() {
   return rpc("cc_admin_log");
 }
 
+export async function seasonsOnline() {
+  return rpc("cc_seasons_view");
+}
+
+export async function wipeSeasonOnline(confirmWord, name) {
+  return rpc("cc_admin_wipe_season", { p_confirm: confirmWord, p_season_name: name || "" });
+}
+
 export async function targetsOnline(query) {
   const res = await rpc("cc_targets", { p_query: query || "" });
   if (!res.ok) return res;

@@ -7,7 +7,8 @@ const KEY = "crown_conquest_demo_v1";
 export function loadDemo() {
   try {
     const raw = JSON.parse(localStorage.getItem(KEY) || "null");
-    if (!raw || raw.version !== 1 || !raw.kingdom?.name) return null;
+    if (!raw || raw.version !== 1) return null;
+    if (!raw.kingdom?.name && !raw.season) return null;
     return raw;
   } catch {
     return null;
@@ -44,5 +45,7 @@ export function freshDemo({ name, landType, now }) {
     adminLog: [],
     banned: false,
     banReason: "",
+    season: { number: 1, name: "Season 1", startedAt: now },
+    pastSeasons: [],
   };
 }

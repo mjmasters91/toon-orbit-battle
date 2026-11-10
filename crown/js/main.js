@@ -22,6 +22,8 @@ import {
   adminGrantOnline,
   adminLogOnline,
   adminSearchOnline,
+  seasonsOnline,
+  wipeSeasonOnline,
   adminUnbanOnline,
   buildOnline,
   createOnlineKingdom,
@@ -72,6 +74,10 @@ const model = {
   hasDemo: false,
   busy: false,
   drafts: blankDrafts(),
+  season: null,
+  pastSeasons: [],
+  seasonsLive: false,
+  wipeOpen: false,
 };
 
 function blankDrafts() {
@@ -114,23 +120,26 @@ function noteFrom(summary) {
 }
 
 function persist() {
-  if (model.mode !== "demo" || !model.kingdom) return;
+  if (model.mode !== "demo") return;
+  if (!model.kingdom && !model.season) return;
   saveDemo({
     kingdom: model.kingdom,
-    npcs: model.npcs,
-    alliances: model.alliances,
-    members: model.members,
-    requests: model.requests,
-    reports: model.reports,
+    npcs: model.npcs || [],
+    alliances: model.alliances || [],
+    members: model.members || [],
+    requests: model.requests || [],
+    reports: model.reports || [],
     adminLog: model.adminLog,
     banned: model.banned,
     banReason: model.banReason,
+    season: model.season,
+    pastSeasons: model.pastSeasons || [],
   });
 }
 
 function showGate(message, tone = "info") {
   model.screen = "gate";
-  model.hasDemo = Boolean(loadDemo());
+  model.hasDemo = Boolean(loadDemo()?.kingdom?.name);
   note(message || "", tone);
   renderApp();
 }
@@ -254,10 +263,51 @@ function enterDemo(save, caughtUp) {
   syncDemoBoard();
   model.screen = "play";
   model.tab = "throne";
+  model.season = save.season || { number: 1, name: "Season 1", startedAt: save.kingdom?.createdAt || Date.now() };
+  model.pastSeasons = save.pastSeasons || [];
+  model.seasonsLive = true;
   noteFrom(result.summary);
   revealBattle(before, model.reports);
   persist();
   renderApp();
+}
+
+function applySeasonPayload(data) {
+  model.season = data?.current || null;
+  model.pastSeasons = data?.past || [];
+  model.seasonsLive = Boolean(model.season);
+}
+
+async function loadSeasons() {
+  const res = await seasonsOnline();
+  if (!res.ok) {
+    model.seasonsLive = false;
+    return;
+  }
+  applySeasonPayload(res.data);
+}
+
+function demoStandings() {
+  const crowns = [model.kingdom, ...(model.npcs || [])].filter(Boolean).map((kingdom) => ({
+    name: kingdom.name,
+    land: kingdom.land,
+    networth: networth(kingdom),
+    is_npc: Boolean(kingdom.isNpc),
+    realm: kingdom.realmName || "",
+    tag: kingdom.allianceTag || "",
+  }));
+  const byName = (a, b) => a.name.localeCompare(b.name);
+  const byNetworth = [...crowns].sort((a, b) => b.networth - a.networth || byName(a, b)).slice(0, 10);
+  const byLand = [...crowns].sort((a, b) => b.land - a.land || b.networth - a.networth || byName(a, b)).slice(0, 10);
+  const alliances = (model.alliances || []).map((alliance) => {
+    const members = (model.members || []).filter((row) => row.allianceId === alliance.id);
+    const worth = members.reduce((sum, row) => {
+      const kingdom = row.name === model.kingdom?.name ? model.kingdom : (model.npcs || []).find((npc) => npc.name === row.name);
+      return sum + (kingdom ? networth(kingdom) : 0);
+    }, 0);
+    return { name: alliance.name, tag: alliance.tag, members: members.length, networth: worth };
+  }).sort((a, b) => b.networth - a.networth || byName(a, b)).slice(0, 10);
+  return { by_networth: byNetworth, by_land: byLand, alliances };
 }
 
 function demoAdminRows(query) {
@@ -414,15 +464,19 @@ const actions = {
     model.tab = "throne";
     note("");
     if (opened.kingdom) await loadBoard();
+    await loadSeasons();
     renderApp();
   },
   demo: () => {
     const saved = loadDemo();
-    if (saved) {
+    if (saved?.kingdom?.name) {
       enterDemo(saved);
       return;
     }
     model.mode = "demo";
+    model.season = saved?.season || { number: 1, name: "Season 1", startedAt: Date.now() };
+    model.pastSeasons = saved?.pastSeasons || [];
+    model.seasonsLive = true;
     model.screen = "found";
     model.drafts.landType = "";
     model.drafts.foundName = "";
@@ -468,6 +522,8 @@ const actions = {
     }
     try {
       const save = freshDemo({ name, landType, now: Date.now() });
+      if (model.season) save.season = model.season;
+      if (model.pastSeasons?.length) save.pastSeasons = model.pastSeasons;
       enterDemo(save, { state: save.kingdom, summary: { ticks: 0, finished: [], gold: 0, food: 0, peasants: 0, research: 0, mana: 0 } });
       note(`The banner of ${save.kingdom.name} was raised.`);
       renderApp();
@@ -641,6 +697,66 @@ const actions = {
     if (found.ok) model.adminResults = found.data.kingdoms || [];
     const recent = await adminLogOnline();
     if (recent.ok) model.adminLog = recent.data.entries || [];
+    renderApp();
+  },
+  openWipe: () => {
+    model.wipeOpen = true;
+    model.wipeConfirm = "";
+    model.wipeName = "";
+    renderApp();
+  },
+  closeWipe: () => {
+    model.wipeOpen = false;
+    renderApp();
+  },
+  wipeSeason: async (confirmWord, name) => {
+    if (confirmWord !== "WIPE") {
+      note("Type WIPE to confirm.", "bad");
+      renderApp();
+      return;
+    }
+    if (model.mode === "demo") {
+      const ended = {
+        ...(model.season || { number: 1, name: "Season 1", startedAt: Date.now() }),
+        endedAt: Date.now(),
+        standings: demoStandings(),
+      };
+      const nextNumber = (ended.number || 1) + 1;
+      const nextName = String(name || "").trim() || `Season ${nextNumber}`;
+      model.pastSeasons = [ended, ...(model.pastSeasons || [])];
+      model.season = { number: nextNumber, name: nextName, startedAt: Date.now() };
+      model.kingdom = null;
+      model.npcs = [];
+      model.alliances = [];
+      model.members = [];
+      model.requests = [];
+      model.reports = [];
+      model.adminLog = [{ at: Date.now(), action: "wipe", label: `Season ${ended.number}`, note: `Ended ${ended.name}. Started ${nextName}.` }, ...(model.adminLog || [])].slice(0, 20);
+      model.wipeOpen = false;
+      model.screen = "found";
+      model.tab = "throne";
+      note(`Season ${ended.number} is closed. Raise a banner for ${nextName}.`);
+      persist();
+      renderApp();
+      return;
+    }
+    if (!model.seasonsLive) {
+      note("The season ledger is not on the server yet.", "bad");
+      renderApp();
+      return;
+    }
+    const res = await wipeSeasonOnline("WIPE", name);
+    if (!res.ok) {
+      note(res.error, "bad");
+      renderApp();
+      return;
+    }
+    applySeasonPayload(res.data);
+    model.kingdom = null;
+    model.wipeOpen = false;
+    model.screen = "found";
+    model.tab = "throne";
+    note(`Season ${res.data?.ended?.number || ""} is closed. Raise a banner for ${res.data?.current?.name || "the new season"}.`);
     renderApp();
   },
   unban: async (username) => {
@@ -909,6 +1025,7 @@ async function boot() {
   model.tab = "throne";
   note("");
   if (opened.kingdom) await loadBoard();
+  await loadSeasons();
   renderApp();
 }
 

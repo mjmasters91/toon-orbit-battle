@@ -128,7 +128,7 @@ function gate(model, act) {
   return el(
     "main",
     { class: "gate" },
-    mast("Rule one castle inside a shared realm. Networth is the crown.", act),
+    mast("Rule one castle inside a shared realm. Networth is the crown.", act, model.season),
     model.notice ? banner(model) : null,
     el(
       "div",
@@ -182,7 +182,7 @@ function found(model, act) {
   return el(
     "main",
     { class: "gate" },
-    mast(model.mode === "online" ? `Signed in as ${model.player?.username || "a ruler"}.` : "This banner stays on this device.", act),
+    mast(model.mode === "online" ? `Signed in as ${model.player?.username || "a ruler"}.` : "This banner stays on this device.", act, model.season),
     model.notice ? banner(model) : null,
     el(
       "form",
@@ -252,6 +252,7 @@ function play(model, act) {
       locked ? banLock(model) : page(model, act),
       bottomNav(model, act),
       model.battleSheet ? battleSheet(model, act) : null,
+      model.wipeOpen ? wipeSheet(model, act) : null,
     ),
   );
 }
@@ -264,7 +265,7 @@ function playHead(model, act) {
     "header",
     { class: "play-head" },
     el("div", { class: "play-title" },
-      el("p", { class: "eyebrow", text: model.mode === "demo" ? "Demo realm on this device" : "Live realm" }),
+      el("p", { class: "eyebrow", text: [seasonFlag(model.season), model.mode === "demo" ? "Demo realm on this device" : "Live realm"].filter(Boolean).join(" · ") }),
       el("h1", { text: model.kingdom?.name || "Crown & Conquest" }),
       el("p", { class: "seat", text: `${realm}${seat ? ` · ${seat}` : ""}${count ? ` · ${count} of 20 crowns` : ""}` }),
     ),
@@ -714,6 +715,7 @@ function realmPage(model, act) {
         boardList(board),
       )
       : null,
+    hallOfSeasons(model),
     el("button", { class: "btn ghost", type: "button", text: "Refresh the board", onclick: () => act.refreshBoard() }),
   );
 }
@@ -741,9 +743,10 @@ function stewardPage(model, act) {
     el("div", { class: "page-intro" },
       el("h2", { text: "Steward's desk" }),
       el("p", { text: model.mode === "demo"
-        ? "This desk only changes the kingdom on this device. Grants, bans, and the log are not sent anywhere."
+        ? "This desk only changes the kingdom on this device. Grants, bans, and a season wipe stay on this device."
         : "Search kingdoms, grant gold, food, or land, and ban a login. Every action is written to the log." }),
     ),
+    seasonsPanel(model, act),
     el("form", {
       class: "panel row",
       onsubmit: (event) => {
@@ -824,7 +827,111 @@ function logLine(line) {
   if (action === "grant") return `Grant to ${label}: ${num(line.gold)} gold, ${num(line.food)} food, ${num(line.land)} land. ${line.note || ""}`.trim();
   if (action === "ban") return `Banned ${label}. ${line.note || ""}`.trim();
   if (action === "unban") return `Lifted the ban on ${label}.`;
+  if (action === "wipe") return `Season wipe. ${label}. ${line.note || ""}`.trim();
   return `${action} ${label}`;
+}
+
+function seasonsPanel(model, act) {
+  const season = model.season;
+  const ready = model.mode === "demo" || model.seasonsLive;
+  return el(
+    "section",
+    { class: "panel seasons" },
+    el("h3", { text: "Seasons" }),
+    season
+      ? el("p", { text: `${seasonFlag(season)}. Opened ${when(season.started_at || season.startedAt)}.` })
+      : el("p", { class: "muted", text: "No season is recorded yet." }),
+    ready
+      ? el("button", { class: "btn danger", type: "button", text: "WIPE / Start New Season", onclick: () => act.openWipe() })
+      : el("p", { class: "lock-note", text: "The season ledger is not on the server yet." }),
+  );
+}
+
+function wipeSheet(model, act) {
+  const nextNumber = (model.season?.number || 1) + 1;
+  return el(
+    "div",
+    {
+      class: "battle-sheet",
+      role: "dialog",
+      "aria-modal": "true",
+      "aria-label": "Wipe the season",
+      onclick: (event) => {
+        if (event.target === event.currentTarget) act.closeWipe();
+      },
+    },
+    el(
+      "form",
+      {
+        class: "panel battle-card wipe-card",
+        onsubmit: (event) => {
+          event.preventDefault();
+          const data = new FormData(event.currentTarget);
+          act.wipeSeason(String(data.get("confirm") || ""), String(data.get("name") || ""));
+        },
+      },
+      el("p", { class: "outcome loss", text: "Wipe" }),
+      el("h3", { text: "Start a new season" }),
+      el("p", { text: "This retires every kingdom, march, report, and player alliance. Accounts stay. The realms are seeded again with the established houses and the pacts [IRN] and [VERD]. Rulers found a new kingdom afterward." }),
+      el("label", { text: "Name for the new season" }),
+      el("input", { name: "name", maxlength: "40", placeholder: `Season ${nextNumber}`, value: model.wipeName || "" }),
+      el("label", { text: "Type WIPE to confirm" }),
+      el("input", {
+        name: "confirm",
+        maxlength: "8",
+        autocomplete: "off",
+        placeholder: "WIPE",
+        value: model.wipeConfirm || "",
+        oninput: (event) => {
+          model.wipeConfirm = event.target.value;
+          const button = event.currentTarget.form?.querySelector("[data-wipe-go]");
+          if (button) button.disabled = event.target.value !== "WIPE";
+        },
+      }),
+      el("div", { class: "row" },
+        el("button", { class: "btn ghost", type: "button", text: "Cancel", onclick: () => act.closeWipe() }),
+        el("button", { class: "btn danger", type: "submit", text: "Wipe the season", "data-wipe-go": "1", disabled: true }),
+      ),
+    ),
+  );
+}
+
+function hallOfSeasons(model) {
+  const past = model.pastSeasons || [];
+  return el(
+    "section",
+    { class: "panel hall" },
+    el("h3", { text: "Hall of Past Seasons" }),
+    past.length
+      ? past.map((season) => seasonCard(season))
+      : el("p", { class: "muted", text: "No season has been retired." }),
+  );
+}
+
+function seasonCard(season) {
+  const standings = season.standings || {};
+  const worth = standings.by_networth || [];
+  const land = standings.by_land || [];
+  const pacts = standings.alliances || [];
+  const landChamp = land[0];
+  const pact = pacts[0];
+  return el(
+    "article",
+    { class: "season-card" },
+    el("h3", { text: seasonFlag(season) }),
+    el("p", { class: "muted", text: `${when(season.started_at || season.startedAt)} – ${when(season.ended_at || season.endedAt)}` }),
+    worth.length
+      ? el("ol", { class: "board compact" }, worth.slice(0, 3).map((row, index) => el(
+        "li",
+        {},
+        el("span", { class: "rank", text: String(index + 1) }),
+        el("span", { class: "who" }, el("strong", { text: tagged(row.name, row.tag) }), el("em", { text: `${num(row.land)} acres${row.is_npc ? " · house" : ""}` })),
+        el("b", { text: num(row.networth) }),
+      )))
+      : el("p", { class: "muted", text: "No crowns were recorded." }),
+    landChamp ? el("p", { text: `Widest land: ${tagged(landChamp.name, landChamp.tag)}, ${num(landChamp.land)} acres.` }) : null,
+    pact ? el("p", { text: `First pact: ${tagged(pact.name, pact.tag)}, ${num(pact.networth)} networth, ${num(pact.members)} houses.` }) : null,
+  );
 }
 
 function accountPage(model, act) {
@@ -877,10 +984,19 @@ function banner(model) {
   return el("div", { class: `notice ${model.tone || "info"}`, role: "status", text: model.notice });
 }
 
-function mast(line, act) {
+function seasonFlag(season) {
+  if (!season?.number) return "";
+  const plain = `Season ${season.number}`;
+  const name = season.name || "";
+  if (!name || name === plain) return plain;
+  return `${plain} · ${name}`;
+}
+
+function mast(line, act, season) {
+  const flag = seasonFlag(season);
   return el("header", { class: "mast" },
     el("div", { class: "mast-tools" }, musicControl(act)),
-    el("p", { class: "eyebrow", text: "Crown & Conquest" }),
+    el("p", { class: "eyebrow", text: flag ? `${flag} · Crown & Conquest` : "Crown & Conquest" }),
     el("h1", { text: "Crown & Conquest" }),
     el("p", { text: line }),
   );
