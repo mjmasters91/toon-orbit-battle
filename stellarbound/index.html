@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Stellarbound</title>
+    <meta
+      name="description"
+      content="Stellarbound is a 4 versus 4 monster battle in a starlit 3D arena. Pick skills or let the fight run."
+    />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath fill='%23e7c98a' d='M16 2l2.2 7.4L26 12l-6.2 3.8L22 24 16 19.6 10 24l2.2-8.2L6 12l7.8-2.6z'/%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="css/stellarbound.css" />
+  </head>
+  <body data-mode="title">
+    <canvas id="view"></canvas>
+    <div id="vignette"></div>
+    <div id="plates"></div>
+    <div id="floaters"></div>
+
+    <section id="title-screen">
+      <svg class="mark-star" viewBox="0 0 64 64" aria-hidden="true">
+        <path
+          fill="#e7c98a"
+          d="M32 4l4.2 14.2L51 24l-12.4 7.4L43 48 32 39.2 21 48l4.4-16.6L13 24l14.8-5.8z"
+        />
+      </svg>
+      <p class="eyebrow">A starlit arena</p>
+      <h1 class="wordmark">Stellarbound</h1>
+      <p class="tagline">Four against four. Read the flame, the tide, and the dark between stars.</p>
+      <button class="play" id="play" type="button">Enter the arena</button>
+      <p class="howto">Speed fills the gauge. Choose a skill and a target, or turn Auto on.</p>
+      <div class="legend">
+        <p class="cycle">Flame → Gale → Tide → Flame</p>
+        <p class="cycle">Radiant ↔ Umbral</p>
+      </div>
+      <p id="featured">Twelve constellations circle the ring</p>
+    </section>
+
+    <div id="battle-hud" hidden>
+      <header class="topbar">
+        <div class="hud-head">
+          <div class="leads">
+            <p class="lead" id="lead-player"></p>
+            <p class="lead" id="lead-enemy"></p>
+          </div>
+          <div class="toggles">
+            <button id="auto" type="button" aria-pressed="false">Auto</button>
+            <button id="speed" type="button">1×</button>
+            <button id="mute" type="button">Sound</button>
+          </div>
+        </div>
+        <p class="turn-label">First Light · speed gauge</p>
+        <div id="turn-track" class="turn-track">
+          <div class="turn-line"></div>
+        </div>
+        <p id="banner" role="status"></p>
+      </header>
+      <div id="log"></div>
+      <footer id="dock" hidden>
+        <p id="actor-line"></p>
+        <div class="skills" id="skills"></div>
+        <p id="hint"></p>
+      </footer>
+    </div>
+
+    <div id="result" hidden>
+      <div class="result-card">
+        <h2 id="result-title">The ring is yours</h2>
+        <p id="result-body"></p>
+        <div class="result-actions">
+          <button id="rematch" type="button">Rematch</button>
+          <button id="return" class="ghost" type="button">Back to the sky</button>
+        </div>
+      </div>
+    </div>
+
+    <p id="boot-error" hidden></p>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "./vendor/three.module.js"
+        }
+      }
+    </script>
+    <script type="module" src="js/main.js"></script>
+  </body>
+</html>
