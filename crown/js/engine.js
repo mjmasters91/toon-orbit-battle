@@ -7,6 +7,7 @@
 import {
   BUILDINGS,
   BUILDING_ORDER,
+  CREWS,
   DAY_MS,
   LANDS,
   LIMITS,
@@ -63,7 +64,7 @@ export function createKingdom({ name, landType, now, realmName, realmSeat }) {
     land: STARTING.land,
     buildings: { ...STARTING.buildings },
     units: { ...STARTING.units },
-    research: { economy: 0, population: 0, food: 0, military: 0, magic: 0 },
+    research: emptyResearch(),
     jobs: [],
     marches: [],
     morale: 100,
@@ -116,6 +117,31 @@ export function pendingAcres(state) {
   let n = 0;
   for (const job of state.jobs) if (job.kind === "build") n += job.count;
   return n;
+}
+
+export function crewCount(state) {
+  const guilds = Math.min(CREWS.guildBonusMax, Math.floor(state.buildings?.guild || 0));
+  const fromGuilds = guilds * CREWS.perGuild;
+  const fromStudy = (state.research?.masons || 0) >= CREWS.masonCrewLevel ? 1 : 0;
+  return Math.min(CREWS.cap, CREWS.base + fromGuilds + fromStudy);
+}
+
+export function buildHastePct(state) {
+  const levels = Math.max(0, Math.min(CREWS.masonMax, Math.floor(state.research?.masons || 0)));
+  return levels * CREWS.speedPctPerLevel;
+}
+
+export function buildSeconds(state, buildingId, count) {
+  const def = BUILDINGS[buildingId];
+  const raw = Math.floor(def.seconds * count * LANDS[state.landType].buildPct / 100);
+  return Math.max(1, Math.floor(raw * (100 - buildHastePct(state)) / 100));
+}
+
+export function crewStatus(state) {
+  const busy = (state.jobs || []).filter((job) => job.kind === "build").length;
+  const live = state.crewsLive !== false;
+  const cap = live && Number.isInteger(state.crewCap) ? state.crewCap : (live ? crewCount(state) : 1);
+  return { busy, cap, live, haste: live ? buildHastePct(state) : 0 };
 }
 
 export function freeLand(state) {
@@ -415,12 +441,13 @@ export function orderBuild(state, buildingId, count, now) {
   const def = BUILDINGS[buildingId];
   if (!def) throw new Error("Unknown building.");
   needCount(count, LIMITS.buildMin, LIMITS.buildMax, "Build between 1 and 40.");
-  if (next.jobs.some((job) => job.kind === "build")) throw new Error("A construction crew is already at work.");
+  const crews = crewStatus(next);
+  if (crews.busy >= crews.cap) throw new Error(`All construction crews are busy (${crews.busy}/${crews.cap}).`);
   if (count > freeLand(next)) throw new Error("Not enough open land.");
   const cost = def.cost * count;
   if (next.gold < cost) throw new Error("Not enough gold.");
   next.gold -= cost;
-  const seconds = Math.floor(def.seconds * count * LANDS[next.landType].buildPct / 100);
+  const seconds = buildSeconds(next, buildingId, count);
   next.jobs.push({
     id: next.nextJobId++,
     kind: "build",
@@ -534,8 +561,9 @@ export function orderResearch(state, trackId, now) {
   const settled = settle(state, now);
   const next = settled.state;
   if (!TRACKS[trackId]) throw new Error("Unknown college.");
-  const level = next.research[trackId];
-  if (level >= LIMITS.researchMax) throw new Error("That college is fully studied.");
+  const level = next.research[trackId] || 0;
+  const max = TRACKS[trackId].max || LIMITS.researchMax;
+  if (level >= max) throw new Error("That college is fully studied.");
   const cost = researchCost(level);
   if (next.researchPoints < cost) throw new Error("Not enough research.");
   next.researchPoints -= cost;

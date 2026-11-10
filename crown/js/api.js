@@ -70,6 +70,8 @@ export function mapKingdom(row) {
     allianceRole: row.alliance?.role ?? null,
     allianceName: row.alliance?.name ?? null,
     chronicle: (row.chronicle || []).map((line) => ({ at: ms(line.at), text: line.text })),
+    crewsLive: row.crew_cap != null,
+    crewCap: row.crew_cap == null ? null : Math.floor(Number(row.crew_cap)),
   };
 }
 

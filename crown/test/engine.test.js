@@ -3,7 +3,9 @@ import test from "node:test";
 import { NPC_TABLE, TICK_SECONDS } from "../js/rules.js";
 import {
   armyScores,
+  buildSeconds,
   createKingdom,
+  crewCount,
   describe,
   exploreCap,
   foodRates,
@@ -81,12 +83,52 @@ test("build spends gold, reserves land, and finishes on a later tick", () => {
   assert.equal(built.state.buildings.farm, 16);
   assert.equal(freeLand(built.state), 193);
   assert.equal(built.state.jobs.length, 1);
-  assert.throws(() => orderBuild(built.state, "home", 1, NOW), /construction crew/);
+  assert.throws(() => orderBuild(built.state, "home", 1, NOW), /All construction crews are busy \(1\/1\)/);
   const doneAt = built.state.jobs[0].completesAt;
   const { state } = settle(built.state, doneAt);
   assert.equal(state.buildings.farm, 18);
   assert.equal(state.jobs.length, 0);
   assert.ok(state.chronicle.some((line) => /Farmstead finished/.test(line.text)));
+});
+
+test("guilds and Master Masons field more crews and shorten builds", () => {
+  const fresh = player();
+  assert.equal(crewCount(fresh), 1);
+  assert.equal(buildSeconds(fresh, "farm", 1), 132);
+  const studied = orderResearch(fresh, "masons", NOW).state;
+  assert.equal(studied.research.masons, 1);
+  assert.equal(crewCount(studied), 2);
+  assert.equal(buildSeconds(studied, "farm", 1), 125);
+  studied.researchPoints = 200;
+  const mastered = orderResearch(studied, "masons", NOW + 1000).state;
+  assert.equal(mastered.research.masons, 2);
+  assert.equal(crewCount(mastered), 2);
+  assert.equal(buildSeconds(mastered, "farm", 1), 118);
+  assert.throws(() => orderResearch(mastered, "masons", NOW + 2000), /fully studied/);
+
+  const yard = player();
+  yard.buildings.guild = 2;
+  yard.research.masons = 1;
+  assert.equal(crewCount(yard), 4);
+  yard.buildings.guild = 5;
+  assert.equal(crewCount(yard), 4);
+
+  let state = player();
+  state.buildings.guild = 1;
+  state = orderBuild(state, "farm", 1, NOW).state;
+  state = orderBuild(state, "granary", 1, NOW).state;
+  assert.equal(state.jobs.filter((job) => job.kind === "build").length, 2);
+  assert.equal(freeLand(state), 192);
+  assert.throws(() => orderBuild(state, "home", 1, NOW), /All construction crews are busy \(2\/2\)/);
+  const soon = state.jobs.find((job) => job.building === "farm").completesAt;
+  const later = state.jobs.find((job) => job.building === "granary").completesAt;
+  assert.ok(later > soon);
+  const mid = settle(state, soon).state;
+  assert.equal(mid.buildings.farm, 17);
+  assert.equal(mid.jobs.filter((job) => job.kind === "build").length, 1);
+  const done = settle(mid, later).state;
+  assert.equal(done.buildings.granary, 3);
+  assert.equal(done.jobs.length, 0);
 });
 
 test("explore charter, settlers, and return", () => {

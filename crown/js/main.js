@@ -495,7 +495,20 @@ const actions = {
     renderApp();
   },
   build: (id) => {
+    if (id === "guild" && model.kingdom?.crewsLive === false) {
+      note("The Masons' Guild is not on the server ledger yet.", "bad");
+      renderApp();
+      return;
+    }
     const count = model.drafts.build[id] || 1;
+    if (model.kingdom?.crewsLive === false) {
+      const busy = (model.kingdom.jobs || []).filter((job) => job.kind === "build").length;
+      if (busy >= 1) {
+        note(`All construction crews are busy (${busy}/1).`, "bad");
+        renderApp();
+        return;
+      }
+    }
     if (model.mode === "demo") {
       demoOrder((state) => orderBuild(state, id, count, Date.now()));
       return;
@@ -519,6 +532,11 @@ const actions = {
     online(() => trainOnline(id, count));
   },
   research: (id) => {
+    if (id === "masons" && model.kingdom?.crewsLive === false) {
+      note("Master Masons is not on the server ledger yet.", "bad");
+      renderApp();
+      return;
+    }
     if (model.mode === "demo") {
       demoOrder((state) => orderResearch(state, id, Date.now()));
       return;

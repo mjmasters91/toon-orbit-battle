@@ -1,6 +1,7 @@
 /**
  * Crown & Conquest balance.
- * Keep these numbers in sync with crown/sql/0001_crown_core.sql.
+ * Keep these numbers in sync with crown/sql/0001_crown_core.sql
+ * and crown/sql/0003_crown_crews.sql (crews, the Masons' Guild, Master Masons).
  * Rates are per real hour. A tick is TICK_SECONDS long and banks the remainder
  * so the client and the database credit the same whole resources.
  */
@@ -234,9 +235,28 @@ export const BUILDINGS = {
     networth: 18,
     effect: "+6 food an hour from dry stores.",
   },
+  guild: {
+    id: "guild",
+    name: "Masons' Guild",
+    cost: 860,
+    seconds: 360,
+    networth: 64,
+    effect: "Fields one extra construction crew. A second guild fields another. Further yards keep the craft, but no more crews.",
+  },
 };
 
-export const BUILDING_ORDER = ["farm", "granary", "home", "market", "mine", "barracks", "tower", "wall", "library", "shrine"];
+export const BUILDING_ORDER = ["farm", "granary", "guild", "home", "market", "mine", "barracks", "tower", "wall", "library", "shrine"];
+
+/** Construction crews. Base 1, +1 per guild up to +2, +1 once Master Masons is studied. Cap 4. */
+export const CREWS = {
+  base: 1,
+  perGuild: 1,
+  guildBonusMax: 2,
+  masonCrewLevel: 1,
+  speedPctPerLevel: 5,
+  masonMax: 2,
+  cap: 4,
+};
 
 export const UNITS = {
   militia: {
@@ -418,9 +438,16 @@ export const TRACKS = {
     blurb: "How the wells are tended, and how a bow can carry light.",
     effect: "+5% mana and +4% research each level. Opens Spellbows at 4 and the Wyvern Guard at 5.",
   },
+  masons: {
+    id: "masons",
+    name: "Master Masons",
+    max: 2,
+    blurb: "The measure of a true arch, taught only to masters of the guild.",
+    effect: "Level 1 adds one crew and shortens every build by 5%. Level 2 shortens builds by 10%.",
+  },
 };
 
-export const TRACK_ORDER = ["economy", "population", "food", "military", "magic"];
+export const TRACK_ORDER = ["economy", "population", "food", "military", "magic", "masons"];
 
 export function researchCost(level) {
   return 20 * (level + 1) * (level + 2);
@@ -595,7 +622,7 @@ export const NPC_TABLE = [
 export function emptyBuildings() {
   return {
     farm: 0, home: 0, market: 0, mine: 0, barracks: 0,
-    tower: 0, library: 0, wall: 0, shrine: 0, granary: 0,
+    tower: 0, library: 0, wall: 0, shrine: 0, granary: 0, guild: 0,
   };
 }
 
@@ -607,5 +634,5 @@ export function emptyUnits() {
 }
 
 export function emptyResearch() {
-  return { economy: 0, population: 0, food: 0, military: 0, magic: 0 };
+  return { economy: 0, population: 0, food: 0, military: 0, magic: 0, masons: 0 };
 }

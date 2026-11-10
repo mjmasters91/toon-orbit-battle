@@ -11,7 +11,7 @@ import {
   UNIT_ORDER,
   researchCost,
 } from "./rules.js";
-import { describe, landTraits, quoteExplore, quoteTrain, roster, unitUnlocked } from "./engine.js";
+import { buildSeconds, crewStatus, describe, landTraits, quoteExplore, quoteTrain, roster, unitUnlocked } from "./engine.js";
 import { ATTACK_TYPES, isProtected, tagged } from "./combat.js";
 import { musicState, setVolume } from "./music.js";
 
@@ -431,8 +431,26 @@ function worksPanel(state) {
 
 function worksBody(state) {
   const jobs = state.jobs || [];
-  if (!jobs.length) return el("p", { class: "muted", text: "Nothing is under way." });
-  return el("div", { class: "work-list" }, jobs.map((job) => jobCard(job)));
+  return el(
+    "div",
+    {},
+    crewLine(state),
+    jobs.length
+      ? el("div", { class: "work-list" }, jobs.map((job) => jobCard(job)))
+      : el("p", { class: "muted", text: "Nothing is under way." }),
+  );
+}
+
+function crewLine(state) {
+  const crews = crewStatus(state);
+  return el(
+    "div",
+    { class: "crew-line" },
+    el("p", { class: "cost", text: `Crews ${crews.busy}/${crews.cap} busy` }),
+    crews.live
+      ? null
+      : el("p", { class: "muted", text: "Extra crews wait until the server ledger learns the Masons' Guild." }),
+  );
 }
 
 function jobCard(job) {
@@ -473,14 +491,14 @@ function jobTitle(job) {
   return "Work";
 }
 
-function jobFor(state, kind, id) {
-  return (state.jobs || []).find((job) => {
+function jobsFor(state, kind, id) {
+  return (state.jobs || []).filter((job) => {
     if (job.kind !== kind) return false;
     if (kind === "build") return job.building === id;
     if (kind === "train") return job.unit === id;
     if (kind === "research") return job.track === id;
     return true;
-  }) || null;
+  });
 }
 
 function rowCountdown(job, phrase) {
@@ -505,36 +523,43 @@ function buildPage(model, act) {
     {},
     el("div", { class: "page-intro" },
       el("h2", { text: "Build" }),
-      el("p", { text: `One crew at a time. Each building takes an acre. ${num(view.freeLand)} acres are open, and the purse holds ${num(state.gold)} gold.` }),
+      el("p", { text: buildIntro(state, view) }),
     ),
     worksPanel(state),
     el("div", { class: "card-grid" }, BUILDING_ORDER.map((id) => {
       const def = BUILDINGS[id];
       const count = model.drafts.build[id] || 1;
-      const seconds = Math.floor(def.seconds * count * LANDS[state.landType].buildPct / 100);
+      const seconds = buildSeconds(state, id, count);
       const cost = def.cost * count;
-      const underway = jobFor(state, "build", id);
+      const waiting = state.crewsLive === false && id === "guild";
       return el(
         "article",
-        { class: "card" },
+        { class: `card${waiting ? " locked" : ""}` },
         el("header", {},
           el("h3", { text: def.name }),
           el("b", { text: `Owned ${state.buildings[id] || 0}` }),
         ),
         el("p", { text: def.effect }),
         el("p", { class: "cost", text: `${num(cost)} gold · ${duration(seconds)} · ${count} acre${count === 1 ? "" : "s"}` }),
-        underway ? rowCountdown(underway, `${def.name} +${underway.count} building`) : null,
+        waiting ? el("p", { class: "lock-note", text: "The server ledger does not know this yard yet." }) : null,
+        ...jobsFor(state, "build", id).map((job) => rowCountdown(job, `${def.name} +${job.count} building`)),
         stepper(count, (next) => act.setBuild(id, next)),
         el("button", {
           class: "btn primary",
           type: "button",
-          text: "Build",
-          disabled: model.busy,
+          text: waiting ? "Not yet" : "Build",
+          disabled: model.busy || waiting,
           onclick: () => act.build(id),
         }),
       );
     })),
   );
+}
+
+function buildIntro(state, view) {
+  const crews = crewStatus(state);
+  const haste = crews.haste ? ` Builds are ${crews.haste}% faster.` : "";
+  return `Crews ${crews.busy}/${crews.cap} busy.${haste} Each building takes an acre. ${num(view.freeLand)} acres are open, and the purse holds ${num(state.gold)} gold.`;
 }
 
 function stepper(count, onChange, max = 40) {
@@ -640,24 +665,25 @@ function scholarPage(model, act) {
     el("div", { class: "track-list" }, TRACK_ORDER.map((id) => {
       const track = TRACKS[id];
       const level = state.research[id] || 0;
-      const cost = level >= 10 ? null : researchCost(level);
+      const max = track.max || 10;
+      const waiting = state.crewsLive === false && id === "masons";
+      const cost = level >= max ? null : researchCost(level);
       return el(
         "article",
-        { class: "panel track" },
+        { class: `panel track${waiting ? " locked" : ""}` },
         el("div", {},
           el("h3", { text: track.name }),
           el("p", { text: track.blurb }),
           el("p", { class: "cost", text: track.effect }),
-          jobFor(state, "research", id)
-            ? rowCountdown(jobFor(state, "research", id), `${track.name} study`)
-            : null,
+          waiting ? el("p", { class: "lock-note", text: "The server ledger does not know this study yet." }) : null,
+          ...jobsFor(state, "research", id).map((job) => rowCountdown(job, `${track.name} study`)),
         ),
-        el("div", { class: "pips" }, Array.from({ length: 10 }, (_, i) => el("i", { class: i < level ? "on" : "" }))),
+        el("div", { class: "pips" }, Array.from({ length: max }, (_, i) => el("i", { class: i < level ? "on" : "" }))),
         el("button", {
           class: "btn primary",
           type: "button",
-          text: cost == null ? "Complete" : `Study · ${num(cost)}`,
-          disabled: model.busy || cost == null,
+          text: waiting ? "Not yet" : (cost == null ? "Complete" : `Study · ${num(cost)}`),
+          disabled: model.busy || waiting || cost == null,
           onclick: () => act.research(id),
         }),
       );

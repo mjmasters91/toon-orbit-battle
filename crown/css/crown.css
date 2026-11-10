@@ -340,11 +340,13 @@ input[type="checkbox"] {
   background: var(--paper);
 }
 .stepper span { min-width: 2ch; text-align: center; font-family: var(--display); }
-.card.locked { opacity: 0.78; }
+.card.locked, .track.locked { opacity: 0.78; }
 .job { margin: 10px 0; }
 .job-kind, .job-inline { color: var(--ink-soft); font-size: 0.95rem; }
 .job-inline { margin: 8px 0 0; font-family: var(--display); letter-spacing: 0.03em; }
 .works { margin: 0 0 14px; }
+.crew-line { margin: 0 0 8px; }
+.crew-line p { margin: 0; }
 .work-list .job:first-child { margin-top: 4px; }
 .bar {
   height: 10px;
