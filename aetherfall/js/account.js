@@ -117,6 +117,21 @@ export async function partyOnline(party, leader) {
   return { ok: true, save: mapServerState(res.data) };
 }
 
+export async function clearStageOnline({ difficulty, map, stage, stars, turns, seconds }) {
+  return rpc("af_clear_stage", {
+    p_difficulty: difficulty,
+    p_map: map,
+    p_stage: stage,
+    p_stars: stars,
+    p_turns: turns,
+    p_seconds: seconds,
+  });
+}
+
+export async function getProgressOnline() {
+  return rpc("af_get_progress");
+}
+
 export async function adminSearch(query) {
   return rpc("af_admin_search", { p_query: query || "" });
 }

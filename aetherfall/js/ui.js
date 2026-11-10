@@ -1,4 +1,6 @@
-import { adminBan, adminGrant, adminLog, adminSearch, adminUnban, currentSession, levelOnline, logInAccount, logOutAccount, openSession, partyOnline, signUpAccount, summonOnline } from "./account.js";
+import { adminBan, adminGrant, adminLog, adminSearch, adminUnban, clearStageOnline, currentSession, getProgressOnline, levelOnline, logInAccount, logOutAccount, openSession, partyOnline, signUpAccount, summonOnline } from "./account.js";
+import { renderBattleScreen } from "./battle-ui.js";
+import { renderField } from "./monsters.js";
 import { blip, powerup, rarityFanfare, resume, setMuted, summonCharge } from "./audio.js";
 import { AWAKEN_COST, COST_1, COST_10, MAX_AWAKEN, MAX_LEVEL, PITY_AT } from "./balance.js";
 import { playSummon } from "./fx.js";
@@ -7,6 +9,7 @@ import { leaderBonus, levelCost, partyPower, sortRoster, tryLevelUp, unitPower, 
 import { paint } from "./pixel.js";
 import { loadSave, resetSave, writeSave } from "./save.js";
 import { FRAME_COUNT, SPRITE_W, paintIcon, paintPortrait, paintUnit, renderBanner, renderLogo } from "./sprites.js";
+import { DIFFICULTIES, MAPS, STAGES_PER_MAP, buildEncounter, clearGold, enemyElement, firstClearGems, isBoss, isStageUnlocked, loadProgress, mapStars, progressFromRows, recommendedPower, recordClear, saveProgress, stageTitle, starsFromResult } from "./stages.js";
 import { BANNERS, ELEMENT_NAME, ELEMENTS, ROLE_NAME, ROLES, UNITS, unitById } from "./units.js";
 
 const state = {
@@ -24,6 +27,8 @@ const state = {
   preview: new URLSearchParams(globalThis.location?.search || "").get("preview"),
   banReason: "",
   accountNote: "",
+  clears: {},
+  storyRemote: false,
 };
 
 let toastTimer = 0;
@@ -61,6 +66,12 @@ function go(name, extra) {
   else location.hash = next;
 }
 
+function goHash(hash) {
+  if (state.fxStop) return;
+  if (location.hash === hash) draw({ scroll: true });
+  else location.hash = hash;
+}
+
 function current() {
   if (state.preview === "login") return { name: "login" };
   if (state.preview === "hub") return { name: "home" };
@@ -68,6 +79,20 @@ function current() {
   const hash = decodeURIComponent((location.hash || "").replace(/^#\/?/, ""));
   if (!hash || hash === "title") return { name: "title" };
   if (hash.startsWith("unit/")) return { name: "detail", id: hash.slice(5) };
+  const parts = hash.split("/");
+  if (parts[0] === "story") {
+    const difficulty = DIFFICULTIES.includes(parts[1]) ? parts[1] : "normal";
+    const map = parts[2] == null || parts[2] === "" ? null : Number(parts[2]);
+    return { name: map == null || Number.isNaN(map) ? "story" : "stages", difficulty, map };
+  }
+  if (parts[0] === "battle") {
+    return {
+      name: "battle",
+      difficulty: DIFFICULTIES.includes(parts[1]) ? parts[1] : "normal",
+      map: Number(parts[2]),
+      stage: Number(parts[3]),
+    };
+  }
   if (["home", "summon", "units", "party", "login", "signup", "admin", "banned"].includes(hash)) return { name: hash };
   return { name: "home" };
 }
@@ -141,6 +166,11 @@ function paintAll() {
   document.querySelectorAll("canvas[data-icon]").forEach((canvas) => {
     paintIcon(canvas, canvas.dataset.icon, Number(canvas.dataset.scale || 2));
   });
+  document.querySelectorAll("canvas[data-field]").forEach((canvas) => {
+    paint(canvas, renderField(canvas.dataset.field), Number(canvas.dataset.scale || 1));
+    canvas.style.width = "100%";
+    canvas.style.height = "auto";
+  });
   document.querySelectorAll("canvas[data-banner]").forEach((canvas) => {
     paint(canvas, renderBanner(canvas.dataset.banner), 1);
     canvas.style.width = "100%";
@@ -197,13 +227,13 @@ function nav() {
     return;
   }
   el.hidden = false;
-  const items = [["home", "Home"], ["summon", "Summon"], ["units", "Units"], ["party", "Party"]];
-  el.replaceChildren(...items.map(([id, label]) => h("button", {
+  const items = [["home", "Home", "home"], ["summon", "Summon", "summon"], ["story", "Story", "story"], ["units", "Units", "units"], ["party", "Party", "party"]];
+  el.replaceChildren(...items.map(([id, label, glyph]) => h("button", {
     type: "button",
     "data-go": id,
-    class: route.name === id || (id === "units" && route.name === "detail") ? "active" : "",
+    class: route.name === id || (id === "units" && route.name === "detail") || (id === "story" && (route.name === "stages" || route.name === "battle")) ? "active" : "",
     onclick: () => go(id),
-  }, icon(id === "home" ? "home" : id, 2), h("span", { text: label }))));
+  }, icon(glyph, 2), h("span", { text: label }))));
 }
 
 function viewTitle() {
@@ -269,7 +299,8 @@ function viewHome() {
     h("div", { class: "party-line" }, ...state.save.party.map((id, index) => partyActor(id, index, scale))),
     h("div", { class: "dais", "aria-hidden": "true" }),
     h("div", { class: "home-actions" },
-      h("button", { class: "btn", type: "button", onclick: () => go("summon"), text: "Summon" }),
+      h("button", { class: "btn", id: "open-story", type: "button", onclick: () => go("story"), text: "Story" }),
+      h("button", { class: "btn ghost", type: "button", onclick: () => go("summon"), text: "Summon" }),
       h("button", { class: "btn ghost", type: "button", onclick: () => go("party"), text: "Edit party" }),
     ),
   );
@@ -1094,6 +1125,195 @@ async function unbanPlayer(username) {
   await loadAdmin(state.adminQuery || "");
 }
 
+const DIFF_LABEL = { normal: "Normal", hard: "Hard", nightmare: "Nightmare" };
+
+function battleParty() {
+  const slots = state.save.party.map(memberById);
+  const leader = slots[state.save.leader];
+  const bonus = leader ? leaderBonus(leader.def.role) : null;
+  const mul = bonus ? 1 + bonus.pct / 100 : 1;
+  return slots.filter(Boolean).map((member) => {
+    const stats = unitStats(member.def, member.record);
+    if (bonus) {
+      stats[bonus.stat] = Math.round(stats[bonus.stat] * mul);
+      if (bonus.also) stats[bonus.also] = Math.round(stats[bonus.also] * mul);
+    }
+    return {
+      id: member.def.id,
+      spriteId: member.def.id,
+      name: member.def.name,
+      element: member.def.element,
+      role: member.def.role,
+      skills: member.def.skills,
+      ...stats,
+    };
+  });
+}
+
+function starMarks(count) {
+  return h("span", { class: "stage-stars", "aria-label": `${count} stars` },
+    ...[1, 2, 3].map((n) => h("i", { class: n <= count ? "on" : "" })),
+  );
+}
+
+function viewStory(route) {
+  const difficulty = route.difficulty || "normal";
+  return h("section", { class: "screen", id: "map-select" },
+    h("p", { class: "eyebrow", text: "Story" }),
+    h("h2", { text: "World paths" }),
+    h("p", { class: "lede", text: "Five roads. Twenty-six steps each. The later roads wait until the one before them is walked." }),
+    h("div", { class: "diff-tabs", id: "diff-tabs" }, ...DIFFICULTIES.map((id) => h("button", {
+      type: "button",
+      class: `chip ${id === difficulty ? "on" : ""}`,
+      "data-diff": id,
+      text: DIFF_LABEL[id],
+      onclick: () => goHash(`#/story/${id}`),
+    }))),
+    h("div", { class: "map-list" }, ...MAPS.map((map, index) => {
+      const open = isStageUnlocked(state.clears, difficulty, index, 1);
+      const tally = mapStars(state.clears, difficulty, index);
+      return h("button", {
+        type: "button",
+        class: `map-card frame ${open ? "" : "locked"}`,
+        id: `map-${map.id}`,
+        "data-map": map.id,
+        disabled: !open,
+        onclick: () => { if (open) goHash(`#/story/${difficulty}/${index}`); },
+      },
+        h("canvas", { class: "pixel map-thumb", "data-field": map.id, "data-scale": "2" }),
+        h("div", {},
+          h("p", { class: "eyebrow", text: `${DIFF_LABEL[difficulty]} · ${ELEMENT_NAME[map.element]}` }),
+          h("h3", { text: map.name }),
+          h("p", { text: open ? map.blurb : "Locked until this path is cleared on the previous difficulty." }),
+          h("p", { class: "meta", text: open ? `${tally.cleared}/${STAGES_PER_MAP} · ${tally.stars} stars` : "Locked" }),
+        ),
+      );
+    })),
+  );
+}
+
+function viewStages(route) {
+  const map = MAPS[route.map];
+  if (!map) return viewStory({ difficulty: route.difficulty });
+  const tally = mapStars(state.clears, route.difficulty, route.map);
+  return h("section", { class: "screen", id: "stage-list" },
+    h("button", { class: "btn ghost", type: "button", text: "World paths", onclick: () => goHash(`#/story/${route.difficulty}`) }),
+    h("p", { class: "eyebrow", text: `${DIFF_LABEL[route.difficulty]} · ${ELEMENT_NAME[map.element]}` }),
+    h("h2", { text: map.name }),
+    h("p", { class: "lede", text: map.blurb }),
+    h("p", { class: "meta", id: "map-tally", text: `${tally.cleared} cleared · ${tally.stars} / ${tally.max} stars` }),
+    h("ol", { class: "stage-list" }, ...Array.from({ length: STAGES_PER_MAP }, (_, i) => {
+      const stage = i + 1;
+      const open = isStageUnlocked(state.clears, route.difficulty, route.map, stage);
+      const row = state.clears[`${route.difficulty}:${route.map}:${stage}`];
+      const element = enemyElement(route.map, stage, 0);
+      return h("li", {}, h("button", {
+        type: "button",
+        class: `stage-row ${isBoss(stage) ? "boss" : ""} ${open ? "" : "locked"}`,
+        id: `stage-${stage}`,
+        disabled: !open,
+        onclick: () => { if (open) goHash(`#/battle/${route.difficulty}/${route.map}/${stage}`); },
+      },
+        h("span", { class: "stage-no", text: String(stage).padStart(2, "0") }),
+        h("span", { class: "stage-copy" },
+          h("strong", { text: stageTitle(route.map, stage) }),
+          h("em", { text: `Power ${num(recommendedPower(route.difficulty, route.map, stage))} · ${ELEMENT_NAME[element]}${isBoss(stage) ? " · Boss" : ""}` }),
+        ),
+        row ? starMarks(row.stars) : h("span", { class: "stage-stars", "aria-label": "not cleared" }),
+      ));
+    })),
+  );
+}
+
+function viewBattle(route) {
+  const map = MAPS[route.map];
+  const stage = route.stage;
+  const open = map && isStageUnlocked(state.clears, route.difficulty, route.map, stage);
+  if (!open) {
+    return h("section", { class: "screen" },
+      h("h2", { text: "That stage is locked" }),
+      h("button", { class: "btn", type: "button", text: "Back to paths", onclick: () => go("story") }),
+    );
+  }
+  const mount = h("div", { id: "battle-mount" });
+  queueMicrotask(() => startMountedBattle(mount, route));
+  return mount;
+}
+
+function startMountedBattle(mount, route) {
+  if (!mount.isConnected) return;
+  const allies = battleParty();
+  if (allies.length < 1) {
+    toast("Set a party before the path.");
+    go("party");
+    return;
+  }
+  const encounter = buildEncounter(route.difficulty, route.map, route.stage);
+  mount.replaceChildren();
+  renderBattleScreen(mount, {
+    allies,
+    encounter,
+    title: stageTitle(route.map, route.stage),
+    paintUnit,
+    rewardLine: (battle) => {
+      const stars = starsFromResult({ won: true, deaths: battle.deaths, turns: battle.turns, stage: route.stage });
+      const key = `${route.difficulty}:${route.map}:${route.stage}`;
+      const gems = state.clears[key] ? 0 : firstClearGems(route.difficulty, route.stage);
+      const gold = clearGold(route.difficulty, route.map, route.stage, stars);
+      return `${stars} stars · ${gems ? `${gems} gems · ` : ""}${num(gold)} gold`;
+    },
+    onExit: (kind) => {
+      if (kind === "retry") draw({ scroll: true });
+      else goHash(`#/story/${route.difficulty}/${route.map}`);
+    },
+    onVictory: (result) => { void claimStage(route, result); },
+  });
+  paintSprites();
+}
+
+async function claimStage(route, result) {
+  const stars = starsFromResult({ won: true, deaths: result.deaths, turns: result.turns, stage: route.stage });
+  const gems = firstClearGems(route.difficulty, route.stage);
+  const gold = clearGold(route.difficulty, route.map, route.stage, stars);
+  if (state.mode === "online" && !state.preview) {
+    const res = await clearStageOnline({
+      difficulty: route.difficulty,
+      map: route.map,
+      stage: route.stage,
+      stars,
+      turns: result.turns,
+      seconds: result.seconds,
+    });
+    if (res.ok) {
+      state.save.gems = res.data.gems;
+      state.save.gold = res.data.gold;
+      state.clears = progressFromRows(res.data.progress);
+      state.storyRemote = true;
+      toast(res.data.first ? `First clear. ${res.data.gems_gained} gems, ${num(res.data.gold_gained)} gold.` : `${num(res.data.gold_gained)} gold.`);
+      chrome();
+      goHash(`#/story/${route.difficulty}/${route.map}`);
+      return;
+    }
+    if (res.missing) {
+      const local = recordClear(state.clears, route.difficulty, route.map, route.stage, stars, result.turns);
+      saveProgress(state.clears);
+      toast(local.first ? "Saved on this device. Story rewards stay here until the battle SQL is applied." : "Clear saved on this device.");
+      goHash(`#/story/${route.difficulty}/${route.map}`);
+      return;
+    }
+    toast(res.error || "The server refused that clear.");
+    return;
+  }
+  const local = recordClear(state.clears, route.difficulty, route.map, route.stage, stars, result.turns);
+  state.save.gems += local.gems;
+  state.save.gold += local.gold;
+  saveProgress(state.clears);
+  writeSave(state.save);
+  toast(local.first ? `${stars} stars. ${local.gems} gems and ${num(local.gold)} gold.` : `${stars} stars. ${num(gold)} gold.`);
+  chrome();
+  goHash(`#/story/${route.difficulty}/${route.map}`);
+}
+
 function viewFor(route) {
   if (route.name === "title") return viewTitle();
   if (route.name === "login") return viewAuth("login");
@@ -1105,11 +1325,15 @@ function viewFor(route) {
   if (route.name === "units") return viewUnits();
   if (route.name === "party") return viewParty();
   if (route.name === "detail") return viewDetail(route.id);
+  if (route.name === "story") return viewStory(route);
+  if (route.name === "stages") return viewStages(route);
+  if (route.name === "battle") return viewBattle(route);
   return viewHome();
 }
 
 function draw(options = {}) {
   const route = current();
+  if (route.name === "battle" && document.getElementById("battle-app") && !options.scroll) return;
   if (route.name !== "summon") state.results = null;
   const app = document.getElementById("app");
   app.classList.toggle("on-title", route.name === "title");
@@ -1168,6 +1392,8 @@ function openSettings() {
           yes: "Wipe save",
           onYes: () => {
             state.save = resetSave();
+            state.clears = {};
+            saveProgress(state.clears);
             state.results = null;
             state.partyPick = null;
             setMuted(state.save.muted);
@@ -1185,6 +1411,7 @@ function openSettings() {
 
 export async function boot(root) {
   state.save = loadSave();
+  state.clears = loadProgress();
   try {
     const prefs = JSON.parse(localStorage.getItem("aetherfall_prefs_v1") || "null");
     if (prefs && typeof prefs.muted === "boolean") state.save.muted = prefs.muted;
@@ -1198,6 +1425,13 @@ export async function boot(root) {
         if (opened.ok) {
           state.mode = "online";
           applyRemote(opened.save);
+          const progress = await getProgressOnline();
+          if (progress.ok) {
+            state.clears = progressFromRows(progress.data);
+            state.storyRemote = true;
+          } else if (!progress.missing) {
+            state.accountNote = progress.error || state.accountNote;
+          }
         } else if (opened.banned) {
           state.mode = "online";
           state.banReason = opened.reason || "No reason was recorded.";

@@ -75,6 +75,14 @@ const ICON_DRAW = {
     d.oval(11, 5, 2, 2, "#f6d3bc");
     d.rect(9, 8, 5, 5, "#3aa6ff", "#14386a");
   },
+  story(d) {
+    d.rect(2, 2, 12, 12, "#1d4e38", "#0e2a1c");
+    d.rect(3, 3, 10, 5, "#67b0e8");
+    d.rect(4, 8, 8, 5, "#3e9a48");
+    d.rect(6, 6, 2, 4, "#f2d56a");
+    d.p(11, 4, "#fff6c8");
+    d.p(4, 10, "#2f8a40");
+  },
   party(d) {
     d.rect(2, 2, 3, 3, "#ffd56a");
     d.rect(7, 1, 3, 4, "#ffd56a");
