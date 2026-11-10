@@ -93,7 +93,42 @@ p { margin: 0.35rem 0; }
 .traits, .cost, .stats-line, .seat, .res-sub { color: var(--ink-soft); font-size: 0.95rem; }
 .lock-note { color: var(--crimson-deep); }
 
-.mast { text-align: center; padding: 28px 16px 6px; }
+.mast { text-align: center; padding: 12px 16px 6px; }
+.mast-tools, .head-tools { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.mast-tools { margin-bottom: 4px; }
+.head-tools { flex-shrink: 0; }
+.play-title { min-width: 0; }
+.music {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 250, 240, 0.92);
+  border: 1px solid rgba(120, 78, 36, 0.28);
+  border-radius: 999px;
+  padding: 4px 10px 4px 4px;
+}
+.music-btn {
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--wood);
+  color: #fff6e8;
+  display: grid;
+  place-items: center;
+  padding: 0;
+}
+.music-btn.off { background: #8d6a4e; }
+.music-btn .ico svg { width: 22px; height: 22px; }
+.music-vol {
+  width: 88px;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  accent-color: var(--crimson-deep);
+}
 .mast h1 {
   font-size: clamp(2.1rem, 6vw, 3.6rem);
   color: var(--crimson-deep);
@@ -220,8 +255,9 @@ input[type="checkbox"] {
 .play-head {
   display: flex;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 12px;
-  align-items: flex-end;
+  align-items: center;
   margin-bottom: 12px;
 }
 .tickbox {
@@ -479,6 +515,10 @@ input[type="checkbox"] {
   .army-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .report { padding: 8px 0; border-top: 1px solid var(--line); }
+@media (max-width: 640px) {
+  .music-vol { width: 72px; }
+  .head-tools { width: 100%; }
+}
 @media (max-width: 560px) {
   .chronicle li { grid-template-columns: 1fr; gap: 0; }
   .grant, .army-grid { grid-template-columns: 1fr; }

@@ -13,6 +13,7 @@ import {
 } from "./rules.js";
 import { describe, landTraits, quoteExplore, quoteTrain, roster, unitUnlocked } from "./engine.js";
 import { ATTACK_TYPES, isProtected, tagged } from "./combat.js";
+import { musicState, setVolume } from "./music.js";
 
 let lastKey = "";
 
@@ -84,21 +85,24 @@ function when(at) {
 }
 
 function view(model, act) {
-  if (model.screen === "boot") return boot();
+  if (model.screen === "boot") return boot(act);
   if (model.screen === "gate") return gate(model, act);
   if (model.screen === "found") return found(model, act);
   return play(model, act);
 }
 
-function boot() {
-  return el("main", { class: "gate" }, el("p", { class: "eyebrow", text: "Unrolling the map…" }));
+function boot(act) {
+  return el("main", { class: "gate" },
+    el("div", { class: "mast-tools" }, musicControl(act)),
+    el("p", { class: "eyebrow", text: "Unrolling the map…" }),
+  );
 }
 
 function gate(model, act) {
   return el(
     "main",
     { class: "gate" },
-    mast("Rule one castle inside a shared realm. Networth is the crown."),
+    mast("Rule one castle inside a shared realm. Networth is the crown.", act),
     model.notice ? banner(model) : null,
     el(
       "div",
@@ -152,7 +156,7 @@ function found(model, act) {
   return el(
     "main",
     { class: "gate" },
-    mast(model.mode === "online" ? `Signed in as ${model.player?.username || "a ruler"}.` : "This banner stays on this device."),
+    mast(model.mode === "online" ? `Signed in as ${model.player?.username || "a ruler"}.` : "This banner stays on this device.", act),
     model.notice ? banner(model) : null,
     el(
       "form",
@@ -216,7 +220,7 @@ function play(model, act) {
     el(
       "div",
       { class: "stage" },
-      playHead(model),
+      playHead(model, act),
       model.notice ? banner(model) : null,
       model.kingdom ? resources(model.kingdom) : null,
       locked ? banLock(model) : page(model, act),
@@ -225,22 +229,52 @@ function play(model, act) {
   );
 }
 
-function playHead(model) {
+function playHead(model, act) {
   const realm = model.kingdom?.realmName || "Realm";
   const seat = model.kingdom?.realmSeat || "";
   const count = model.mode === "demo" ? 1 + (model.npcs?.length || 0) : model.kingdom?.realmCount || 0;
   return el(
     "header",
     { class: "play-head" },
-    el("div", {},
+    el("div", { class: "play-title" },
       el("p", { class: "eyebrow", text: model.mode === "demo" ? "Demo realm on this device" : "Live realm" }),
       el("h1", { text: model.kingdom?.name || "Crown & Conquest" }),
       el("p", { class: "seat", text: `${realm}${seat ? ` · ${seat}` : ""}${count ? ` · ${count} of 20 crowns` : ""}` }),
     ),
-    el("div", { class: "tickbox" },
-      el("span", { class: "tick-label", text: "Next tick" }),
-      el("strong", { id: "tick-clock", text: tickLabel(model.kingdom) }),
+    el("div", { class: "head-tools" },
+      musicControl(act),
+      el("div", { class: "tickbox" },
+        el("span", { class: "tick-label", text: "Next tick" }),
+        el("strong", { id: "tick-clock", text: tickLabel(model.kingdom) }),
+      ),
     ),
+  );
+}
+
+function musicControl(act) {
+  const state = musicState();
+  const pct = String(Math.round(state.volume * 100));
+  return el("div", { class: "music" },
+    el("button", {
+      type: "button",
+      class: state.muted ? "music-btn off" : "music-btn",
+      "aria-pressed": state.muted ? "true" : "false",
+      "aria-label": state.muted ? "Unmute music" : "Mute music",
+      title: state.muted ? "Music off" : "Music on",
+      onclick: (event) => {
+        event.stopPropagation();
+        act.toggleMusic();
+      },
+    }, ico(state.muted ? "speakerOff" : "speaker")),
+    el("input", {
+      class: "music-vol",
+      type: "range",
+      min: "0",
+      max: "100",
+      value: pct,
+      "aria-label": "Music volume",
+      oninput: (event) => setVolume(Number(event.target.value) / 100),
+    }),
   );
 }
 
@@ -732,8 +766,9 @@ function banner(model) {
   return el("div", { class: `notice ${model.tone || "info"}`, role: "status", text: model.notice });
 }
 
-function mast(line) {
+function mast(line, act) {
   return el("header", { class: "mast" },
+    el("div", { class: "mast-tools" }, musicControl(act)),
     el("p", { class: "eyebrow", text: "Crown & Conquest" }),
     el("h1", { text: "Crown & Conquest" }),
     el("p", { text: line }),

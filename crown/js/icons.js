@@ -17,6 +17,8 @@ const ICONS = {
   shield: svg(`<path fill="currentColor" d="M16 3 27 7v9c0 7-4.6 11-11 13C9.6 27 5 23 5 16V7l11-4z"/>`),
   war: svg(`<path fill="currentColor" d="M7 5h4l2 8h6l2-8h4l-6 22h-6L7 5z"/><path fill="#fff6df" d="M14 15h4v8h-4z"/>`),
   pact: svg(`<path fill="currentColor" d="M8 6h10l6 6v14H8z"/><path fill="#fff6df" d="M16 8v6h6"/>`),
+  speaker: svg(`<path fill="currentColor" d="M5 12h5l6-5v18l-6-5H5z"/><path d="M20 11.5a5 5 0 0 1 0 9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M23 8.5a9 9 0 0 1 0 15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>`),
+  speakerOff: svg(`<path fill="currentColor" d="M5 12h5l6-5v18l-6-5H5z"/><path d="M20 12l8 8M28 12l-8 8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>`),
 };
 
 const CHARGES = {

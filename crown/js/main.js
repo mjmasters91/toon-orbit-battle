@@ -48,6 +48,7 @@ import {
 } from "./engine.js";
 import { BUILDING_ORDER, NPC_TABLE, TICK_SECONDS, UNIT_ORDER } from "./rules.js";
 import { buySpies, createPact, disbandPact, inviteKingdom, kickMember, leavePact, previewOdds, requestJoin, answerRequest, sendArmy, sendSpy, setOfficer, settleMarches, transferPact, warView } from "./war.js";
+import { armMusic, musicState, setMuted } from "./music.js";
 import { realmRowsFrom, render, tickLabel } from "./ui.js";
 
 const root = document.querySelector("#app");
@@ -814,6 +815,12 @@ const actions = {
   disband: async () => {
     await pactAction(() => disbandPact(worldFrom(model, model.kingdom)), () => allianceDisbandOnline());
   },
+  toggleMusic: () => {
+    const next = !musicState().muted;
+    setMuted(next);
+    if (!next) armMusic();
+    renderApp();
+  },
   logout: async () => {
     await logOutAccount();
     model.player = null;
@@ -880,5 +887,8 @@ setInterval(() => {
   }
   online(() => refreshKingdom(), { quiet: false });
 }, 1000);
+
+document.addEventListener("pointerdown", () => armMusic(), { capture: true });
+document.addEventListener("keydown", () => armMusic(), { capture: true });
 
 boot();
