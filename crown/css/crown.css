@@ -401,8 +401,15 @@ input {
   .gate-grid { grid-template-columns: 1.1fr 0.9fr; align-items: start; }
   .land-grid { grid-template-columns: 1fr 1fr 1fr; }
 }
+.target-list, .raid-types, .army-grid { display: grid; gap: 8px; }
+.target { width: 100%; text-align: left; padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; }
+.target.selected { box-shadow: 0 0 0 2px var(--gold), var(--shadow); }
+.raid { display: flex; gap: 8px; align-items: flex-start; padding: 8px 0; }
+.raid em { display: block; color: var(--ink-soft); font-style: normal; }
+.army-grid { grid-template-columns: 1fr 1fr; }
+.report { padding: 8px 0; border-top: 1px solid var(--line); }
 @media (max-width: 560px) {
   .chronicle li { grid-template-columns: 1fr; gap: 0; }
-  .grant { grid-template-columns: 1fr 1fr; }
+  .grant, .army-grid { grid-template-columns: 1fr; }
   .identity { flex-direction: column; }
 }

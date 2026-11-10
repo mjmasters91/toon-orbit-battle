@@ -48,6 +48,27 @@ export function mapKingdom(row) {
       startedAt: ms(job.started_at),
       completesAt: ms(job.completes_at),
     })),
+    marches: (row.marches || []).map((march) => ({
+      id: march.id,
+      kind: march.kind,
+      phase: march.phase,
+      attackType: march.attack_type,
+      target: march.target,
+      targetTag: march.target_tag,
+      youAttack: march.you_attack !== false,
+      startedAt: ms(march.started_at),
+      arrivesAt: ms(march.arrives_at),
+    })),
+    morale: row.morale ?? 100,
+    spies: row.spies ?? 2,
+    protectedUntil: row.protected_until ? ms(row.protected_until) : null,
+    attackedAt: row.attacked_at ? ms(row.attacked_at) : null,
+    lastHitAt: row.last_hit_at ? ms(row.last_hit_at) : null,
+    underAttack: Boolean(row.under_attack),
+    allianceId: row.alliance?.id ?? null,
+    allianceTag: row.alliance?.tag ?? null,
+    allianceRole: row.alliance?.role ?? null,
+    allianceName: row.alliance?.name ?? null,
     chronicle: (row.chronicle || []).map((line) => ({ at: ms(line.at), text: line.text })),
   };
 }
@@ -142,6 +163,82 @@ export async function adminUnbanOnline(username) {
 
 export async function adminLogOnline() {
   return rpc("cc_admin_log");
+}
+
+export async function targetsOnline(query) {
+  const res = await rpc("cc_targets", { p_query: query || "" });
+  if (!res.ok) return res;
+  return { ok: true, kingdoms: res.data.kingdoms || [] };
+}
+
+export async function oddsOnline(target, units) {
+  return rpc("cc_odds", { p_target: target, p_units: units });
+}
+
+export async function attackOnline(target, type, units) {
+  return follow(await rpc("cc_attack", { p_target: target, p_type: type, p_units: units }));
+}
+
+export async function spyOnline(target) {
+  return follow(await rpc("cc_spy", { p_target: target }));
+}
+
+export async function buySpyOnline(count) {
+  return follow(await rpc("cc_buy_spy", { p_count: count }));
+}
+
+export async function reportsOnline() {
+  const res = await rpc("cc_reports");
+  if (!res.ok) return res;
+  return { ok: true, reports: res.data.reports || [] };
+}
+
+export async function allianceStateOnline() {
+  return rpc("cc_alliance_state");
+}
+
+export async function allianceBrowseOnline(query) {
+  return rpc("cc_alliance_browse", { p_query: query || "" });
+}
+
+export async function allianceBoardOnline() {
+  return rpc("cc_alliance_board");
+}
+
+export async function allianceCreateOnline(name, tag, description) {
+  return rpc("cc_alliance_create", { p_name: name, p_tag: tag, p_description: description || "" });
+}
+
+export async function allianceRequestOnline(id) {
+  return rpc("cc_alliance_request", { p_alliance: id });
+}
+
+export async function allianceInviteOnline(name) {
+  return rpc("cc_alliance_invite", { p_name: name });
+}
+
+export async function allianceAnswerOnline(id, accept) {
+  return rpc("cc_alliance_answer", { p_request: id, p_accept: accept });
+}
+
+export async function allianceLeaveOnline() {
+  return rpc("cc_alliance_leave");
+}
+
+export async function allianceKickOnline(name) {
+  return rpc("cc_alliance_kick", { p_name: name });
+}
+
+export async function allianceRoleOnline(name, officer) {
+  return rpc("cc_alliance_set_role", { p_name: name, p_officer: officer });
+}
+
+export async function allianceTransferOnline(name) {
+  return rpc("cc_alliance_transfer", { p_name: name });
+}
+
+export async function allianceDisbandOnline() {
+  return rpc("cc_alliance_disband");
 }
 
 export { logInAccount, logOutAccount, signUpAccount };

@@ -1,0 +1,122 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  NPC_PACTS,
+  attackBlock,
+  defenseOf,
+  fuzzAmount,
+  hitScale,
+  isProtected,
+  lossPercents,
+  oddsBand,
+  offenseOf,
+  resolveBattle,
+  sizeScale,
+  spyFails,
+  travelSeconds,
+  validateAllianceName,
+  validateTag,
+} from "../js/combat.js";
+import { createKingdom, kingdomFromRow, networth } from "../js/engine.js";
+import { NPC_TABLE } from "../js/rules.js";
+
+const NOW = Date.UTC(2026, 10, 10, 12, 0, 0);
+
+function player() {
+  const state = createKingdom({ name: "Highcrest", landType: "highlands", now: NOW });
+  state.morale = 100;
+  state.spies = 2;
+  state.attackedAt = null;
+  state.protectedUntil = NOW + 24 * 3600 * 1000;
+  return state;
+}
+
+test("a full levy's offense matches the land and research formula", () => {
+  const state = player();
+  const sent = { ...state.units };
+  assert.equal(offenseOf(state, sent), 164);
+  assert.equal(defenseOf(state), 229);
+});
+
+test("size and recent-hit scales punish bullies and repeat raids", () => {
+  assert.equal(sizeScale(8000, 2000), 50);
+  assert.equal(sizeScale(2000, 4000), 140);
+  assert.equal(sizeScale(3000, 3000), 100);
+  assert.equal(hitScale(NOW - 10 * 60 * 1000, NOW), 25);
+  assert.equal(hitScale(NOW - 2 * 3600 * 1000, NOW), 50);
+  assert.equal(hitScale(NOW - 5 * 3600 * 1000, NOW), 75);
+  assert.equal(hitScale(null, NOW), 100);
+});
+
+test("conquest of a weak house takes acres and bloodies both sides", () => {
+  const att = player();
+  const moss = kingdomFromRow(NPC_TABLE.find((row) => row.name === "Mossfen"), NOW, { name: "The Amber March", seat: "Western vales" });
+  moss.morale = 100;
+  moss.isNpc = true;
+  const sent = { militia: 0, footmen: 12, pikemen: 0, archers: 8, knights: 2, siege: 0, warden: 0, spellbow: 0, wyvern: 0 };
+  const result = resolveBattle({ attacker: att, defender: moss, sent, type: "conquest", roll: 100, now: NOW });
+  assert.equal(result.win, true);
+  assert.ok(result.spoils.acres >= 1);
+  assert.ok(result.spoils.acres <= Math.floor(moss.land / 8));
+  assert.ok(result.living.footmen < 12);
+  assert.ok(result.defLoss.militia >= 1);
+  assert.match(result.text, /took \d+ acres/);
+  const tiny = resolveBattle({
+    attacker: att,
+    defender: { ...moss, land: 30, buildings: { ...moss.buildings }, units: { ...moss.units } },
+    sent,
+    type: "conquest",
+    roll: 115,
+    now: NOW,
+  });
+  assert.equal(tiny.spoils.acres, 0);
+});
+
+test("plunder is smaller against a much richer crown and a fresh wound", () => {
+  const att = player();
+  att.gold = 500000;
+  const rich = kingdomFromRow(NPC_TABLE.find((row) => row.name === "Qasira"), NOW, { name: "The Amber March", seat: "x" });
+  rich.morale = 100;
+  rich.lastHitAt = NOW - 60 * 1000;
+  const sent = { ...player().units };
+  const result = resolveBattle({ attacker: att, defender: rich, sent, type: "plunder", roll: 115, now: NOW });
+  if (result.win) {
+    assert.ok(result.spoils.gold < rich.gold / 4);
+    assert.ok(result.recent === 25);
+  }
+  assert.equal(lossPercents(100, 100, true).attacker < lossPercents(100, 100, false).attacker, true);
+});
+
+test("protection, self, and alliance blocks", () => {
+  const att = player();
+  const other = player();
+  other.name = "Qasira";
+  other.isNpc = false;
+  other.protectedUntil = NOW + 1000;
+  other.attackedAt = null;
+  assert.equal(isProtected(other, NOW), true);
+  assert.equal(attackBlock({ attacker: att, defender: other, sameAlliance: false, now: NOW }), "That kingdom is under protection.");
+  other.attackedAt = NOW - 10;
+  assert.equal(isProtected(other, NOW), false);
+  assert.equal(attackBlock({ attacker: att, defender: att, sameAlliance: false, now: NOW }), "You cannot attack your own gates.");
+  assert.equal(attackBlock({ attacker: att, defender: other, sameAlliance: true, now: NOW }), "You share an alliance.");
+  assert.equal(attackBlock({ attacker: att, defender: other, sameAlliance: false, now: NOW }), "");
+});
+
+test("spies, travel, tags, and pact names", () => {
+  assert.equal(travelSeconds(true, false), 180);
+  assert.equal(travelSeconds(false, false), 480);
+  assert.equal(travelSeconds(true, true), 90);
+  assert.equal(spyFails(0, 71), true);
+  assert.equal(spyFails(0, 70), false);
+  assert.equal(spyFails(10, 90), false);
+  assert.equal(fuzzAmount(100, 85), 85);
+  assert.equal(oddsBand(200, 100), "favored");
+  assert.equal(oddsBand(100, 100), "even");
+  assert.equal(oddsBand(50, 100), "outmatched");
+  assert.equal(validateTag("irn").tag, "IRN");
+  assert.ok(validateTag("I").error);
+  assert.ok(validateAllianceName("The Iron Covenant").name);
+  assert.equal(NPC_PACTS.length, 2);
+  assert.ok(networth(player()) > 0);
+});

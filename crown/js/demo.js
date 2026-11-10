@@ -1,5 +1,6 @@
 import { createKingdom, kingdomFromRow } from "./engine.js";
 import { NPC_TABLE } from "./rules.js";
+import { freshPacts, stampNpc } from "./war.js";
 
 const KEY = "crown_conquest_demo_v1";
 
@@ -30,11 +31,16 @@ export function freshDemo({ name, landType, now }) {
     realmName: realm.name,
     realmSeat: realm.seat,
   });
-  const npcs = NPC_TABLE.map((row) => kingdomFromRow(row, now, realm));
+  const npcs = NPC_TABLE.map((row) => stampNpc(kingdomFromRow(row, now, realm)));
+  const pacts = freshPacts(npcs);
   return {
     version: 1,
     kingdom,
     npcs,
+    alliances: pacts.alliances,
+    members: pacts.members,
+    requests: [],
+    reports: [],
     adminLog: [],
     banned: false,
     banReason: "",

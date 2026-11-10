@@ -1,5 +1,23 @@
 import { currentSession } from "./account.js";
 import {
+  allianceAnswerOnline,
+  allianceBoardOnline,
+  allianceBrowseOnline,
+  allianceCreateOnline,
+  allianceDisbandOnline,
+  allianceInviteOnline,
+  allianceKickOnline,
+  allianceLeaveOnline,
+  allianceRequestOnline,
+  allianceRoleOnline,
+  allianceStateOnline,
+  allianceTransferOnline,
+  attackOnline,
+  buySpyOnline,
+  oddsOnline,
+  reportsOnline,
+  spyOnline,
+  targetsOnline,
   adminBanOnline,
   adminGrantOnline,
   adminLogOnline,
@@ -29,6 +47,7 @@ import {
   settle,
 } from "./engine.js";
 import { BUILDING_ORDER, NPC_TABLE, TICK_SECONDS, UNIT_ORDER } from "./rules.js";
+import { buySpies, createPact, disbandPact, inviteKingdom, kickMember, leavePact, previewOdds, requestJoin, answerRequest, sendArmy, sendSpy, setOfficer, settleMarches, transferPact, warView } from "./war.js";
 import { realmRowsFrom, render, tickLabel } from "./ui.js";
 
 const root = document.querySelector("#app");
@@ -58,7 +77,7 @@ function blankDrafts() {
   for (const id of BUILDING_ORDER) build[id] = 1;
   const train = {};
   for (const id of UNIT_ORDER) train[id] = id === "militia" ? 10 : 1;
-  return { build, train, explore: 8, landType: "", foundName: "", search: "" };
+  return { build, train, explore: 8, landType: "", foundName: "", search: "", warSearch: "", target: "", raid: "conquest" };
 }
 
 function renderApp() {
@@ -97,6 +116,10 @@ function persist() {
   saveDemo({
     kingdom: model.kingdom,
     npcs: model.npcs,
+    alliances: model.alliances,
+    members: model.members,
+    requests: model.requests,
+    reports: model.reports,
     adminLog: model.adminLog,
     banned: model.banned,
     banReason: model.banReason,
@@ -110,18 +133,113 @@ function showGate(message, tone = "info") {
   renderApp();
 }
 
+async function loadWar() {
+  if (model.mode !== "online") {
+    syncDemoBoard();
+    return;
+  }
+  const [targets, reports] = await Promise.all([targetsOnline(model.drafts.warSearch || ""), reportsOnline()]);
+  if (!targets.ok) note(targets.error, "bad");
+  else model.targets = targets.kingdoms || [];
+  if (!reports.ok) note(reports.error, "bad");
+  else model.reports = reports.reports || [];
+}
+
+async function loadAlliances() {
+  if (model.mode !== "online") {
+    model.allianceView = warView(worldFrom(model, model.kingdom));
+    return;
+  }
+  const [state, browse] = await Promise.all([allianceStateOnline(), allianceBrowseOnline("")]);
+  if (!state.ok) {
+    note(state.error, "bad");
+    return;
+  }
+  const board = browse.ok ? browse.data.alliances || [] : [];
+  model.allianceView = {
+    mine: state.data.alliance,
+    members: state.data.members || [],
+    requests: state.data.requests || [],
+    browse: board,
+  };
+  if (model.kingdom && state.data.alliance) {
+    model.kingdom.allianceTag = state.data.alliance.tag;
+    model.kingdom.allianceRole = state.data.alliance.role;
+    model.kingdom.allianceId = state.data.alliance.id;
+  } else if (model.kingdom) {
+    model.kingdom.allianceTag = null;
+    model.kingdom.allianceRole = null;
+    model.kingdom.allianceId = null;
+  }
+}
+
+async function absorbAlliance(data) {
+  const browse = model.allianceView?.browse;
+  model.allianceView = {
+    mine: data.alliance,
+    members: data.members || [],
+    requests: data.requests || [],
+    browse: browse || [],
+  };
+  const fresh = await allianceBrowseOnline("");
+  if (fresh.ok) model.allianceView.browse = fresh.data.alliances || [];
+  if (model.kingdom) {
+    model.kingdom.allianceTag = data.alliance?.tag || null;
+    model.kingdom.allianceRole = data.alliance?.role || null;
+    model.kingdom.allianceId = data.alliance?.id || null;
+  }
+}
+
+async function pactAction(local, remote) {
+  if (model.mode === "demo") {
+    try {
+      applyWorld(local());
+      syncDemoBoard();
+      persist();
+    } catch (error) {
+      note(error.message, "bad");
+    }
+    renderApp();
+    return;
+  }
+  const res = await remote();
+  if (!res.ok) note(res.error, "bad");
+  else await absorbAlliance(res.data);
+  renderApp();
+}
+
+function worldFrom(save, kingdom) {
+  return {
+    kingdom,
+    npcs: save.npcs || [],
+    alliances: save.alliances || [],
+    members: save.members || [],
+    requests: save.requests || [],
+    reports: save.reports || [],
+  };
+}
+
+function applyWorld(world) {
+  model.kingdom = world.kingdom;
+  model.npcs = world.npcs;
+  model.alliances = world.alliances;
+  model.members = world.members;
+  model.requests = world.requests;
+  model.reports = world.reports;
+  model.allianceView = warView(world);
+  model.kingdom.underAttack = (model.kingdom.marches || []).some((march) => march.kind === "army" && march.phase === "out" && march.target === model.kingdom.name);
+}
+
 function enterDemo(save, caughtUp) {
   const result = caughtUp || settle(save.kingdom, Date.now(), { maxTicks: 100000 });
+  const marched = settleMarches(worldFrom(save, result.state), Date.now());
   model.mode = "demo";
   model.player = { username: "Local ruler", admin: false };
-  model.kingdom = result.state;
-  model.npcs = save.npcs || [];
+  applyWorld(marched);
   model.adminLog = save.adminLog || [];
   model.banned = Boolean(save.banned);
   model.banReason = save.banReason || "";
-  model.realmRows = realmRowsFrom(model.kingdom, model.npcs);
-  model.leaderboard = model.realmRows;
-  model.adminResults = demoAdminRows("");
+  syncDemoBoard();
   model.screen = "play";
   model.tab = "throne";
   noteFrom(result.summary);
@@ -149,9 +267,34 @@ function demoAdminRows(query) {
 }
 
 function syncDemoBoard() {
-  model.realmRows = realmRowsFrom(model.kingdom, model.npcs);
-  model.leaderboard = model.realmRows;
+  const rows = realmRowsFrom(model.kingdom, model.npcs).map((row) => {
+    const source = row.you ? model.kingdom : model.npcs.find((npc) => npc.name === row.name);
+    return { ...row, tag: source?.allianceTag || "" };
+  });
+  model.realmRows = rows;
+  model.leaderboard = rows;
   model.adminResults = demoAdminRows(model.drafts.search);
+  model.targets = demoTargets(model.drafts.warSearch);
+  model.allianceView = warView(worldFrom(model, model.kingdom));
+}
+
+function demoTargets(query) {
+  const q = String(query || "").trim().toLowerCase();
+  return model.npcs
+    .filter((npc) => !q || npc.name.toLowerCase().includes(q))
+    .map((npc) => ({
+      id: npc.name,
+      name: npc.name,
+      tag: npc.allianceTag || "",
+      realm_name: npc.realmName,
+      networth: networth(npc),
+      land: npc.land,
+      is_npc: true,
+      allied: Boolean(model.kingdom.allianceId && npc.allianceId === model.kingdom.allianceId),
+      protected: false,
+      tier: npc.npcTier || 1,
+    }))
+    .sort((a, b) => b.networth - a.networth);
 }
 
 async function loadBoard() {
@@ -224,7 +367,8 @@ function demoOrder(run) {
   try {
     const settled = settle(model.kingdom, Date.now(), { maxTicks: 100000 });
     const result = run(settled.state);
-    model.kingdom = result.state;
+    const marched = settleMarches(worldFrom(model, result.state), Date.now());
+    applyWorld(marched);
     noteFrom(result.summary.ticks || result.summary.finished?.length ? result.summary : { ticks: 0, finished: [], gold: 0, food: 0, peasants: 0, research: 0, mana: 0 });
     const last = model.kingdom.chronicle[model.kingdom.chronicle.length - 1];
     if (last && !result.summary.ticks) note(last.text);
@@ -322,6 +466,16 @@ const actions = {
   tab: async (id) => {
     model.tab = id;
     if (id === "realm") await loadBoard();
+    if (id === "war") {
+      await loadWar();
+      renderApp();
+      return;
+    }
+    if (id === "alliances") {
+      await loadAlliances();
+      renderApp();
+      return;
+    }
     if (id === "steward" && model.mode === "online") {
       const res = await online(() => adminSearchOnline(model.drafts.search || ""), { quiet: true, log: true });
       if (res?.ok) model.adminResults = res.data.kingdoms || [];
@@ -374,7 +528,8 @@ const actions = {
     if (model.mode !== "demo" || !model.kingdom) return;
     const target = model.kingdom.lastTickAt + TICK_SECONDS * 1000;
     const result = settle(model.kingdom, target, { maxTicks: 1 });
-    model.kingdom = result.state;
+    const marched = settleMarches(worldFrom(model, result.state), target);
+    applyWorld(marched);
     noteFrom(result.summary);
     syncDemoBoard();
     persist();
@@ -475,6 +630,189 @@ const actions = {
     if (recent.ok) model.adminLog = recent.data.entries || [];
     renderApp();
   },
+  loadTargets: async (query) => {
+    model.drafts.warSearch = String(query || "");
+    await loadWar();
+    renderApp();
+  },
+  pickTarget: (row) => {
+    model.drafts.target = row.name;
+    model.drafts.targetId = row.id;
+    model.odds = "";
+    renderApp();
+  },
+  estimate: async (target, sent) => {
+    if (model.mode === "demo") {
+      const preview = previewOdds(worldFrom(model, model.kingdom), target.name, sent);
+      model.odds = preview.note;
+      renderApp();
+      return;
+    }
+    const res = await oddsOnline(target.id, sent);
+    if (!res.ok) note(res.error, "bad");
+    else model.odds = `${res.data.band}. ${res.data.note} Strength on the road: ${res.data.offense}.`;
+    renderApp();
+  },
+  attack: async (target, type, sent) => {
+    if (model.mode === "demo") {
+      try {
+        const world = sendArmy(worldFrom(model, model.kingdom), target.name, type, sent, Date.now());
+        applyWorld(world);
+        note(`Your host marched on ${target.name}.`);
+        syncDemoBoard();
+        persist();
+      } catch (error) {
+        note(error.message, "bad");
+      }
+      renderApp();
+      return;
+    }
+    await online(() => attackOnline(target.id, type, sent));
+    await loadWar();
+    renderApp();
+  },
+  spy: async (target) => {
+    if (model.mode === "demo") {
+      try {
+        applyWorld(sendSpy(worldFrom(model, model.kingdom), target.name, Date.now()));
+        note(`A spy slipped toward ${target.name}.`);
+        persist();
+      } catch (error) {
+        note(error.message, "bad");
+      }
+      renderApp();
+      return;
+    }
+    await online(() => spyOnline(target.id));
+    renderApp();
+  },
+  buySpy: async (count) => {
+    if (model.mode === "demo") {
+      try {
+        applyWorld(buySpies(worldFrom(model, model.kingdom), count));
+        note("A spy joined the household.");
+        persist();
+      } catch (error) {
+        note(error.message, "bad");
+      }
+      renderApp();
+      return;
+    }
+    await online(() => buySpyOnline(count));
+  },
+  createPact: async (name, tag, description) => {
+    if (model.mode === "demo") {
+      try {
+        applyWorld(createPact(worldFrom(model, model.kingdom), name, tag, description));
+        note(`The pact ${tag.toUpperCase()} is sworn.`);
+        syncDemoBoard();
+        persist();
+      } catch (error) {
+        note(error.message, "bad");
+      }
+      renderApp();
+      return;
+    }
+    const res = await allianceCreateOnline(name, tag, description);
+    if (!res.ok) note(res.error, "bad");
+    else {
+      note("The pact is sworn.");
+      await absorbAlliance(res.data);
+    }
+    renderApp();
+  },
+  joinPact: async (row) => {
+    if (model.mode === "demo") {
+      try {
+        let world = requestJoin(worldFrom(model, model.kingdom), row.id);
+        const pending = world.requests.find((request) => request.status === "pending" && request.allianceId === row.id);
+        world = answerRequest(world, pending.id, true);
+        applyWorld(world);
+        note(`You joined ${row.name}.`);
+        syncDemoBoard();
+        persist();
+      } catch (error) {
+        note(error.message, "bad");
+      }
+      renderApp();
+      return;
+    }
+    const res = await allianceRequestOnline(row.id);
+    if (!res.ok) note(res.error, "bad");
+    else {
+      note("Your request is with the pact.");
+      await absorbAlliance(res.data);
+    }
+    renderApp();
+  },
+  answer: async (request, accept) => {
+    if (model.mode === "demo") {
+      try {
+        applyWorld(answerRequest(worldFrom(model, model.kingdom), request.id, accept));
+        note(accept ? "The request was accepted." : "The request was declined.");
+        syncDemoBoard();
+        persist();
+      } catch (error) {
+        note(error.message, "bad");
+      }
+      renderApp();
+      return;
+    }
+    const res = await allianceAnswerOnline(request.id, accept);
+    if (!res.ok) note(res.error, "bad");
+    else await absorbAlliance(res.data);
+    renderApp();
+  },
+  invite: async (name) => {
+    if (model.mode === "demo") {
+      try {
+        applyWorld(inviteKingdom(worldFrom(model, model.kingdom), String(name || "")));
+        note(`An invitation went to ${name}.`);
+        syncDemoBoard();
+        persist();
+      } catch (error) {
+        note(error.message, "bad");
+      }
+      renderApp();
+      return;
+    }
+    const res = await allianceInviteOnline(String(name || ""));
+    if (!res.ok) note(res.error, "bad");
+    else await absorbAlliance(res.data);
+    renderApp();
+  },
+  leavePact: async () => {
+    if (model.mode === "demo") {
+      try {
+        applyWorld(leavePact(worldFrom(model, model.kingdom)));
+        note("You left the pact.");
+        syncDemoBoard();
+        persist();
+      } catch (error) {
+        note(error.message, "bad");
+      }
+      renderApp();
+      return;
+    }
+    const res = await allianceLeaveOnline();
+    if (!res.ok) note(res.error, "bad");
+    else await absorbAlliance(res.data);
+    const fresh = await refreshKingdom();
+    if (fresh.ok) applyOnline(fresh, true);
+    renderApp();
+  },
+  kick: async (name) => {
+    await pactAction(() => kickMember(worldFrom(model, model.kingdom), name), () => allianceKickOnline(name));
+  },
+  officer: async (name, officer) => {
+    await pactAction(() => setOfficer(worldFrom(model, model.kingdom), name, officer), () => allianceRoleOnline(name, officer));
+  },
+  transfer: async (name) => {
+    await pactAction(() => transferPact(worldFrom(model, model.kingdom), name), () => allianceTransferOnline(name));
+  },
+  disband: async () => {
+    await pactAction(() => disbandPact(worldFrom(model, model.kingdom)), () => allianceDisbandOnline());
+  },
   logout: async () => {
     await logOutAccount();
     model.player = null;
@@ -529,8 +867,10 @@ setInterval(() => {
   if (Date.now() < model.kingdom.lastTickAt + TICK_SECONDS * 1000) return;
   if (model.mode === "demo") {
     const result = settle(model.kingdom, Date.now(), { maxTicks: 5000 });
-    if (!result.summary.ticks && !result.summary.finished.length) return;
-    model.kingdom = result.state;
+    const marched = settleMarches(worldFrom(model, result.state), Date.now());
+    const moved = result.summary.ticks || result.summary.finished.length || (marched.reports || []).length !== (model.reports || []).length;
+    if (!moved) return;
+    applyWorld(marched);
     noteFrom(result.summary);
     syncDemoBoard();
     persist();

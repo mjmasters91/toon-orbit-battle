@@ -65,6 +65,15 @@ export function createKingdom({ name, landType, now, realmName, realmSeat }) {
     units: { ...STARTING.units },
     research: { economy: 0, population: 0, food: 0, military: 0, magic: 0 },
     jobs: [],
+    marches: [],
+    morale: 100,
+    spies: 2,
+    protectedUntil: at + DAY_MS,
+    attackedAt: null,
+    lastHitAt: null,
+    allianceId: null,
+    allianceTag: null,
+    allianceRole: null,
     chronicle: [{ at, text: `The banner of ${named.name} was raised.` }],
   };
 }

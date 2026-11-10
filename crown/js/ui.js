@@ -12,6 +12,7 @@ import {
   researchCost,
 } from "./rules.js";
 import { describe, landTraits, quoteExplore, quoteTrain, roster, unitUnlocked } from "./engine.js";
+import { ATTACK_TYPES, isProtected, tagged } from "./combat.js";
 
 let lastKey = "";
 
@@ -271,6 +272,8 @@ function page(model, act) {
   if (model.tab === "host") return hostPage(model, act);
   if (model.tab === "scholars") return scholarPage(model, act);
   if (model.tab === "realm") return realmPage(model, act);
+  if (model.tab === "war") return warPage(model, act);
+  if (model.tab === "alliances") return alliancePage(model, act);
   if (model.tab === "steward") return stewardPage(model, act);
   if (model.tab === "account") return accountPage(model, act);
   if (model.tab === "more") return morePage(model, act);
@@ -291,6 +294,12 @@ function throne(model, act) {
         el("strong", { text: "The granaries are empty." }),
         el("p", { text: "The army fights hungry (attack 62%, defense 75%). Births have stopped, housing is cut to 72%, and people leave while the deficit lasts." }),
       )
+      : null,
+    state.underAttack
+      ? el("div", { class: "starve", role: "status" }, el("strong", { text: "An army is marching on your gates." }), el("p", { text: "Open the War Room to see who is coming." }))
+      : null,
+    isProtected(state, Date.now())
+      ? el("div", { class: "notice", text: "A new charter protects this kingdom until you attack, or until a day has passed." })
       : null,
     el(
       "div",
@@ -568,7 +577,7 @@ function boardList(rows) {
     el("span", { class: "rank", text: String(index + 1) }),
     el("span", { class: "shield sm", html: shield(row.landType || row.land_type) }),
     el("span", { class: "who" },
-      el("strong", { text: row.name }),
+      el("strong", { text: tagged(row.name, row.tag || row.alliance_tag || row.allianceTag) }),
       el("em", { text: `${LANDS[row.landType || row.land_type]?.name || ""} · ${num(row.land)} acres${row.npc || row.is_npc ? " · established house" : ""}` }),
     ),
     el("b", { text: num(row.networth) }),
@@ -687,6 +696,8 @@ function accountPage(model, act) {
 function morePage(model, act) {
   const links = [
     ["explore", "Explore", "Claim acres under the daily charter."],
+    ["host", "Host", "Train the levy."],
+    ["alliances", "Alliances", "Pacts, tags, and requests."],
     ["scholars", "Scholars", "Spend research on the five colleges."],
     ["account", "Account", model.mode === "online" ? "Log out of this login." : "Leave or abandon the demo."],
   ];
@@ -725,6 +736,202 @@ function mast(line) {
   );
 }
 
+function warPage(model, act) {
+  const state = model.kingdom;
+  const targets = model.targets || [];
+  const selected = targets.find((row) => row.name === model.drafts.target || String(row.id) === String(model.drafts.target));
+  const reports = model.reports || [];
+  return el(
+    "section",
+    {},
+    el("div", { class: "page-intro" },
+      el("h2", { text: "War Room" }),
+      el("p", { text: `Morale ${state.morale ?? 100}. Spies ${state.spies ?? 0}. A shared realm is not a pact: any house can be marched on, except members of your own alliance, yourself, and kingdoms still under a new-crown charter.` }),
+    ),
+    el("section", { class: "panel" },
+      el("h3", { text: "On the march" }),
+      (state.marches || []).length
+        ? (state.marches || []).map((march) => marchCard(march, state))
+        : el("p", { class: "muted", text: "No hosts are away from the castle." }),
+      el("button", { class: "btn ghost", type: "button", text: "Buy a spy · 150 gold", onclick: () => act.buySpy(1) }),
+    ),
+    el("form", {
+      class: "panel row",
+      onsubmit: (event) => {
+        event.preventDefault();
+        act.loadTargets(new FormData(event.currentTarget).get("q"));
+      },
+    },
+      el("input", { name: "q", placeholder: "Search kingdoms", value: model.drafts.warSearch || "" }),
+      el("button", { class: "btn wood", type: "submit", text: "Search" }),
+    ),
+    el("div", { class: "target-list" }, targets.map((row) => el(
+      "button",
+      {
+        type: "button",
+        class: `panel target${selected && selected.name === row.name ? " selected" : ""}`,
+        onclick: () => act.pickTarget(row),
+      },
+      el("strong", { text: tagged(row.name, row.tag) }),
+      el("span", { text: `${row.realm_name || row.realmName || ""} · ${num(row.networth)} networth · ${num(row.land)} acres${row.allied ? " · ally" : ""}${row.protected ? " · protected" : ""}${row.is_npc || row.npc ? " · house" : ""}` }),
+    ))),
+    selected ? attackForm(model, act, selected) : null,
+    el("section", { class: "panel" },
+      el("h3", { text: "Reports" }),
+      reports.length
+        ? reports.map((report) => el(
+          "article",
+          { class: "report" },
+          el("strong", { text: tagged(report.you_attacked === false ? report.attacker : report.defender, report.you_attacked === false ? report.attacker_tag : report.defender_tag) }),
+          el("p", { text: report.text }),
+          report.scout ? el("p", { class: "cost", text: `Scout: about ${num(report.scout.land)} acres, ${num(report.scout.gold)} gold, ${num(report.scout.food)} food, defense ${num(report.scout.defense)}.` }) : null,
+        ))
+        : el("p", { class: "muted", text: "No reports yet." }),
+    ),
+  );
+}
+
+function armyFrom(form) {
+  const data = new FormData(form);
+  const sent = {};
+  for (const id of UNIT_ORDER) sent[id] = Math.max(0, Math.floor(Number(data.get(id) || 0)));
+  return sent;
+}
+
+function marchCard(march, state) {
+  const clock = Math.max(Date.now(), state.lastTickAt || 0);
+  const left = Math.max(0, march.arrivesAt - clock);
+  const label = march.kind === "spy"
+    ? `Spy ${march.phase === "back" ? "returning from" : "watching"} ${tagged(march.target, march.targetTag)}`
+    : `${march.phase === "back" ? "Returning from" : "Marching on"} ${tagged(march.target, march.targetTag)}`;
+  return el("div", { class: "job" },
+    el("div", { class: "job-top" }, el("strong", { text: label }), el("span", { text: duration(left / 1000) })),
+  );
+}
+
+function attackForm(model, act, target) {
+  return el(
+    "form",
+    {
+      class: "panel",
+      id: "attack-form",
+      onsubmit: (event) => {
+        event.preventDefault();
+        const data = new FormData(event.currentTarget);
+        const sent = {};
+        for (const id of UNIT_ORDER) sent[id] = Math.max(0, Math.floor(Number(data.get(id) || 0)));
+        act.attack(target, data.get("raid") || "conquest", sent);
+      },
+    },
+    el("h3", { text: `Orders against ${tagged(target.name, target.tag)}` }),
+    target.allied ? el("p", { class: "lock-note", text: "This house shares your pact. The march will be refused." }) : null,
+    target.protected ? el("p", { class: "lock-note", text: "This crown is still protected." }) : null,
+    el("div", { class: "raid-types" }, Object.values(ATTACK_TYPES).map((type) => el(
+      "label",
+      { class: "raid" },
+      el("input", { type: "radio", name: "raid", value: type.id, checked: (model.drafts.raid || "conquest") === type.id ? true : null }),
+      el("span", {}, el("strong", { text: type.name }), el("em", { text: type.blurb })),
+    ))),
+    el("div", { class: "army-grid" }, UNIT_ORDER.filter((id) => (model.kingdom.units[id] || 0) > 0).map((id) => el(
+      "label",
+      { class: "mini" },
+      el("span", { text: `${UNITS[id].name} (${model.kingdom.units[id]} home)` }),
+      el("input", { id: `send-${id}`, name: id, type: "number", min: "0", max: String(model.kingdom.units[id]), value: "0" }),
+    ))),
+    model.odds ? el("p", { class: "cost", id: "odds-line", text: model.odds }) : el("p", { class: "muted", id: "odds-line", text: "Scout, or send and read the estimate." }),
+    el("div", { class: "row" },
+      el("button", { class: "btn wood", type: "button", text: "Estimate", onclick: (event) => act.estimate(target, armyFrom(event.currentTarget.form)) }),
+      el("button", { class: "btn ghost", type: "button", text: "Send a spy", onclick: () => act.spy(target) }),
+      el("button", { class: "btn primary", type: "submit", text: "March" }),
+    ),
+  );
+}
+
+function alliancePage(model, act) {
+  const view = model.allianceView || { mine: null, members: [], requests: [], browse: [] };
+  return el(
+    "section",
+    {},
+    el("div", { class: "page-intro" },
+      el("h2", { text: "Alliances" }),
+      el("p", { text: "A pact is a choice, not a realm. Members cannot attack one another. Twenty houses is the full table." }),
+    ),
+    view.mine
+      ? el("section", { class: "panel" },
+        el("h3", { text: `[${view.mine.tag}] ${view.mine.name}` }),
+        el("p", { text: view.mine.description || "No motto yet." }),
+        el("p", { class: "cost", text: `You are ${view.mine.role}.` }),
+        el("ol", { class: "board" }, view.members.map((row, index) => el(
+          "li",
+          { class: row.you ? "you" : "" },
+          el("span", { class: "rank", text: String(index + 1) }),
+          el("span", { class: "who" }, el("strong", { text: tagged(row.name, view.mine.tag) }), el("em", { text: `${row.role} · ${num(row.land)} acres` })),
+          el("b", { text: num(row.networth) }),
+          view.mine.role === "leader" && !row.you
+            ? el("span", { class: "row" },
+              el("button", { class: "btn ghost", type: "button", text: row.role === "officer" ? "Demote" : "Officer", onclick: () => act.officer(row.name, row.role !== "officer") }),
+              el("button", { class: "btn ghost", type: "button", text: "Kick", onclick: () => act.kick(row.name) }),
+              el("button", { class: "btn ghost", type: "button", text: "Crown", onclick: () => act.transfer(row.name) }),
+            )
+            : null,
+        ))),
+        (view.requests || []).map((request) => el(
+          "div",
+          { class: "row" },
+          el("span", { text: request.kind === "invite" ? `Invitation from ${request.alliance}` : `${request.name} asks to join` }),
+          el("button", { class: "btn primary", type: "button", text: "Accept", onclick: () => act.answer(request, true) }),
+          el("button", { class: "btn ghost", type: "button", text: "Decline", onclick: () => act.answer(request, false) }),
+        )),
+        view.mine.role === "leader"
+          ? el("form", {
+            class: "row",
+            onsubmit: (event) => {
+              event.preventDefault();
+              act.invite(new FormData(event.currentTarget).get("who"));
+            },
+          },
+            el("input", { name: "who", placeholder: "Invite a kingdom by name" }),
+            el("button", { class: "btn wood", type: "submit", text: "Invite" }),
+          )
+          : null,
+        el("div", { class: "row" },
+          view.mine.role !== "leader" ? el("button", { class: "btn ghost", type: "button", text: "Leave", onclick: () => act.leavePact() }) : null,
+          view.mine.role === "leader" ? el("button", { class: "btn ghost", type: "button", text: "Disband", onclick: () => act.disband() }) : null,
+        ),
+      )
+      : el("form", {
+        class: "panel",
+        onsubmit: (event) => {
+          event.preventDefault();
+          const data = new FormData(event.currentTarget);
+          act.createPact(data.get("name"), data.get("tag"), data.get("description"));
+        },
+      },
+        el("h3", { text: "Raise a pact" }),
+        el("label", { text: "Name" }),
+        el("input", { name: "name", maxlength: "32", required: true }),
+        el("label", { text: "Tag" }),
+        el("input", { name: "tag", maxlength: "5", required: true, placeholder: "IRN" }),
+        el("label", { text: "Motto" }),
+        el("input", { name: "description", maxlength: "200" }),
+        el("button", { class: "btn primary", type: "submit", text: "Found the pact" }),
+      ),
+    el("section", { class: "panel" },
+      el("h3", { text: "Known pacts" }),
+      (view.browse || []).map((row) => el(
+        "div",
+        { class: "job" },
+        el("div", { class: "job-top" },
+          el("strong", { text: `[${row.tag}] ${row.name}` }),
+          el("span", { text: `${row.members} houses · ${num(row.networth)}` }),
+        ),
+        el("p", { class: "muted", text: row.description || "" }),
+        !view.mine && !row.yours ? el("button", { class: "btn wood", type: "button", text: "Request to join", onclick: () => act.joinPact(row) }) : null,
+      )),
+    ),
+  );
+}
+
 function sidebar(model, act) {
   const items = navItems(model);
   return el(
@@ -740,12 +947,12 @@ function bottomNav(model, act) {
   const items = [
     ["throne", "Throne", "throne"],
     ["build", "Build", "build"],
-    ["host", "Host", "army"],
+    ["war", "War", "war"],
     ["realm", "Realm", "realm"],
     ["more", "More", "more"],
   ];
   return el("nav", { class: "bottom-nav" }, items.map(([id, label, iconName]) => {
-    const moreOn = id === "more" && ["explore", "scholars", "steward", "account", "more"].includes(model.tab);
+    const moreOn = id === "more" && ["explore", "scholars", "steward", "account", "host", "alliances", "more"].includes(model.tab);
     const on = model.tab === id || moreOn;
     return el(
       "button",
@@ -762,6 +969,8 @@ function navItems(model) {
     ["build", "Build", "build"],
     ["explore", "Explore", "explore"],
     ["host", "Host", "army"],
+    ["war", "War Room", "war"],
+    ["alliances", "Alliances", "pact"],
     ["scholars", "Scholars", "book"],
     ["realm", "Realm", "realm"],
   ];

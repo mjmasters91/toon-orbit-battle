@@ -15,6 +15,8 @@ const ICONS = {
   explore: svg(`<circle cx="14" cy="14" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M19 19l7 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>`),
   book: svg(`<path fill="currentColor" d="M6 7h9c2 0 3 1.2 3 2.4V26c-1.2-.8-2.4-1-4-1H6V7zm11 2.4C17 8.2 18 7 20 7h6v18h-8c-1.6 0-2.8.2-4 1V9.4z"/>`),
   shield: svg(`<path fill="currentColor" d="M16 3 27 7v9c0 7-4.6 11-11 13C9.6 27 5 23 5 16V7l11-4z"/>`),
+  war: svg(`<path fill="currentColor" d="M7 5h4l2 8h6l2-8h4l-6 22h-6L7 5z"/><path fill="#fff6df" d="M14 15h4v8h-4z"/>`),
+  pact: svg(`<path fill="currentColor" d="M8 6h10l6 6v14H8z"/><path fill="#fff6df" d="M16 8v6h6"/>`),
 };
 
 const CHARGES = {
