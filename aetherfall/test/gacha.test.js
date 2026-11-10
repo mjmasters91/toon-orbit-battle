@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { AWAKEN_COST, COST_1, COST_10, MAX_AWAKEN, PITY_AT, RATES, SHARDS, START_GEMS, START_GOLD, START_TICKETS } from "../js/balance.js";
-import { applyCopy, payForPull, pickUnit, pull, rarityFromRoll, rateTable, resolvePull } from "../js/gacha.js";
+import { againOffer, applyCopy, payForPull, pickUnit, pull, rarityFromRoll, rateTable, resolvePull } from "../js/gacha.js";
 import { levelCost, partyPower, tryLevelUp, unitPower, unitStats } from "../js/progress.js";
 import { defaultSave, normalizeSave } from "../js/save.js";
 import { BANNERS, STARTER_IDS, UNITS, unitById } from "../js/units.js";
@@ -197,6 +197,23 @@ test("two copies of a new unit in one pull unlock then convert", () => {
   assert.equal(resolved.presentation[1].isNew, false);
   assert.equal(resolved.presentation[1].shardsAdded, SHARDS[3]);
   assert.equal(resolved.owned.tess.owned, true);
+});
+
+test("summon again offers the ticket or the gem price", () => {
+  const withTicket = againOffer(10, { gems: 0, tickets: 1 });
+  assert.equal(withTicket.ok, true);
+  assert.equal(withTicket.label, "Summon again ×10");
+  assert.equal(withTicket.detail, "1 Tenfold Ticket");
+  const withGems = againOffer(10, { gems: 4500, tickets: 0 });
+  assert.equal(withGems.ok, true);
+  assert.equal(withGems.detail, "3,000 gems");
+  const broke = againOffer(10, { gems: 2999, tickets: 0 });
+  assert.equal(broke.ok, false);
+  assert.equal(broke.detail, "Not enough gems");
+  const single = againOffer(1, { gems: 300, tickets: 5 });
+  assert.equal(single.ok, true);
+  assert.equal(single.label, "Summon again ×1");
+  assert.equal(single.detail, "300 gems");
 });
 
 test("tickets pay for a 10-pull and singles always cost gems", () => {

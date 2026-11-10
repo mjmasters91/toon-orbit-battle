@@ -106,6 +106,14 @@ export function resolvePull(owned, results, catalog) {
   return { owned: nextOwned, presentation };
 }
 
+export function againOffer(count, wallet) {
+  const payment = payForPull(wallet, count);
+  const label = count === 10 ? "Summon again ×10" : "Summon again ×1";
+  if (!payment.ok) return { ok: false, label, detail: "Not enough gems" };
+  const shown = payment.method === "ticket" ? "1 Tenfold Ticket" : `${Number(payment.cost).toLocaleString("en-US")} gems`;
+  return { ok: true, label, detail: shown, method: payment.method };
+}
+
 export function payForPull(wallet, count) {
   if (count !== 1 && count !== 10) return { ok: false, reason: "bad count" };
   if (count === 10 && wallet.tickets > 0) {

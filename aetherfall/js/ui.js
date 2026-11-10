@@ -2,7 +2,7 @@ import { adminBan, adminGrant, adminLog, adminSearch, adminUnban, currentSession
 import { blip, powerup, rarityFanfare, resume, setMuted, summonCharge } from "./audio.js";
 import { AWAKEN_COST, COST_1, COST_10, MAX_AWAKEN, MAX_LEVEL, PITY_AT } from "./balance.js";
 import { playSummon } from "./fx.js";
-import { payForPull, pull, rateTable, resolvePull } from "./gacha.js";
+import { againOffer, payForPull, pull, rateTable, resolvePull } from "./gacha.js";
 import { leaderBonus, levelCost, partyPower, sortRoster, tryLevelUp, unitPower, unitStats } from "./progress.js";
 import { paint } from "./pixel.js";
 import { loadSave, resetSave, writeSave } from "./save.js";
@@ -310,10 +310,11 @@ function viewResults(pack) {
         pullTag(best),
       ),
     ),
+    againButton(pack),
     h("div", { class: "results", id: "results" }, ...pack.presentation.map((row) => resultCard(row))),
     h("p", { class: "fine", text: `Pity is now ${state.save.pity[pack.banner.id]} / ${PITY_AT}.` }),
     h("div", { class: "row" },
-      h("button", { class: "btn", type: "button", text: "Summon again", onclick: () => { state.results = null; draw(); } }),
+      h("button", { class: "btn ghost", type: "button", text: "Choose a gate", onclick: () => { state.results = null; draw(); } }),
       h("button", { class: "btn ghost", type: "button", text: "Roster", onclick: () => go("units") }),
     ),
   );
@@ -338,6 +339,25 @@ function rateBlock(banner) {
       h("span", { text: `Pity ${pity} / ${table.pity}` }),
       h("div", { class: "bar", "aria-hidden": "true" }, h("i", { style: `width:${(pity / table.pity) * 100}%` })),
     ),
+  );
+}
+
+function againButton(pack) {
+  const count = pack.count === 1 ? 1 : 10;
+  const offer = againOffer(count, state.save);
+  return h("button", {
+    class: "btn summon-again",
+    id: "summon-again",
+    type: "button",
+    disabled: !offer.ok,
+    onclick: () => {
+      if (!offer.ok || state.pulling) return;
+      state.bannerId = pack.banner.id;
+      void doPull(count);
+    },
+  },
+    h("span", { text: offer.label }),
+    h("small", { text: offer.detail }),
   );
 }
 
@@ -381,39 +401,45 @@ function noteAccountProblem(res) {
 }
 
 async function doPull(count) {
+  if (state.pulling) return;
   const banner = BANNERS.find((row) => row.id === state.bannerId);
-  if (state.mode === "online") {
-    const res = await summonOnline(banner.id, count);
-    if (!res.ok) {
-      if (noteAccountProblem(res)) return;
-      toast(res.error || "The gate did not answer.");
-      return;
-    }
-    applyRemote(res.save);
-    state.results = { banner, presentation: res.presentation };
-    playFx(res.presentation);
-    return;
-  }
   const payment = payForPull(state.save, count);
   if (!payment.ok) {
     toast("Not enough gems.");
     return;
   }
-  const rolled = pull({
-    count,
-    pity: state.save.pity[banner.id] || 0,
-    rng: Math.random,
-    banner,
-    catalog: UNITS,
-  });
-  const resolved = resolvePull(state.save.units, rolled.results, UNITS);
-  state.save.gems = payment.gems;
-  state.save.tickets = payment.tickets;
-  state.save.pity[banner.id] = rolled.pityAfter;
-  state.save.units = resolved.owned;
-  writeSave(state.save);
-  state.results = { banner, presentation: resolved.presentation };
-  playFx(resolved.presentation);
+  state.pulling = true;
+  try {
+    if (state.mode === "online") {
+      const res = await summonOnline(banner.id, count);
+      if (!res.ok) {
+        if (noteAccountProblem(res)) return;
+        toast(res.error || "The gate did not answer.");
+        return;
+      }
+      applyRemote(res.save);
+      state.results = { banner, count, presentation: res.presentation };
+      playFx(res.presentation);
+      return;
+    }
+    const rolled = pull({
+      count,
+      pity: state.save.pity[banner.id] || 0,
+      rng: Math.random,
+      banner,
+      catalog: UNITS,
+    });
+    const resolved = resolvePull(state.save.units, rolled.results, UNITS);
+    state.save.gems = payment.gems;
+    state.save.tickets = payment.tickets;
+    state.save.pity[banner.id] = rolled.pityAfter;
+    state.save.units = resolved.owned;
+    writeSave(state.save);
+    state.results = { banner, count, presentation: resolved.presentation };
+    playFx(resolved.presentation);
+  } finally {
+    state.pulling = false;
+  }
 }
 
 function finishFx() {
@@ -430,10 +456,23 @@ function playFx(presentation) {
   const root = document.getElementById("modal-root");
   const canvas = h("canvas", { class: "pixel", id: "fx-canvas", "aria-hidden": "true" });
   const best = presentation.reduce((max, row) => Math.max(max, row.rarity), 3);
-  root.replaceChildren(h("div", { class: "fx-layer", id: "fx-layer" },
+  root.replaceChildren(h("div", {
+    class: "fx-layer",
+    id: "fx-layer",
+    role: "button",
+    tabindex: "0",
+    "aria-label": "Skip summon",
+    onclick: () => finishFx(),
+    onkeydown: (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        finishFx();
+      }
+    },
+  },
     canvas,
-    h("p", { class: "fx-caption", text: best >= 5 ? "The Vein breaks open." : "Light gathers in the crystal." }),
-    h("button", { class: "btn ghost", id: "skip-summon", type: "button", text: "Skip", onclick: finishFx }),
+    h("p", { class: "fx-caption", text: best >= 5 ? "The Vein breaks open. Tap to skip." : "Light gathers in the crystal. Tap to skip." }),
+    h("button", { class: "btn ghost", id: "skip-summon", type: "button", text: "Skip", onclick: (event) => { event.stopPropagation(); finishFx(); } }),
   ));
   state.fxStop = playSummon(canvas, presentation, {
     onBurst: (rarity) => {
