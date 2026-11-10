@@ -22,6 +22,10 @@ export function render(root, model, act) {
   lastKey = key;
   root.replaceChildren(view(model, act));
   window.scrollTo(0, y);
+  if (model.scrollOrders) {
+    model.scrollOrders = false;
+    document.getElementById("attack-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 }
 
 function el(tag, props, ...kids) {
@@ -743,11 +747,17 @@ function warPage(model, act) {
   const reports = model.reports || [];
   return el(
     "section",
-    {},
+    { class: "war-page" },
     el("div", { class: "page-intro" },
       el("h2", { text: "War Room" }),
       el("p", { text: `Morale ${state.morale ?? 100}. Spies ${state.spies ?? 0}. A shared realm is not a pact: any house can be marched on, except members of your own alliance, yourself, and kingdoms still under a new-crown charter.` }),
     ),
+    selected
+      ? attackForm(model, act, selected)
+      : el("section", { class: "panel orders", id: "attack-form" },
+        el("h3", { text: "Orders" }),
+        el("p", { class: "muted", text: "Choose a house below. The order sheet stays at the top of the War Room." }),
+      ),
     el("section", { class: "panel" },
       el("h3", { text: "On the march" }),
       (state.marches || []).length
@@ -775,7 +785,6 @@ function warPage(model, act) {
       el("strong", { text: tagged(row.name, row.tag) }),
       el("span", { text: `${row.realm_name || row.realmName || ""} · ${num(row.networth)} networth · ${num(row.land)} acres${row.allied ? " · ally" : ""}${row.protected ? " · protected" : ""}${row.is_npc || row.npc ? " · house" : ""}` }),
     ))),
-    selected ? attackForm(model, act, selected) : null,
     el("section", { class: "panel" },
       el("h3", { text: "Reports" }),
       reports.length
@@ -813,7 +822,7 @@ function attackForm(model, act, target) {
   return el(
     "form",
     {
-      class: "panel",
+      class: "panel orders",
       id: "attack-form",
       onsubmit: (event) => {
         event.preventDefault();
@@ -834,7 +843,7 @@ function attackForm(model, act, target) {
     ))),
     el("div", { class: "army-grid" }, UNIT_ORDER.filter((id) => (model.kingdom.units[id] || 0) > 0).map((id) => el(
       "label",
-      { class: "mini" },
+      { class: "unit-field" },
       el("span", { text: `${UNITS[id].name} (${model.kingdom.units[id]} home)` }),
       el("input", { id: `send-${id}`, name: id, type: "number", min: "0", max: String(model.kingdom.units[id]), value: "0" }),
     ))),

@@ -639,6 +639,7 @@ const actions = {
     model.drafts.target = row.name;
     model.drafts.targetId = row.id;
     model.odds = "";
+    model.scrollOrders = true;
     renderApp();
   },
   estimate: async (target, sent) => {
