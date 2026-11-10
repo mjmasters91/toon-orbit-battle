@@ -46,7 +46,7 @@ begin
   ) then
     alter table public.cc_admin_log
       add constraint cc_admin_log_action_check
-      check (action in ('grant', 'ban', 'unban', 'wipe'));
+      check (action in ('grant', 'ban', 'unban', 'wipe', 'chat_delete', 'chat_mute', 'chat_unmute'));
   end if;
 end $$;
 

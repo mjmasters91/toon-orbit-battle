@@ -1,4 +1,4 @@
-import { currentSession } from "./account.js";
+import { accountClient, currentSession } from "./account.js";
 import {
   allianceAnswerOnline,
   allianceBoardOnline,
@@ -22,6 +22,12 @@ import {
   adminGrantOnline,
   adminLogOnline,
   adminSearchOnline,
+  adminChatDeleteOnline,
+  adminChatMuteOnline,
+  adminChatRecentOnline,
+  adminChatUnmuteOnline,
+  chatHistoryOnline,
+  chatSendOnline,
   seasonsOnline,
   wipeSeasonOnline,
   adminUnbanOnline,
@@ -50,6 +56,7 @@ import {
 } from "./engine.js";
 import { BUILDING_ORDER, NPC_TABLE, TICK_SECONDS, UNIT_ORDER } from "./rules.js";
 import { battleBrief } from "./combat.js";
+import { CHAT_CHANNELS, chatRateError, cleanChatBody } from "./chat.js";
 import { buySpies, createPact, disbandPact, inviteKingdom, kickMember, leavePact, previewOdds, requestJoin, answerRequest, sendArmy, sendSpy, setOfficer, settleMarches, transferPact, warView } from "./war.js";
 import { armMusic, musicState, setMuted } from "./music.js";
 import { paintJobClocks, realmRowsFrom, render, tickLabel } from "./ui.js";
@@ -78,6 +85,17 @@ const model = {
   pastSeasons: [],
   seasonsLive: false,
   wipeOpen: false,
+  chatOpen: false,
+  chatChannel: "global",
+  chatMessages: [],
+  chatSeen: { global: 0, realm: 0, alliance: 0 },
+  chatLive: null,
+  chatDraft: "",
+  chatLocked: { global: "", realm: "", alliance: "" },
+  chatMutes: [],
+  chatNextId: 1,
+  chatStick: true,
+  chatAdmin: [],
 };
 
 function blankDrafts() {
@@ -134,6 +152,9 @@ function persist() {
     banReason: model.banReason,
     season: model.season,
     pastSeasons: model.pastSeasons || [],
+    chatMessages: model.chatMessages || [],
+    chatMutes: model.chatMutes || [],
+    chatNextId: model.chatNextId || 1,
   });
 }
 
@@ -266,6 +287,10 @@ function enterDemo(save, caughtUp) {
   model.season = save.season || { number: 1, name: "Season 1", startedAt: save.kingdom?.createdAt || Date.now() };
   model.pastSeasons = save.pastSeasons || [];
   model.seasonsLive = true;
+  model.chatMessages = save.chatMessages || model.chatMessages || [];
+  model.chatMutes = save.chatMutes || [];
+  model.chatNextId = save.chatNextId || model.chatNextId || 1;
+  model.chatLive = true;
   noteFrom(result.summary);
   revealBattle(before, model.reports);
   persist();
@@ -465,6 +490,7 @@ const actions = {
     note("");
     if (opened.kingdom) await loadBoard();
     await loadSeasons();
+    await probeChat();
     renderApp();
   },
   demo: () => {
@@ -477,6 +503,10 @@ const actions = {
     model.season = saved?.season || { number: 1, name: "Season 1", startedAt: Date.now() };
     model.pastSeasons = saved?.pastSeasons || [];
     model.seasonsLive = true;
+    model.chatMessages = saved?.chatMessages || [];
+    model.chatMutes = saved?.chatMutes || [];
+    model.chatNextId = saved?.chatNextId || 1;
+    model.chatLive = true;
     model.screen = "found";
     model.drafts.landType = "";
     model.drafts.foundName = "";
@@ -524,6 +554,9 @@ const actions = {
       const save = freshDemo({ name, landType, now: Date.now() });
       if (model.season) save.season = model.season;
       if (model.pastSeasons?.length) save.pastSeasons = model.pastSeasons;
+      save.chatMessages = model.chatMessages || [];
+      save.chatMutes = model.chatMutes || [];
+      save.chatNextId = model.chatNextId || 1;
       enterDemo(save, { state: save.kingdom, summary: { ticks: 0, finished: [], gold: 0, food: 0, peasants: 0, research: 0, mana: 0 } });
       note(`The banner of ${save.kingdom.name} was raised.`);
       renderApp();
@@ -545,6 +578,7 @@ const actions = {
       renderApp();
       return;
     }
+    if (id === "steward") await loadChatAdmin();
     if (id === "steward" && model.mode === "online") {
       const res = await online(() => adminSearchOnline(model.drafts.search || ""), { quiet: true, log: true });
       if (res?.ok) model.adminResults = res.data.kingdoms || [];
@@ -975,6 +1009,151 @@ const actions = {
   disband: async () => {
     await pactAction(() => disbandPact(worldFrom(model, model.kingdom)), () => allianceDisbandOnline());
   },
+  toggleChat: () => {
+    model.chatOpen = !model.chatOpen;
+    if (model.chatOpen) markChatSeen(model.chatChannel);
+    renderApp();
+  },
+  chatTab: (channel) => {
+    model.chatChannel = channel;
+    model.chatStick = true;
+    markChatSeen(channel);
+    renderApp();
+  },
+  chatDraft: (value) => {
+    model.chatDraft = value;
+  },
+  chatSend: async (raw) => {
+    const cleaned = cleanChatBody(raw);
+    if (cleaned.error) {
+      note(cleaned.error, "bad");
+      renderApp();
+      return;
+    }
+    if (model.mode === "demo") {
+      const problem = demoChatProblem(model.chatChannel, cleaned.body);
+      if (problem) {
+        note(problem, "bad");
+        renderApp();
+        return;
+      }
+      model.chatMessages.push({
+        id: model.chatNextId++,
+        channel: model.chatChannel,
+        body: cleaned.body,
+        createdAt: Date.now(),
+        kingdom: model.kingdom?.name || "A ruler",
+        tag: model.kingdom?.allianceTag || "",
+        admin: Boolean(model.player?.admin),
+        playerKey: "local",
+        deleted: false,
+      });
+      trimDemoChat();
+      model.chatDraft = "";
+      model.chatStick = true;
+      markChatSeen(model.chatChannel);
+      persist();
+      renderApp();
+      return;
+    }
+    if (!model.chatLive) {
+      note("The speaking-hall is not on the server ledger yet.", "bad");
+      renderApp();
+      return;
+    }
+    const res = await chatSendOnline(model.chatChannel, cleaned.body);
+    if (!res.ok) {
+      note(res.error, "bad");
+      renderApp();
+      return;
+    }
+    replaceChat(model.chatChannel, res.messages);
+    model.chatLocked[model.chatChannel] = res.locked || "";
+    model.chatDraft = "";
+    model.chatStick = true;
+    markChatSeen(model.chatChannel);
+    renderApp();
+  },
+  chatEarlier: async () => {
+    const rows = channelRows(model.chatChannel);
+    const oldest = rows[0]?.id;
+    if (!oldest || model.mode === "demo" || !model.chatLive) return;
+    const res = await chatHistoryOnline(model.chatChannel, oldest);
+    if (!res.ok) {
+      note(res.error, "bad");
+      renderApp();
+      return;
+    }
+    const seen = new Set(channelRows(model.chatChannel).map((row) => row.id));
+    const older = res.messages.filter((row) => !seen.has(row.id));
+    model.chatMessages = [...older, ...model.chatMessages];
+    model.chatStick = false;
+    renderApp();
+  },
+  chatDelete: async (id) => {
+    if (model.mode === "demo") {
+      const row = model.chatMessages.find((message) => message.id === id);
+      if (row) row.deleted = true;
+      model.chatAdmin = recentDemoChat();
+      model.adminLog.unshift({ at: Date.now(), action: "chat_delete", label: `Message ${id}`, note: row?.body || "" });
+      persist();
+      renderApp();
+      return;
+    }
+    const res = await adminChatDeleteOnline(id);
+    if (!res.ok) note(res.error, "bad");
+    else {
+      model.chatAdmin = res.messages;
+      model.chatMutes = res.mutes;
+      note("The message was taken down.");
+    }
+    renderApp();
+  },
+  chatMute: async (player, minutes, reason) => {
+    if (model.mode === "demo") {
+      const name = String(player || "").trim();
+      const mins = Math.floor(Number(minutes));
+      const why = String(reason || "").trim();
+      if (!name) note("Name the player.", "bad");
+      else if (!Number.isInteger(mins) || mins < 1 || mins > 10080) note("Mute between 1 minute and 7 days.", "bad");
+      else if (!why) note("A mute needs a reason.", "bad");
+      else {
+        model.chatMutes = model.chatMutes.filter((row) => row.username.toLowerCase() !== name.toLowerCase());
+        model.chatMutes.push({ username: name, until: Date.now() + mins * 60000, reason: why });
+        model.adminLog.unshift({ at: Date.now(), action: "chat_mute", label: name, note: `${mins} minutes. ${why}` });
+        note(`${name} is muted.`);
+        persist();
+      }
+      renderApp();
+      return;
+    }
+    const res = await adminChatMuteOnline(player, Math.floor(Number(minutes)), reason);
+    if (!res.ok) note(res.error, "bad");
+    else {
+      model.chatAdmin = res.messages;
+      model.chatMutes = res.mutes;
+      note(`${player} is muted.`);
+    }
+    renderApp();
+  },
+  chatUnmute: async (player) => {
+    if (model.mode === "demo") {
+      model.chatMutes = model.chatMutes.filter((row) => row.username.toLowerCase() !== String(player || "").trim().toLowerCase());
+      model.adminLog.unshift({ at: Date.now(), action: "chat_unmute", label: player, note: "The mute was lifted." });
+      note(`The mute on ${player} was lifted.`);
+      persist();
+      renderApp();
+      return;
+    }
+    const res = await adminChatUnmuteOnline(player);
+    if (!res.ok) note(res.error, "bad");
+    else {
+      model.chatAdmin = res.messages;
+      model.chatMutes = res.mutes;
+      note(`The mute on ${player} was lifted.`);
+    }
+    renderApp();
+  },
   toggleMusic: () => {
     const next = !musicState().muted;
     setMuted(next);
@@ -1006,6 +1185,144 @@ function within(promise, ms) {
   });
 }
 
+function channelRows(channel) {
+  return (model.chatMessages || []).filter((row) => row.channel === channel && !row.deleted);
+}
+
+function markChatSeen(channel) {
+  const max = channelRows(channel).reduce((best, row) => Math.max(best, row.id || 0), 0);
+  model.chatSeen[channel] = max;
+}
+
+function replaceChat(channel, messages) {
+  const rest = (model.chatMessages || []).filter((row) => row.channel !== channel);
+  model.chatMessages = [...rest, ...messages.map((row) => ({ ...row, channel, deleted: false }))];
+}
+
+function trimDemoChat() {
+  for (const channel of CHAT_CHANNELS) {
+    const rows = model.chatMessages.filter((row) => row.channel === channel);
+    if (rows.length <= 500) continue;
+    const drop = new Set(rows.slice(0, rows.length - 500).map((row) => row.id));
+    model.chatMessages = model.chatMessages.filter((row) => !drop.has(row.id));
+  }
+}
+
+function demoChatProblem(channel) {
+  if (channel === "realm" && !model.kingdom) return "Raise a banner before you speak in a realm.";
+  if (channel === "alliance" && !model.kingdom?.allianceId) return "You are not in an alliance.";
+  const muted = (model.chatMutes || []).some((row) => {
+    const name = String(row.username || "").toLowerCase();
+    const until = typeof row.until === "number" ? row.until : Date.parse(row.until);
+    return (name === "you" || name === "local ruler") && until > Date.now();
+  });
+  if (muted) return "You are muted.";
+  return chatRateError(model.chatMessages, "local", Date.now());
+}
+
+function recentDemoChat() {
+  return model.chatMessages.filter((row) => !row.deleted).slice(-40).reverse();
+}
+
+function chatSignature() {
+  return (model.chatMessages || []).map((row) => `${row.channel}:${row.id}:${row.deleted ? 1 : 0}`).join(",");
+}
+
+async function refreshOpenChat() {
+  if (model.mode !== "online" || !model.chatLive) return;
+  const before = chatSignature();
+  for (const channel of CHAT_CHANNELS) {
+    const res = await chatHistoryOnline(channel, null);
+    if (!res.ok) {
+      if (res.missing) model.chatLive = false;
+      return;
+    }
+    replaceChat(channel, res.messages);
+    model.chatLocked[channel] = res.locked || "";
+  }
+  if (chatSignature() !== before) renderChat();
+}
+
+async function loadChatAdmin() {
+  if (model.mode === "demo") {
+    model.chatAdmin = recentDemoChat();
+    return;
+  }
+  if (!model.chatLive) return;
+  const res = await adminChatRecentOnline();
+  if (!res.ok) return;
+  model.chatAdmin = res.messages;
+  model.chatMutes = res.mutes;
+}
+
+async function probeChat() {
+  if (model.mode === "demo") {
+    model.chatLive = true;
+    return;
+  }
+  const res = await chatHistoryOnline("global", null);
+  if (!res.ok) {
+    model.chatLive = false;
+    return;
+  }
+  model.chatLive = true;
+  replaceChat("global", res.messages);
+  await refreshOpenChat();
+  listenChat();
+}
+
+let chatPoll = 0;
+let chatSub = null;
+
+function startChatPoll() {
+  if (chatPoll) return;
+  chatPoll = setInterval(() => {
+    if (!model.chatLive || model.chatRealtime) return;
+    refreshOpenChat();
+  }, 5000);
+}
+
+function listenChat() {
+  const db = accountClient();
+  if (!db || chatSub) {
+    startChatPoll();
+    return;
+  }
+  chatSub = db.channel("cc-chat-messages")
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "cc_chat_messages" }, () => {
+      refreshOpenChat();
+    })
+    .subscribe((status) => {
+      if (status === "SUBSCRIBED") {
+        model.chatRealtime = true;
+        if (chatPoll) {
+          clearInterval(chatPoll);
+          chatPoll = 0;
+        }
+        return;
+      }
+      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+        model.chatRealtime = false;
+        startChatPoll();
+      }
+    });
+  setTimeout(() => {
+    if (!model.chatRealtime) startChatPoll();
+  }, 8000);
+}
+
+function renderChat() {
+  const focused = document.activeElement?.id === "chat-body";
+  const caret = focused ? document.activeElement.selectionStart : null;
+  renderApp();
+  if (!focused) return;
+  const input = document.getElementById("chat-body");
+  if (!input) return;
+  input.focus();
+  const pos = caret ?? input.value.length;
+  input.setSelectionRange(pos, pos);
+}
+
 async function boot() {
   renderApp();
   const session = await within(currentSession(), 2500);
@@ -1026,6 +1343,7 @@ async function boot() {
   note("");
   if (opened.kingdom) await loadBoard();
   await loadSeasons();
+  await probeChat();
   renderApp();
 }
 

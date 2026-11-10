@@ -13,6 +13,7 @@ import {
 } from "./rules.js";
 import { buildSeconds, crewStatus, describe, landTraits, quoteExplore, quoteTrain, roster, unitUnlocked } from "./engine.js";
 import { ATTACK_TYPES, battleBrief, isProtected, tagged } from "./combat.js";
+import { unreadCount } from "./chat.js";
 import { musicState, setVolume } from "./music.js";
 
 let lastKey = "";
@@ -20,12 +21,24 @@ let lastKey = "";
 export function render(root, model, act) {
   const key = `${model.screen}:${model.tab}:${model.mode}`;
   const y = key === lastKey ? window.scrollY : 0;
+  const chatFocus = document.activeElement?.id === "chat-body";
+  const caret = chatFocus ? document.activeElement.selectionStart : null;
   lastKey = key;
   root.replaceChildren(view(model, act));
   window.scrollTo(0, y);
   if (model.scrollOrders) {
     model.scrollOrders = false;
     document.getElementById("attack-form")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  const log = document.querySelector(".chat-log");
+  if (log && model.chatStick !== false) log.scrollTop = log.scrollHeight;
+  if (chatFocus) {
+    const input = document.getElementById("chat-body");
+    if (input) {
+      input.focus();
+      const pos = caret ?? input.value.length;
+      input.setSelectionRange(pos, pos);
+    }
   }
 }
 
@@ -130,6 +143,7 @@ function gate(model, act) {
     { class: "gate" },
     mast("Rule one castle inside a shared realm. Networth is the crown.", act, model.season),
     model.notice ? banner(model) : null,
+    chatDock(model, act),
     el(
       "div",
       { class: "gate-grid" },
@@ -184,6 +198,7 @@ function found(model, act) {
     { class: "gate" },
     mast(model.mode === "online" ? `Signed in as ${model.player?.username || "a ruler"}.` : "This banner stays on this device.", act, model.season),
     model.notice ? banner(model) : null,
+    chatDock(model, act),
     el(
       "form",
       {
@@ -253,6 +268,7 @@ function play(model, act) {
       bottomNav(model, act),
       model.battleSheet ? battleSheet(model, act) : null,
       model.wipeOpen ? wipeSheet(model, act) : null,
+      chatDock(model, act),
     ),
   );
 }
@@ -769,6 +785,7 @@ function stewardPage(model, act) {
         )))
         : el("p", { class: "muted", text: "No steward actions yet." }),
     ),
+    chatSteward(model, act),
   );
 }
 
@@ -828,6 +845,9 @@ function logLine(line) {
   if (action === "ban") return `Banned ${label}. ${line.note || ""}`.trim();
   if (action === "unban") return `Lifted the ban on ${label}.`;
   if (action === "wipe") return `Season wipe. ${label}. ${line.note || ""}`.trim();
+  if (action === "chat_delete") return `Removed a message. ${line.note || ""}`.trim();
+  if (action === "chat_mute") return `Muted ${label}. ${line.note || ""}`.trim();
+  if (action === "chat_unmute") return `Unmuted ${label}.`;
   return `${action} ${label}`;
 }
 
@@ -982,6 +1002,153 @@ function banLock(model) {
 
 function banner(model) {
   return el("div", { class: `notice ${model.tone || "info"}`, role: "status", text: model.notice });
+}
+
+function chatRows(model, channel) {
+  return (model.chatMessages || []).filter((row) => row.channel === channel && !row.deleted);
+}
+
+function chatStamp(at) {
+  const t = typeof at === "number" ? at : Date.parse(at);
+  if (!Number.isFinite(t)) return "";
+  return new Date(t).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
+function chatDock(model, act) {
+  if (model.screen === "boot") return null;
+  const open = Boolean(model.chatOpen);
+  const unread = ["global", "realm", "alliance"].reduce((sum, channel) => {
+    if (open && model.chatChannel === channel) return sum;
+    return sum + unreadCount(chatRows(model, channel), model.chatSeen?.[channel]);
+  }, 0);
+  return el(
+    "div",
+    { class: `chat-dock${open ? " open" : ""}` },
+    el("button", { class: "btn wood chat-toggle", type: "button", onclick: () => act.toggleChat() },
+      el("span", { text: "Chat" }),
+      unread ? el("i", { class: "chat-badge", text: unread > 9 ? "9+" : String(unread) }) : null,
+    ),
+    open ? chatPanel(model, act) : null,
+  );
+}
+
+function chatPanel(model, act) {
+  if (model.chatLive === false) {
+    return el("section", { class: "panel chat-panel" },
+      el("p", { text: "The speaking-hall is not on the server ledger yet." }),
+    );
+  }
+  const channel = model.chatChannel || "global";
+  const rows = chatRows(model, channel);
+  const locked = model.chatLocked?.[channel] || "";
+  return el(
+    "section",
+    { class: "panel chat-panel" },
+    el("div", { class: "chat-tabs" }, ["global", "realm", "alliance"].map((id) => {
+      const waiting = unreadCount(chatRows(model, id), id === channel ? rows.at(-1)?.id : model.chatSeen?.[id]);
+      return el("button", {
+        type: "button",
+        class: id === channel ? "on" : "",
+        onclick: () => act.chatTab(id),
+      },
+        el("span", { text: id === "global" ? "Global" : id === "realm" ? "Realm" : "Alliance" }),
+        waiting ? el("i", { class: "chat-badge", text: waiting > 9 ? "9+" : String(waiting) }) : null,
+      );
+    })),
+    rows.length >= 100
+      ? el("button", { class: "btn ghost", type: "button", text: "Earlier", onclick: () => act.chatEarlier() })
+      : null,
+    el("div", {
+      class: "chat-log",
+      onscroll: (event) => {
+        const node = event.currentTarget;
+        model.chatStick = node.scrollHeight - node.scrollTop - node.clientHeight < 48;
+      },
+    },
+      rows.length
+        ? rows.map((row) => el("article", { class: "chat-line" },
+          el("p", { class: "chat-meta" },
+            el("time", { text: chatStamp(row.createdAt) }),
+            el("strong", { text: tagged(row.kingdom, row.tag) }),
+            row.admin ? el("span", { class: "chip", text: "Steward" }) : null,
+          ),
+          el("p", { text: row.body }),
+        ))
+        : el("p", { class: "muted", text: locked || "The hall is quiet." }),
+    ),
+    locked
+      ? el("p", { class: "lock-note", text: locked })
+      : el("form", {
+        class: "chat-compose",
+        onsubmit: (event) => {
+          event.preventDefault();
+          const body = new FormData(event.currentTarget).get("body");
+          act.chatSend(body);
+        },
+      },
+        el("input", {
+          id: "chat-body",
+          name: "body",
+          maxlength: "300",
+          placeholder: "Speak to the hall",
+          value: model.chatDraft || "",
+          oninput: (event) => act.chatDraft(event.target.value),
+          onkeydown: (event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              act.chatSend(event.currentTarget.value);
+            }
+          },
+        }),
+        el("button", { class: "btn primary", type: "submit", text: "Send" }),
+      ),
+  );
+}
+
+function chatSteward(model, act) {
+  if (model.mode === "online" && model.chatLive === false) {
+    return el("section", { class: "panel" },
+      el("h3", { text: "Speaking-hall" }),
+      el("p", { class: "lock-note", text: "Chat is not on the server ledger yet." }),
+    );
+  }
+  const messages = model.chatAdmin?.length ? model.chatAdmin : (model.chatMessages || []).filter((row) => !row.deleted).slice(-40).reverse();
+  const mutes = (model.chatMutes || []).filter((row) => {
+    const until = typeof row.until === "number" ? row.until : Date.parse(row.until);
+    return until > Date.now();
+  });
+  return el(
+    "section",
+    { class: "panel" },
+    el("h3", { text: "Speaking-hall" }),
+    messages.length
+      ? el("div", { class: "chat-admin" }, messages.map((row) => el("article", { class: "chat-line" },
+        el("p", { class: "chat-meta" },
+          el("time", { text: chatStamp(row.createdAt) }),
+          el("strong", { text: `${row.channel || ""} · ${tagged(row.kingdom, row.tag)}` }),
+        ),
+        el("p", { text: row.body }),
+        el("button", { class: "btn ghost", type: "button", text: "Delete", onclick: () => act.chatDelete(row.id) }),
+      )))
+      : el("p", { class: "muted", text: "No recent messages." }),
+    el("form", {
+      class: "row",
+      onsubmit: (event) => {
+        event.preventDefault();
+        const data = new FormData(event.currentTarget);
+        act.chatMute(data.get("who"), data.get("minutes"), data.get("why"));
+      },
+    },
+      el("input", { name: "who", placeholder: "Username", maxlength: "24" }),
+      el("input", { name: "minutes", type: "number", min: "1", max: "10080", value: "30" }),
+      el("input", { name: "why", placeholder: "Reason", maxlength: "200" }),
+      el("button", { class: "btn danger", type: "submit", text: "Mute" }),
+    ),
+    mutes.map((row) => el("div", { class: "row" },
+      el("span", { text: `${row.username} until ${chatStamp(row.until)}. ${row.reason || ""}` }),
+      el("button", { class: "btn ghost", type: "button", text: "Unmute", onclick: () => act.chatUnmute(row.username) }),
+    )),
+  );
 }
 
 function seasonFlag(season) {

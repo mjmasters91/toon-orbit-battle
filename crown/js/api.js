@@ -171,6 +171,80 @@ export async function seasonsOnline() {
   return rpc("cc_seasons_view");
 }
 
+function mapChatMessage(row, channel) {
+  return {
+    id: Number(row.id),
+    body: row.body || "",
+    createdAt: Date.parse(row.created_at) || Date.now(),
+    kingdom: row.kingdom || "A departed crown",
+    tag: row.tag || "",
+    admin: Boolean(row.admin),
+    channel: row.channel || channel,
+    username: row.username || "",
+    playerKey: row.player_id || row.username || "",
+  };
+}
+
+export async function chatHistoryOnline(channel, beforeId = null) {
+  const res = await rpc("cc_chat_history", { p_channel: channel, p_before: beforeId });
+  if (!res.ok) return res;
+  return {
+    ok: true,
+    messages: (res.data?.messages || []).map((row) => mapChatMessage(row, channel)),
+    locked: res.data?.locked || "",
+  };
+}
+
+export async function chatSendOnline(channel, body) {
+  const res = await rpc("cc_chat_send", { p_channel: channel, p_body: body });
+  if (!res.ok) return res;
+  return {
+    ok: true,
+    messages: (res.data?.messages || []).map((row) => mapChatMessage(row, channel)),
+    locked: res.data?.locked || "",
+  };
+}
+
+export async function adminChatRecentOnline() {
+  const res = await rpc("cc_admin_chat_recent");
+  if (!res.ok) return res;
+  return {
+    ok: true,
+    messages: (res.data?.messages || []).map((row) => mapChatMessage(row, row.channel)),
+    mutes: res.data?.mutes || [],
+  };
+}
+
+export async function adminChatDeleteOnline(id) {
+  const res = await rpc("cc_admin_chat_delete", { p_message_id: id });
+  if (!res.ok) return res;
+  return {
+    ok: true,
+    messages: (res.data?.messages || []).map((row) => mapChatMessage(row, row.channel)),
+    mutes: res.data?.mutes || [],
+  };
+}
+
+export async function adminChatMuteOnline(player, minutes, reason) {
+  const res = await rpc("cc_admin_chat_mute", { p_player: player, p_minutes: minutes, p_reason: reason });
+  if (!res.ok) return res;
+  return {
+    ok: true,
+    messages: (res.data?.messages || []).map((row) => mapChatMessage(row, row.channel)),
+    mutes: res.data?.mutes || [],
+  };
+}
+
+export async function adminChatUnmuteOnline(player) {
+  const res = await rpc("cc_admin_chat_unmute", { p_player: player });
+  if (!res.ok) return res;
+  return {
+    ok: true,
+    messages: (res.data?.messages || []).map((row) => mapChatMessage(row, row.channel)),
+    mutes: res.data?.mutes || [],
+  };
+}
+
 export async function wipeSeasonOnline(confirmWord, name) {
   return rpc("cc_admin_wipe_season", { p_confirm: confirmWord, p_season_name: name || "" });
 }
