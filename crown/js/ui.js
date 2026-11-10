@@ -12,7 +12,7 @@ import {
   researchCost,
 } from "./rules.js";
 import { buildSeconds, crewStatus, describe, landTraits, quoteExplore, quoteTrain, roster, unitUnlocked } from "./engine.js";
-import { ATTACK_TYPES, isProtected, tagged } from "./combat.js";
+import { ATTACK_TYPES, battleBrief, isProtected, tagged } from "./combat.js";
 import { musicState, setVolume } from "./music.js";
 
 let lastKey = "";
@@ -251,6 +251,7 @@ function play(model, act) {
       model.kingdom ? resources(model.kingdom) : null,
       locked ? banLock(model) : page(model, act),
       bottomNav(model, act),
+      model.battleSheet ? battleSheet(model, act) : null,
     ),
   );
 }
@@ -952,14 +953,86 @@ function reportsPanel(model, act) {
         : null,
     ),
     reports.length
-      ? shown.map((report) => el(
-        "article",
-        { class: "report" },
-        el("strong", { text: tagged(report.you_attacked === false ? report.attacker : report.defender, report.you_attacked === false ? report.attacker_tag : report.defender_tag) }),
-        el("p", { text: report.text }),
-        report.scout ? el("p", { class: "cost", text: `Scout: about ${num(report.scout.land)} acres, ${num(report.scout.gold)} gold, ${num(report.scout.food)} food, defense ${num(report.scout.defense)}.` }) : null,
-      ))
+      ? shown.map((report) => reportCard(report, act))
       : el("p", { class: "muted", text: "No reports yet." }),
+  );
+}
+
+function reportCard(report, act) {
+  const brief = battleBrief(report);
+  if (!brief) {
+    const tag = report.you_attacked === false ? report.attacker_tag || report.attackerTag : report.defender_tag || report.defenderTag;
+    const name = report.you_attacked === false ? report.attacker : report.defender;
+    return el(
+      "article",
+      { class: "report" },
+      el("strong", { text: tagged(name, tag) }),
+      el("p", { text: report.text || "" }),
+      report.scout ? el("p", { class: "cost", text: `Scout: about ${num(report.scout.land)} acres, ${num(report.scout.gold)} gold, ${num(report.scout.food)} food, defense ${num(report.scout.defense)}.` }) : null,
+    );
+  }
+  return el(
+    "article",
+    { class: `report ${brief.victory ? "win" : "loss"}` },
+    battleBody(report),
+    el("button", { class: "btn ghost", type: "button", text: "Open the tally", onclick: () => act.openBattle(report) }),
+  );
+}
+
+function battleSheet(model, act) {
+  return el(
+    "div",
+    {
+      class: "battle-sheet",
+      role: "dialog",
+      "aria-modal": "true",
+      "aria-label": "Battle result",
+      onclick: (event) => {
+        if (event.target === event.currentTarget) act.closeBattle();
+      },
+    },
+    el(
+      "section",
+      { class: "panel battle-card" },
+      battleBody(model.battleSheet),
+      el("button", { class: "btn primary", type: "button", text: "Close", onclick: () => act.closeBattle() }),
+    ),
+  );
+}
+
+function battleBody(report) {
+  const brief = battleBrief(report);
+  if (!brief) return el("p", { text: report?.text || "" });
+  const raid = ATTACK_TYPES[brief.attackType]?.name || "Battle";
+  const heading = brief.youAttacked ? `${raid} of ${brief.foe}` : `${raid} by ${brief.foe}`;
+  return el(
+    "div",
+    { class: "tally" },
+    el("p", { class: `outcome ${brief.victory ? "win" : "loss"}`, text: brief.victory ? "Victory" : "Defeat" }),
+    el("h3", { text: heading }),
+    brief.text ? el("p", { text: brief.text }) : null,
+    el("div", { class: "casualty" },
+      el("strong", { text: brief.youAttacked ? "Gained" : (brief.victory ? "Held" : "Lost") }),
+      brief.gained.length
+        ? el("ul", {}, brief.gained.map((line) => el("li", { text: line })))
+        : el("p", { text: brief.youAttacked ? "Nothing was carried off." : (brief.victory ? "The walls held." : "Nothing was carried off.") }),
+      el("p", { text: `Morale ${brief.morale > 0 ? "+" : "−"}${Math.abs(brief.morale)}` }),
+    ),
+    lossBlock("Enemy dead", brief.enemyLoss),
+    lossBlock("Your losses", brief.yourLoss),
+    brief.returning ? lossBlock("Returning home", brief.returning) : null,
+  );
+}
+
+function lossBlock(title, group) {
+  if (!group) return null;
+  return el(
+    "div",
+    { class: "casualty" },
+    el("strong", { text: `${title} · ${num(group.total)}` }),
+    group.rows.length
+      ? el("ul", {}, group.rows.map((row) => el("li", { text: `${row.name} ${num(row.count)}` })))
+      : el("p", { text: "None." }),
   );
 }
 

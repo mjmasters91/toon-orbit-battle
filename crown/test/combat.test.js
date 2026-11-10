@@ -10,6 +10,7 @@ import {
   lossPercents,
   oddsBand,
   offenseOf,
+  battleBrief,
   resolveBattle,
   sizeScale,
   spyFails,
@@ -119,4 +120,55 @@ test("spies, travel, tags, and pact names", () => {
   assert.ok(validateAllianceName("The Iron Covenant").name);
   assert.equal(NPC_PACTS.length, 2);
   assert.ok(networth(player()) > 0);
+});
+
+test("a battle brief keeps the tally and still renders an old one-line report", () => {
+  const att = player();
+  const def = kingdomFromRow(NPC_TABLE.find((row) => row.name === "Mossfen"), NOW, { name: "The Amber March", seat: "Western vales" });
+  const sent = { militia: 36, footmen: 12, archers: 8, knights: 2 };
+  const result = resolveBattle({ attacker: att, defender: def, sent, type: "conquest", roll: 110, now: NOW });
+  const brief = battleBrief({
+    kind: "battle",
+    outcome: result.win ? "win" : "loss",
+    attackType: "conquest",
+    defender: def.name,
+    text: result.text,
+    spoils: result.spoils,
+    attLoss: result.attLoss,
+    defLoss: result.defLoss,
+    living: result.living,
+    youAttacked: true,
+  });
+  assert.equal(brief.victory, result.win);
+  assert.ok(brief.yourLoss.total > 0);
+  assert.ok(brief.enemyLoss.total > 0);
+  assert.equal(brief.yourLoss.total + brief.returning.total, 36 + 12 + 8 + 2);
+  if (result.win) {
+    assert.ok(brief.gained.some((line) => line.includes("acres")));
+    assert.equal(brief.morale, 3);
+  }
+  const held = battleBrief({
+    kind: "battle",
+    outcome: "win",
+    you_attacked: false,
+    attack_type: "plunder",
+    attacker: "Ashford Keep",
+    text: "Ashford Keep plundered 40 gold and 10 food.",
+    gold: 40,
+    food: 10,
+    def_loss: { militia: 4 },
+    att_loss: { footmen: 9 },
+  });
+  assert.equal(held.victory, false);
+  assert.equal(held.morale, -6);
+  assert.deepEqual(held.gained, ["40 gold", "10 food"]);
+  assert.equal(held.yourLoss.total, 4);
+  assert.equal(held.enemyLoss.total, 9);
+  assert.equal(held.returning, null);
+  const old = battleBrief({ outcome: "loss", kind: "battle", text: "Your host was thrown back.", defender: "Dun Mere" });
+  assert.equal(old.victory, false);
+  assert.equal(old.yourLoss, null);
+  assert.deepEqual(old.gained, []);
+  assert.equal(old.morale, -8);
+  assert.equal(battleBrief({ kind: "spy", outcome: "scouted", text: "A spy reports." }), null);
 });

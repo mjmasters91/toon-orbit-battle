@@ -47,6 +47,7 @@ import {
   settle,
 } from "./engine.js";
 import { BUILDING_ORDER, NPC_TABLE, TICK_SECONDS, UNIT_ORDER } from "./rules.js";
+import { battleBrief } from "./combat.js";
 import { buySpies, createPact, disbandPact, inviteKingdom, kickMember, leavePact, previewOdds, requestJoin, answerRequest, sendArmy, sendSpy, setOfficer, settleMarches, transferPact, warView } from "./war.js";
 import { armMusic, musicState, setMuted } from "./music.js";
 import { paintJobClocks, realmRowsFrom, render, tickLabel } from "./ui.js";
@@ -220,6 +221,15 @@ function worldFrom(save, kingdom) {
   };
 }
 
+function revealBattle(before, after) {
+  const seen = new Set((before || []).map((row) => String(row.id)));
+  const fresh = (after || []).find((row) => battleBrief(row) && !seen.has(String(row.id)));
+  if (!fresh) return;
+  model.battleSheet = fresh;
+  const brief = battleBrief(fresh);
+  note(brief.victory ? `Victory against ${brief.foe}.` : `Defeat at the hands of ${brief.foe}.`, brief.victory ? "info" : "bad");
+}
+
 function applyWorld(world) {
   model.kingdom = world.kingdom;
   model.npcs = world.npcs;
@@ -233,6 +243,7 @@ function applyWorld(world) {
 
 function enterDemo(save, caughtUp) {
   const result = caughtUp || settle(save.kingdom, Date.now(), { maxTicks: 100000 });
+  const before = save.reports || [];
   const marched = settleMarches(worldFrom(save, result.state), Date.now());
   model.mode = "demo";
   model.player = { username: "Local ruler", admin: false };
@@ -244,6 +255,7 @@ function enterDemo(save, caughtUp) {
   model.screen = "play";
   model.tab = "throne";
   noteFrom(result.summary);
+  revealBattle(before, model.reports);
   persist();
   renderApp();
 }
@@ -546,10 +558,12 @@ const actions = {
   bell: () => {
     if (model.mode !== "demo" || !model.kingdom) return;
     const target = model.kingdom.lastTickAt + TICK_SECONDS * 1000;
+    const before = model.reports || [];
     const result = settle(model.kingdom, target, { maxTicks: 1 });
     const marched = settleMarches(worldFrom(model, result.state), target);
     applyWorld(marched);
     noteFrom(result.summary);
+    revealBattle(before, model.reports);
     syncDemoBoard();
     persist();
     renderApp();
@@ -663,6 +677,14 @@ const actions = {
   },
   toggleReports: () => {
     model.reportsOpen = !model.reportsOpen;
+    renderApp();
+  },
+  openBattle: (report) => {
+    model.battleSheet = report;
+    renderApp();
+  },
+  closeBattle: () => {
+    model.battleSheet = null;
     renderApp();
   },
   estimate: async (target, sent) => {
@@ -901,18 +923,33 @@ setInterval(() => {
   if (dueJob && !dueTick && model.jobHold && Date.now() < model.jobHold) return;
   if (dueJob) model.jobHold = Date.now() + 4000;
   if (model.mode === "demo") {
+    const before = model.reports || [];
     const result = settle(model.kingdom, Date.now(), { maxTicks: 5000 });
     const marched = settleMarches(worldFrom(model, result.state), Date.now());
-    const moved = result.summary.ticks || result.summary.finished.length || (marched.reports || []).length !== (model.reports || []).length;
+    const moved = result.summary.ticks || result.summary.finished.length || (marched.reports || []).length !== before.length;
     if (!moved) return;
     applyWorld(marched);
     noteFrom(result.summary);
+    revealBattle(before, model.reports);
     syncDemoBoard();
     persist();
     renderApp();
     return;
   }
-  online(() => refreshKingdom(), { quiet: false });
+  const before = model.reports || [];
+  const marching = (model.kingdom.marches || []).some((march) => march.kind === "army");
+  online(async () => {
+    const res = await refreshKingdom();
+    if (res.ok && marching) {
+      const reports = await reportsOnline();
+      if (reports.ok) {
+        const next = reports.reports || [];
+        revealBattle(before, next);
+        model.reports = next;
+      }
+    }
+    return res;
+  }, { quiet: false });
 }, 1000);
 
 document.addEventListener("pointerdown", () => armMusic(), { capture: true });

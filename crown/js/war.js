@@ -299,6 +299,8 @@ export function settleMarches(save, now) {
         spoils: result.spoils,
         attLoss: result.attLoss,
         defLoss: result.defLoss,
+        living: result.living,
+        youAttacked: true,
       };
       next.reports.unshift(report);
       note(next.kingdom, clock, `Your host reached ${defender.name}.`);

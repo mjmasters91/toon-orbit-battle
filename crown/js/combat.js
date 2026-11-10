@@ -275,6 +275,83 @@ function defenderText({ attacker, type, win, spoils }) {
   return `${attacker.name} razed ${n} of your buildings.`;
 }
 
+function asInt(value) {
+  const n = Math.floor(Number(value));
+  return Number.isFinite(n) ? n : 0;
+}
+
+function unitRows(bag) {
+  if (!bag || typeof bag !== "object") return null;
+  const rows = [];
+  let total = 0;
+  for (const id of UNIT_ORDER) {
+    const count = asInt(bag[id]);
+    total += count;
+    if (count > 0) rows.push({ id, name: UNITS[id]?.name || id, count });
+  }
+  return { rows, total };
+}
+
+function buildingRows(bag, suffix) {
+  if (!bag || typeof bag !== "object") return [];
+  const rows = [];
+  for (const id of BUILDING_ORDER) {
+    const count = asInt(bag[id]);
+    if (count > 0) rows.push(`${BUILDINGS[id]?.name || id}${suffix} ×${count}`);
+  }
+  return rows;
+}
+
+/**
+ * One shape for a stored battle, whether it came from the demo or cc_reports.
+ * Reports written before the detail fields still return a banner and the old sentence.
+ */
+export function battleBrief(report) {
+  if (!report || report.kind === "spy" || report.outcome === "caught" || report.outcome === "scouted") return null;
+  const outcome = report.outcome;
+  if (outcome !== "win" && outcome !== "loss" && report.kind !== "battle") return null;
+  const youAttacked = report.you_attacked !== false && report.youAttacked !== false;
+  const attackerWon = outcome === "win";
+  const victory = youAttacked ? attackerWon : !attackerWon;
+  const attackType = report.attack_type || report.attackType || "";
+  const spoils = {
+    acres: asInt(report.spoils?.acres ?? report.acres),
+    gold: asInt(report.spoils?.gold ?? report.gold),
+    food: asInt(report.spoils?.food ?? report.food),
+    buildings: report.spoils?.buildings || report.buildings || null,
+    razed: report.spoils?.razed || report.razed || null,
+  };
+  const gained = [];
+  if (!attackType || attackType === "conquest") {
+    if (spoils.acres > 0) gained.push(`${spoils.acres} acres`);
+    gained.push(...buildingRows(spoils.buildings, ""));
+  }
+  if (!attackType || attackType === "plunder") {
+    if (spoils.gold > 0) gained.push(`${spoils.gold} gold`);
+    if (spoils.food > 0) gained.push(`${spoils.food} food`);
+  }
+  if (!attackType || attackType === "razing") gained.push(...buildingRows(spoils.razed, " destroyed"));
+  const morale = youAttacked ? (attackerWon ? 3 : -8) : (attackerWon ? -6 : 2);
+  const yourLoss = unitRows(youAttacked ? (report.att_loss || report.attLoss) : (report.def_loss || report.defLoss));
+  const enemyLoss = unitRows(youAttacked ? (report.def_loss || report.defLoss) : (report.att_loss || report.attLoss));
+  const returning = youAttacked ? unitRows(report.living) : null;
+  const foe = youAttacked ? report.defender : report.attacker;
+  return {
+    victory,
+    youAttacked,
+    attackType,
+    foe: foe || "the enemy",
+    text: report.text || "",
+    gained,
+    took: youAttacked ? victory : !victory,
+    morale,
+    yourLoss,
+    enemyLoss,
+    returning,
+    detailed: Boolean(yourLoss || enemyLoss || returning || gained.length || spoils.buildings || spoils.razed),
+  };
+}
+
 export function oddsBand(offense, defense) {
   if (defense <= 0) return "favored";
   const ratio = Math.floor(offense * 100 / defense);

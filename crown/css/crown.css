@@ -522,9 +522,39 @@ input[type="checkbox"] {
 }
 .reports h3 { margin: 0; }
 .reports .btn { padding: 6px 12px; min-height: 36px; }
-.report { padding: 6px 0; border-top: 1px solid var(--line); }
+.report { padding: 10px 0; border-top: 1px solid var(--line); }
 .report strong { font-family: var(--display); font-size: 0.95rem; }
 .report p { margin: 2px 0 0; line-height: 1.35; }
+.report .btn { margin-top: 8px; }
+.outcome {
+  display: inline-block;
+  margin: 0 0 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-family: var(--display);
+  font-size: 0.78rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.outcome.win { background: #e5efd4; color: #3d5a22; }
+.outcome.loss { background: #f6d5d2; color: var(--crimson-deep); }
+.casualty { margin: 8px 0 0; }
+.casualty ul { margin: 4px 0 0; padding-left: 1.15rem; }
+.casualty li { line-height: 1.35; }
+.battle-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(44, 26, 18, 0.48);
+}
+.battle-card {
+  width: min(520px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+}
 @media (max-width: 640px) {
   .music-vol { width: 72px; }
   .head-tools { width: 100%; }
