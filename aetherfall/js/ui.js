@@ -1,3 +1,4 @@
+import { adminBan, adminGrant, adminLog, adminSearch, adminUnban, currentSession, levelOnline, logInAccount, logOutAccount, openSession, partyOnline, signUpAccount, summonOnline } from "./account.js";
 import { blip, powerup, rarityFanfare, resume, setMuted, summonCharge } from "./audio.js";
 import { AWAKEN_COST, COST_1, COST_10, MAX_AWAKEN, MAX_LEVEL, PITY_AT } from "./balance.js";
 import { playSummon } from "./fx.js";
@@ -17,6 +18,12 @@ const state = {
   drag: null,
   results: null,
   fxStop: null,
+  mode: "offline",
+  username: "",
+  admin: false,
+  preview: new URLSearchParams(globalThis.location?.search || "").get("preview"),
+  banReason: "",
+  accountNote: "",
 };
 
 let toastTimer = 0;
@@ -55,10 +62,13 @@ function go(name, extra) {
 }
 
 function current() {
+  if (state.preview === "login") return { name: "login" };
+  if (state.preview === "hub") return { name: "home" };
+  if (state.preview === "admin") return { name: "admin" };
   const hash = decodeURIComponent((location.hash || "").replace(/^#\/?/, ""));
   if (!hash || hash === "title") return { name: "title" };
   if (hash.startsWith("unit/")) return { name: "detail", id: hash.slice(5) };
-  if (hash === "home" || hash === "summon" || hash === "units" || hash === "party") return { name: hash };
+  if (["home", "summon", "units", "party", "login", "signup", "admin", "banned"].includes(hash)) return { name: hash };
   return { name: "home" };
 }
 
@@ -152,15 +162,23 @@ function pill(kind, value) {
 function chrome() {
   const el = document.getElementById("chrome");
   const route = current();
-  if (route.name === "title") {
+  if (route.name === "title" || route.name === "login" || route.name === "signup" || route.name === "banned") {
     el.hidden = true;
     el.replaceChildren();
     return;
   }
   el.hidden = false;
+  const who = state.mode === "online" || state.preview
+    ? h("div", { class: "who" },
+      h("span", { class: "name", text: state.username || "Player" }),
+      state.admin ? h("button", { class: "logout", type: "button", id: "open-admin", text: "Admin", onclick: () => go("admin") }) : null,
+      h("button", { class: "logout", type: "button", id: "logout", text: "Logout", onclick: () => void logout() }),
+    )
+    : h("span", { class: "offline-tag", text: "Offline" });
   el.replaceChildren(h("header", { class: "topbar" },
     h("button", { class: "icon-btn", type: "button", "aria-label": "Home", onclick: () => go("home") }, icon("home", 2)),
     h("div", { class: "pills" }, pill("gem", state.save.gems), pill("ticket", state.save.tickets), pill("gold", state.save.gold)),
+    who,
     h("button", {
       class: "icon-btn",
       type: "button",
@@ -174,7 +192,7 @@ function chrome() {
 function nav() {
   const el = document.getElementById("nav");
   const route = current();
-  if (route.name === "title") {
+  if (route.name === "title" || route.name === "login" || route.name === "signup" || route.name === "banned") {
     el.hidden = true;
     return;
   }
@@ -189,21 +207,22 @@ function nav() {
 }
 
 function viewTitle() {
+  const online = state.mode === "online" && state.username;
   return h("section", { class: "title-screen" },
     h("canvas", { class: "pixel logo", "data-logo": "1", role: "img", "aria-label": "Aetherfall" }),
     h("h1", { class: "sr-only", text: "Aetherfall" }),
     h("p", { class: "tag", text: "Veinwalkers of the shattered sky" }),
-    h("button", {
+    online ? h("button", {
       class: "btn xl",
       id: "start",
       type: "button",
-      text: "Start",
-      onclick: () => {
-        writeSave(state.save);
-        blip();
-        go("home");
-      },
-    }),
+      text: `Continue as ${state.username}`,
+      onclick: () => { blip(); go("home"); },
+    }) : null,
+    h("button", { class: "btn xl", id: "login-open", type: "button", text: "Log in", onclick: () => go("login") }),
+    h("button", { class: "btn ghost", id: "signup-open", type: "button", text: "Sign up", onclick: () => go("signup") }),
+    h("button", { class: "btn ghost", id: "play-offline", type: "button", text: "Play offline on this device", onclick: playOffline }),
+    state.accountNote ? h("p", { class: "account-note", text: state.accountNote }) : null,
     h("button", { class: "btn ghost", type: "button", text: "Settings", onclick: openSettings }),
     h("p", { class: "fine", text: "A party of four. A gate that still answers." }),
   );
@@ -240,6 +259,8 @@ function viewHome() {
   const members = state.save.party.map(memberById);
   const scale = partyScale();
   return h("section", { class: "screen" },
+    previewNote(),
+    state.mode === "offline" && !state.preview ? h("p", { class: "account-note", text: "Offline on this device. Log in to keep gems and tickets on the server." }) : null,
     h("p", { class: "eyebrow", text: "Gatehold" }),
     h("h2", { text: "The cracked terrace" }),
     h("p", { class: "lede", text: "Four places in the wind. The gate hums behind the stones." }),
@@ -336,8 +357,43 @@ function askPull(count) {
   });
 }
 
-function doPull(count) {
+function rememberMute() {
+  try {
+    localStorage.setItem("aetherfall_prefs_v1", JSON.stringify({ muted: Boolean(state.save?.muted) }));
+  } catch { /* ignore */ }
+  if (state.mode !== "online") writeSave(state.save);
+}
+
+function applyRemote(save) {
+  save.muted = state.save?.muted ?? false;
+  state.save = save;
+  state.username = save.username || state.username;
+  state.admin = Boolean(save.admin);
+}
+
+function noteAccountProblem(res) {
+  if (res?.banned) {
+    state.banReason = res.reason || "No reason was recorded.";
+    go("banned");
+    return true;
+  }
+  return false;
+}
+
+async function doPull(count) {
   const banner = BANNERS.find((row) => row.id === state.bannerId);
+  if (state.mode === "online") {
+    const res = await summonOnline(banner.id, count);
+    if (!res.ok) {
+      if (noteAccountProblem(res)) return;
+      toast(res.error || "The gate did not answer.");
+      return;
+    }
+    applyRemote(res.save);
+    state.results = { banner, presentation: res.presentation };
+    playFx(res.presentation);
+    return;
+  }
   const payment = payForPull(state.save, count);
   if (!payment.ok) {
     toast("Not enough gems.");
@@ -544,7 +600,19 @@ function viewDetail(id) {
   );
 }
 
-function levelUp(id) {
+async function levelUp(id) {
+  if (state.mode === "online") {
+    const res = await levelOnline(id);
+    if (!res.ok) {
+      if (noteAccountProblem(res)) return;
+      toast(res.error || "Could not level up.");
+      return;
+    }
+    applyRemote(res.save);
+    powerup();
+    draw();
+    return;
+  }
   const result = tryLevelUp(state.save.units[id], state.save.gold);
   if (!result.ok) {
     toast(result.reason === "max" ? "Already at the level cap." : "Not enough gold.");
@@ -575,9 +643,7 @@ function place(id, slot) {
     state.save.leader = fallback === -1 ? 0 : fallback;
   }
   state.partyPick = null;
-  writeSave(state.save);
-  blip();
-  draw();
+  commitParty();
 }
 
 function clearSlot(index) {
@@ -588,17 +654,33 @@ function clearSlot(index) {
     const fallback = party.findIndex(Boolean);
     state.save.leader = fallback === -1 ? 0 : fallback;
   }
-  writeSave(state.save);
-  blip();
-  draw();
+  commitParty();
 }
 
 function setLeader(index) {
   if (!state.save.party[index]) return;
   state.save.leader = index;
-  writeSave(state.save);
+  commitParty();
+}
+
+function commitParty() {
   blip();
+  if (state.mode !== "online") {
+    writeSave(state.save);
+    draw();
+    return;
+  }
+  const party = state.save.party.slice();
+  const leader = state.save.leader;
   draw();
+  void partyOnline(party, leader).then((res) => {
+    if (!res.ok) {
+      if (noteAccountProblem(res)) return;
+      toast(res.error || "Could not save the party.");
+      return;
+    }
+    applyRemote(res.save);
+  });
 }
 
 function hideGhost() {
@@ -736,8 +818,249 @@ function viewParty() {
   );
 }
 
+function previewNote() {
+  if (!state.preview) return null;
+  return h("p", { class: "preview-banner", text: "Screenshot preview. Not a live account." });
+}
+
+function playOffline() {
+  state.mode = "offline";
+  state.username = "";
+  state.admin = false;
+  state.preview = null;
+  state.save = loadSave();
+  setMuted(state.save.muted);
+  blip();
+  go("home");
+}
+
+async function logout() {
+  if (state.preview) {
+    state.preview = null;
+    history.replaceState(null, "", location.pathname);
+    go("title");
+    return;
+  }
+  await logOutAccount();
+  state.mode = "offline";
+  state.username = "";
+  state.admin = false;
+  state.banReason = "";
+  state.save = loadSave();
+  setMuted(state.save.muted);
+  go("title");
+}
+
+function enterOnline(res) {
+  if (!res.ok) {
+    if (res.banned) {
+      state.banReason = res.reason || "No reason was recorded.";
+      state.mode = "online";
+      go("banned");
+      return;
+    }
+    if (res.missing) {
+      state.accountNote = "The account tables are not on this server yet. You can play offline until that SQL is applied.";
+      state.mode = "offline";
+      go("title");
+      return;
+    }
+    return res.error || "Could not open the account.";
+  }
+  state.mode = "online";
+  state.accountNote = "";
+  applyRemote(res.save);
+  go("home");
+  return "";
+}
+
+function viewAuth(kind) {
+  const signup = kind === "signup";
+  return h("section", { class: "screen auth-screen" },
+    previewNote(),
+    h("button", { class: "btn ghost back", type: "button", text: "Title", onclick: () => go("title") }),
+    h("h2", { text: signup ? "Sign up" : "Log in" }),
+    h("p", { class: "lede", text: "Same username and password as Toon Orbit Battle, or a new one." }),
+    h("form", {
+      class: "auth-form frame",
+      id: signup ? "signup-form" : "login-form",
+      onsubmit: (event) => {
+        event.preventDefault();
+        void submitAuth(signup);
+      },
+    },
+      h("label", { text: "Username" }, h("input", { id: "auth-name", name: "username", autocomplete: "username", maxlength: "16", required: true })),
+      h("label", { text: "Password" }, h("input", {
+        id: "auth-pass",
+        name: "password",
+        type: "password",
+        autocomplete: signup ? "new-password" : "current-password",
+        minlength: "6",
+        required: true,
+      })),
+      h("p", { class: "form-error", id: "auth-error" }),
+      h("button", { class: "btn", type: "submit", id: signup ? "signup-submit" : "login-submit", text: signup ? "Create account" : "Log in" }),
+    ),
+  );
+}
+
+async function submitAuth(signup) {
+  const name = document.getElementById("auth-name")?.value || "";
+  const password = document.getElementById("auth-pass")?.value || "";
+  const errorEl = document.getElementById("auth-error");
+  const res = signup ? await signUpAccount(name, password) : await logInAccount(name, password);
+  const message = enterOnline(res);
+  if (message && errorEl) errorEl.textContent = message;
+}
+
+function viewBanned() {
+  return h("section", { class: "screen ban-screen" },
+    h("h2", { text: "This account is banned" }),
+    h("p", { text: state.banReason || "No reason was recorded." }),
+    h("button", { class: "btn", id: "logout", type: "button", text: "Logout", onclick: () => void logout() }),
+  );
+}
+
+const PREVIEW_PLAYERS = [
+  { username: "gatekeeper", gems: 4500, gold: 8000, tickets: 1, banned: false, ban_reason: "" },
+  { username: "moss.thief", gems: 120, gold: 400, tickets: 0, banned: true, ban_reason: "Duplicated tickets" },
+  { username: "brine.calder", gems: 900, gold: 2400, tickets: 3, banned: false, ban_reason: "" },
+];
+
+function viewAdmin() {
+  if (state.preview === "admin") return adminLayout(PREVIEW_PLAYERS, [{ action: "grant", username: "gatekeeper", gems: 300, gold: 0, tickets: 1, note: "welcome back" }]);
+  if (state.mode !== "online" || !state.admin) {
+    return h("section", { class: "screen" },
+      h("h2", { text: "Admins only" }),
+      h("p", { class: "lede", text: state.accountNote || "Log in with an admin account after the account tables are applied." }),
+      h("button", { class: "btn", type: "button", text: "Title", onclick: () => go("title") }),
+    );
+  }
+  return adminLayout([], []);
+}
+
+function adminLayout(players, log) {
+  return h("section", { class: "screen admin-screen" },
+    previewNote(),
+    h("p", { class: "eyebrow", text: "Gatehold office" }),
+    h("h2", { text: "Players" }),
+    h("form", {
+      class: "auth-form",
+      id: "admin-search-form",
+      onsubmit: (event) => {
+        event.preventDefault();
+        void loadAdmin(document.getElementById("admin-query")?.value || "");
+      },
+    },
+      h("label", { text: "Search username" }, h("input", { id: "admin-query", value: state.adminQuery || "" })),
+      h("button", { class: "btn", type: "submit", text: "Search" }),
+    ),
+    h("div", { id: "admin-list", class: "admin-list" }, ...players.map(adminCard)),
+    h("h3", { text: "Recent actions" }),
+    h("ul", { id: "admin-log", class: "admin-log" }, ...log.map((entry) => h("li", { text: adminLogLine(entry) }))),
+  );
+}
+
+function adminLogLine(entry) {
+  if (entry.action === "ban") return `Ban ${entry.username}: ${entry.note || ""}`;
+  if (entry.action === "unban") return `Unban ${entry.username}`;
+  return `Grant ${entry.username}: ${entry.tickets || 0} tickets, ${entry.gems || 0} gems, ${entry.gold || 0} gold`;
+}
+
+function adminCard(player) {
+  return h("article", { class: "admin-card frame" },
+    h("h3", { text: player.username }),
+    h("p", { text: `${num(player.gems)} gems · ${num(player.tickets)} tickets · ${num(player.gold)} gold` }),
+    h("p", { class: player.banned ? "form-error" : "fine", text: player.banned ? `Banned: ${player.ban_reason || "No reason"}` : "Not banned" }),
+    h("form", {
+      class: "grant-form",
+      onsubmit: (event) => {
+        event.preventDefault();
+        if (state.preview) { toast("Preview only. Not a live account."); return; }
+        const data = new FormData(event.target);
+        void grantPlayer(player.username, data);
+      },
+    },
+      h("label", { text: "Tickets" }, h("input", { name: "tickets", type: "number", min: "0", value: "0" })),
+      h("label", { text: "Gems" }, h("input", { name: "gems", type: "number", min: "0", value: "0" })),
+      h("label", { text: "Gold" }, h("input", { name: "gold", type: "number", min: "0", value: "0" })),
+      h("label", { text: "Note" }, h("input", { name: "note", maxlength: "200" })),
+      h("button", { class: "btn", type: "submit", text: "Grant" }),
+    ),
+    h("form", {
+      class: "grant-form",
+      onsubmit: (event) => {
+        event.preventDefault();
+        if (state.preview) { toast("Preview only. Not a live account."); return; }
+        const reason = new FormData(event.target).get("reason");
+        void banPlayer(player.username, reason);
+      },
+    },
+      h("label", { text: "Ban reason" }, h("input", { name: "reason", maxlength: "200" })),
+      h("button", { class: "btn danger", type: "submit", text: "Ban" }),
+      player.banned ? h("button", { class: "btn ghost", type: "button", text: "Unban", onclick: () => void unbanPlayer(player.username) }) : null,
+    ),
+  );
+}
+
+async function loadAdmin(query) {
+  if (state.preview) return;
+  state.adminQuery = query;
+  const [found, log] = await Promise.all([adminSearch(query), adminLog()]);
+  const list = document.getElementById("admin-list");
+  const logEl = document.getElementById("admin-log");
+  if (!found.ok) {
+    if (noteAccountProblem(found)) return;
+    if (list) list.replaceChildren(h("p", { class: "form-error", text: found.error || "Could not load players." }));
+    return;
+  }
+  const players = found.data?.players || [];
+  if (list) list.replaceChildren(...(players.length ? players.map(adminCard) : [h("p", { class: "empty", text: "No players match." })]));
+  if (log.ok && logEl) logEl.replaceChildren(...(log.data?.entries || []).map((entry) => h("li", { text: adminLogLine(entry) })));
+}
+
+async function grantPlayer(username, data) {
+  const res = await adminGrant({
+    username,
+    tickets: Number(data.get("tickets") || 0),
+    gems: Number(data.get("gems") || 0),
+    gold: Number(data.get("gold") || 0),
+    note: String(data.get("note") || ""),
+  });
+  if (!res.ok) {
+    toast(res.error || "Could not grant.");
+    return;
+  }
+  toast(`Granted to ${username}.`);
+  await loadAdmin(state.adminQuery || "");
+}
+
+async function banPlayer(username, reason) {
+  const res = await adminBan(username, String(reason || ""));
+  if (!res.ok) {
+    toast(res.error || "Could not ban.");
+    return;
+  }
+  toast(`${username} is banned.`);
+  await loadAdmin(state.adminQuery || "");
+}
+
+async function unbanPlayer(username) {
+  const res = await adminUnban(username);
+  if (!res.ok) {
+    toast(res.error || "Could not unban.");
+    return;
+  }
+  toast(`${username} can play again.`);
+  await loadAdmin(state.adminQuery || "");
+}
+
 function viewFor(route) {
   if (route.name === "title") return viewTitle();
+  if (route.name === "login") return viewAuth("login");
+  if (route.name === "signup") return viewAuth("signup");
+  if (route.name === "admin") return viewAdmin();
+  if (route.name === "banned") return viewBanned();
   if (route.name === "home") return viewHome();
   if (route.name === "summon") return viewSummon();
   if (route.name === "units") return viewUnits();
@@ -758,6 +1081,7 @@ function draw(options = {}) {
   view.replaceChildren(viewFor(route));
   paintAll();
   if (options.scroll) window.scrollTo(0, 0);
+  if (route.name === "admin" && state.mode === "online" && state.admin && !state.preview) void loadAdmin(state.adminQuery || "");
 }
 
 function confirmDialog({ title, text, yes, onYes }) {
@@ -787,18 +1111,18 @@ function openSettings() {
         onclick: () => {
           state.save.muted = !state.save.muted;
           setMuted(state.save.muted);
-          writeSave(state.save);
+          rememberMute();
           if (!state.save.muted) blip();
           root.replaceChildren(sheet());
           chrome();
           paintAll();
         },
       }),
-      h("button", {
+      state.mode === "online" ? null : h("button", {
         class: "btn danger",
         id: "reset-save",
         type: "button",
-        text: "Wipe save",
+        text: "Wipe offline save",
         onclick: () => confirmDialog({
           title: "Wipe this save?",
           text: "Gems, the roster, the party, and pity on this device return to the first morning.",
@@ -813,16 +1137,46 @@ function openSettings() {
           },
         }),
       }),
-      h("p", { class: "fine", text: "This save stays in the browser. Nothing is sent anywhere." }),
+      h("p", { class: "fine", text: state.mode === "online" ? "Gems, tickets, and the roster for this account stay on the server." : "An offline save stays in this browser. Nothing is sent anywhere." }),
       h("button", { class: "btn ghost", type: "button", text: "Close", onclick: () => root.replaceChildren() }),
     ),
   );
   root.replaceChildren(sheet());
 }
 
-export function boot(root) {
+export async function boot(root) {
   state.save = loadSave();
+  try {
+    const prefs = JSON.parse(localStorage.getItem("aetherfall_prefs_v1") || "null");
+    if (prefs && typeof prefs.muted === "boolean") state.save.muted = prefs.muted;
+  } catch { /* ignore */ }
   setMuted(state.save.muted);
+  if (!state.preview) {
+    try {
+      const session = await currentSession();
+      if (session) {
+        const opened = await openSession();
+        if (opened.ok) {
+          state.mode = "online";
+          applyRemote(opened.save);
+        } else if (opened.banned) {
+          state.mode = "online";
+          state.banReason = opened.reason || "No reason was recorded.";
+          state.username = session.user?.user_metadata?.username || "";
+        } else if (opened.missing) {
+          state.accountNote = "The account tables are not on this server yet. You can play offline until that SQL is applied.";
+        } else {
+          state.accountNote = opened.error || "";
+        }
+      }
+    } catch {
+      state.accountNote = "Could not reach the account service.";
+    }
+  } else {
+    state.username = "gatekeeper";
+    state.admin = true;
+    state.mode = "preview";
+  }
   root.replaceChildren(
     h("div", { id: "chrome" }),
     h("main", { id: "view" }),
@@ -848,6 +1202,7 @@ export function boot(root) {
     state.frame = (state.frame + 1) % FRAME_COUNT;
     paintSprites();
   }, 140);
-  if (!location.hash) location.hash = "#/title";
+  if (!location.hash) location.hash = state.banReason ? "#/banned" : "#/title";
   draw({ scroll: true });
+  if (current().name === "admin" && state.mode === "online" && state.admin) void loadAdmin("");
 }

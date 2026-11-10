@@ -688,3 +688,36 @@ h3 { margin: 0; font-size: 0.92rem; }
   from { transform: translateY(8px); }
   to { transform: none; }
 }
+
+.who { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.who .name { max-width: 8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--gold); }
+.logout, .offline-tag {
+  min-height: 40px;
+  padding: 6px 8px;
+  background: transparent;
+  color: var(--line);
+  border: 2px solid var(--line);
+}
+.offline-tag { border: 0; color: var(--ticket); }
+.auth-form, .grant-form { display: grid; gap: 8px; padding: 12px; }
+.auth-form label, .grant-form label { display: grid; gap: 4px; text-align: left; }
+.auth-form input, .grant-form input, .admin-screen input {
+  min-height: 44px;
+  width: 100%;
+  background: #0c1428;
+  color: var(--ink);
+  border: 2px solid var(--line);
+  padding: 8px;
+  font: inherit;
+}
+.form-error { color: #ff8a8a; min-height: 1.2em; }
+.account-note, .preview-banner {
+  background: #3a2a12;
+  color: var(--ticket);
+  padding: 8px 10px;
+}
+.ban-screen { text-align: center; display: grid; gap: 12px; justify-items: center; }
+.admin-list { display: grid; gap: 10px; }
+.admin-card h3 { text-transform: none; }
+.admin-log { padding-left: 18px; }
+.auth-screen .btn.xl, .title-screen .btn { width: min(320px, 92vw); }
