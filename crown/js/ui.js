@@ -863,7 +863,6 @@ function warPage(model, act) {
   const state = model.kingdom;
   const targets = model.targets || [];
   const selected = targets.find((row) => row.name === model.drafts.target || String(row.id) === String(model.drafts.target));
-  const reports = model.reports || [];
   return el(
     "section",
     { class: "war-page" },
@@ -877,13 +876,7 @@ function warPage(model, act) {
         el("h3", { text: "Orders" }),
         el("p", { class: "muted", text: "Choose a house below. The order sheet stays at the top of the War Room." }),
       ),
-    el("section", { class: "panel" },
-      el("h3", { text: "On the march" }),
-      (state.marches || []).length
-        ? (state.marches || []).map((march) => marchCard(march, state))
-        : el("p", { class: "muted", text: "No hosts are away from the castle." }),
-      el("button", { class: "btn ghost", type: "button", text: "Buy a spy · 150 gold", onclick: () => act.buySpy(1) }),
-    ),
+    reportsPanel(model, act),
     el("form", {
       class: "panel row",
       onsubmit: (event) => {
@@ -905,17 +898,42 @@ function warPage(model, act) {
       el("span", { text: `${row.realm_name || row.realmName || ""} · ${num(row.networth)} networth · ${num(row.land)} acres${row.allied ? " · ally" : ""}${row.protected ? " · protected" : ""}${row.is_npc || row.npc ? " · house" : ""}` }),
     ))),
     el("section", { class: "panel" },
-      el("h3", { text: "Reports" }),
-      reports.length
-        ? reports.map((report) => el(
-          "article",
-          { class: "report" },
-          el("strong", { text: tagged(report.you_attacked === false ? report.attacker : report.defender, report.you_attacked === false ? report.attacker_tag : report.defender_tag) }),
-          el("p", { text: report.text }),
-          report.scout ? el("p", { class: "cost", text: `Scout: about ${num(report.scout.land)} acres, ${num(report.scout.gold)} gold, ${num(report.scout.food)} food, defense ${num(report.scout.defense)}.` }) : null,
-        ))
-        : el("p", { class: "muted", text: "No reports yet." }),
+      el("h3", { text: "On the march" }),
+      (state.marches || []).length
+        ? (state.marches || []).map((march) => marchCard(march, state))
+        : el("p", { class: "muted", text: "No hosts are away from the castle." }),
+      el("button", { class: "btn ghost", type: "button", text: "Buy a spy · 150 gold", onclick: () => act.buySpy(1) }),
     ),
+  );
+}
+
+function reportsPanel(model, act) {
+  const reports = model.reports || [];
+  const open = !!model.reportsOpen;
+  const shown = open ? reports : reports.slice(0, 5);
+  return el(
+    "section",
+    { class: "panel reports" },
+    el("div", { class: "job-top" },
+      el("h3", { text: "Reports" }),
+      reports.length > 5
+        ? el("button", {
+          class: "btn ghost",
+          type: "button",
+          text: open ? "Show less" : "Show more",
+          onclick: () => act.toggleReports(),
+        })
+        : null,
+    ),
+    reports.length
+      ? shown.map((report) => el(
+        "article",
+        { class: "report" },
+        el("strong", { text: tagged(report.you_attacked === false ? report.attacker : report.defender, report.you_attacked === false ? report.attacker_tag : report.defender_tag) }),
+        el("p", { text: report.text }),
+        report.scout ? el("p", { class: "cost", text: `Scout: about ${num(report.scout.land)} acres, ${num(report.scout.gold)} gold, ${num(report.scout.food)} food, defense ${num(report.scout.defense)}.` }) : null,
+      ))
+      : el("p", { class: "muted", text: "No reports yet." }),
   );
 }
 

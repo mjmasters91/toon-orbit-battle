@@ -643,6 +643,10 @@ const actions = {
     model.scrollOrders = true;
     renderApp();
   },
+  toggleReports: () => {
+    model.reportsOpen = !model.reportsOpen;
+    renderApp();
+  },
   estimate: async (target, sent) => {
     if (model.mode === "demo") {
       const preview = previewOdds(worldFrom(model, model.kingdom), target.name, sent);
