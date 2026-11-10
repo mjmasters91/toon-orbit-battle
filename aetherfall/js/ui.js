@@ -5,7 +5,7 @@ import { payForPull, pull, rateTable, resolvePull } from "./gacha.js";
 import { leaderBonus, levelCost, partyPower, sortRoster, tryLevelUp, unitPower, unitStats } from "./progress.js";
 import { paint } from "./pixel.js";
 import { loadSave, resetSave, writeSave } from "./save.js";
-import { paintIcon, paintUnit, renderBanner, renderLogo } from "./sprites.js";
+import { FRAME_COUNT, SPRITE_W, paintIcon, paintPortrait, paintUnit, renderBanner, renderLogo } from "./sprites.js";
 import { BANNERS, ELEMENT_NAME, ELEMENTS, ROLE_NAME, ROLES, UNITS, unitById } from "./units.js";
 
 const state = {
@@ -41,8 +41,10 @@ function num(value) {
   return Number(value).toLocaleString("en-US");
 }
 
-function stars(rarity) {
-  return "★".repeat(rarity);
+function starRow(rarity) {
+  return h("p", { class: `stars r${rarity}`, "aria-label": `${rarity} star` },
+    ...Array.from({ length: rarity }, () => icon("star", 1)),
+  );
 }
 
 function go(name, extra) {
@@ -83,9 +85,19 @@ function sprite(id, scale, label) {
   });
 }
 
+function portrait(id, scale, label) {
+  return h("canvas", {
+    class: "pixel portrait",
+    "data-portrait": id,
+    "data-scale": String(scale),
+    role: "img",
+    "aria-label": label,
+  });
+}
+
 function partyScale() {
-  const avail = Math.min(window.innerWidth, 1040) - 32;
-  return Math.max(1, Math.min(4, Math.floor(avail / 4 / 40)));
+  const avail = Math.min(window.innerWidth, 1040) - 28;
+  return Math.max(1, Math.min(3, Math.floor(avail / 4 / SPRITE_W)));
 }
 
 function memberById(id) {
@@ -105,10 +117,17 @@ function rosterRows() {
   });
 }
 
-function paintAll() {
+function paintSprites() {
   document.querySelectorAll("canvas[data-sprite]").forEach((canvas) => {
     paintUnit(canvas, canvas.dataset.sprite, state.frame, Number(canvas.dataset.scale));
   });
+  document.querySelectorAll("canvas[data-portrait]").forEach((canvas) => {
+    paintPortrait(canvas, canvas.dataset.portrait, state.frame, Number(canvas.dataset.scale));
+  });
+}
+
+function paintAll() {
+  paintSprites();
   document.querySelectorAll("canvas[data-icon]").forEach((canvas) => {
     paintIcon(canvas, canvas.dataset.icon, Number(canvas.dataset.scale || 2));
   });
@@ -201,7 +220,7 @@ function partyActor(id, index, scale) {
     sprite(id, scale, unit.name),
     h("figcaption", {},
       h("p", { class: "actor-name", text: unit.name }),
-      h("p", { class: `stars r${unit.rarity}`, text: stars(unit.rarity) }),
+      starRow(unit.rarity),
     ),
   );
 }
@@ -246,7 +265,7 @@ function resultCard(row) {
   const unit = unitById(row.unitId);
   return h("article", { class: `result-card rarity-${row.rarity}` },
     sprite(row.unitId, 2, row.name),
-    h("p", { class: `stars r${row.rarity}`, text: stars(row.rarity) }),
+    starRow(row.rarity),
     h("h3", { text: row.name }),
     h("p", { class: "meta", text: `${ELEMENT_NAME[unit.element]} · ${ROLE_NAME[unit.role]}` }),
     pullTag(row),
@@ -262,9 +281,9 @@ function viewResults(pack) {
     h("p", { class: "eyebrow", text: pack.banner.name }),
     h("h2", { text: "The gate answers" }),
     h("article", { class: `hero-card rarity-${best.rarity}` },
-      sprite(best.unitId, 3, best.name),
+      best.rarity >= 5 ? portrait(best.unitId, 2, best.name) : sprite(best.unitId, 3, best.name),
       h("div", {},
-        h("p", { class: `stars r${best.rarity}`, text: stars(best.rarity) }),
+        starRow(best.rarity),
         h("h3", { text: best.name }),
         h("p", { class: "meta", text: `${ELEMENT_NAME[unit.element]} · ${ROLE_NAME[unit.role]}` }),
         pullTag(best),
@@ -285,15 +304,15 @@ function rateBlock(banner) {
   return h("div", { class: "rates frame" },
     h("h3", { text: "Rates" }),
     ...table.rows.map((row) => h("p", { class: "rate-line" },
-      h("span", { class: `stars r${row.rarity}`, text: `${row.rarity}★` }),
+      h("span", { class: `stars r${row.rarity}`, text: `${row.rarity}-star` }),
       ` ${(row.chance * 100).toFixed(1)}%`,
     )),
     ...table.featured.map((row) => h("p", {
       class: "rate-up",
-      text: `${unitById(row.id).name} — ${Math.round(banner.rateUp * 100)}% of ${row.rarity}★ (${(row.chance * 100).toFixed(1)}% overall)`,
+      text: `${unitById(row.id).name} - ${Math.round(banner.rateUp * 100)}% of ${row.rarity}-star (${(row.chance * 100).toFixed(1)}% overall)`,
     })),
-    h("p", { class: "fine", text: `A 5★ is guaranteed at pull ${table.pity}.` }),
-    h("p", { class: "fine", text: "A 10-pull always includes at least one 4★ or 5★." }),
+    h("p", { class: "fine", text: `A 5-star is guaranteed at pull ${table.pity}.` }),
+    h("p", { class: "fine", text: "A 10-pull always includes at least one 4-star or 5-star." }),
     h("div", { class: "pity" },
       h("span", { text: `Pity ${pity} / ${table.pity}` }),
       h("div", { class: "bar", "aria-hidden": "true" }, h("i", { style: `width:${(pity / table.pity) * 100}%` })),
@@ -450,7 +469,7 @@ function viewUnits() {
     h("p", { class: "eyebrow", text: "Roster" }),
     h("h2", { text: "Veinwalkers" }),
     h("p", { class: "lede", text: `${owned} / ${UNITS.length} summoned` }),
-    chips("rarity", [["all", "All ★"], ["5", "5★"], ["4", "4★"], ["3", "3★"]]),
+    chips("rarity", [["all", "All"], ["5", "5-star"], ["4", "4-star"], ["3", "3-star"]]),
     chips("element", [["all", "All elements"], ...ELEMENTS.map((id) => [id, ELEMENT_NAME[id]])]),
     chips("role", [["all", "All roles"], ...ROLES.map((id) => [id, ROLE_NAME[id]])]),
     chips("owned", [["all", "Everyone"], ["owned", "Owned"], ["missing", "Missing"]]),
@@ -463,7 +482,7 @@ function viewUnits() {
       onclick: () => go("unit", row.def.id),
     },
       sprite(row.def.id, 2, row.record ? row.def.name : `${row.def.name}, not summoned`),
-      h("p", { class: `stars r${row.def.rarity}`, text: stars(row.def.rarity) }),
+      starRow(row.def.rarity),
       h("h3", { text: row.def.name }),
       h("p", { class: "meta" }, icon(row.def.element, 1), ` ${ROLE_NAME[row.def.role]}`),
       h("p", { class: "fine", text: row.record ? `Lv ${row.record.level}` : "Not summoned" }),
@@ -496,10 +515,10 @@ function viewDetail(id) {
   const nextAwaken = owned && record.awaken < MAX_AWAKEN ? AWAKEN_COST[record.awaken] : null;
   return h("section", { class: "screen detail" },
     h("button", { class: "btn ghost back", type: "button", text: "Roster", onclick: () => go("units") }),
-    h("div", { class: `pedestal rarity-${def.rarity}` },
-      sprite(def.id, 4, def.name),
+    h("div", { class: `splash rarity-${def.rarity}` },
+      portrait(def.id, 2, def.name),
     ),
-    h("p", { class: `stars r${def.rarity}`, text: stars(def.rarity) }),
+    starRow(def.rarity),
     h("h2", { text: def.name }),
     h("p", { class: "meta badges" },
       h("span", { class: `badge ${def.element}` }, icon(def.element, 1), ELEMENT_NAME[def.element]),
@@ -507,7 +526,7 @@ function viewDetail(id) {
     ),
     h("p", { class: "flavor", text: def.flavor }),
     owned ? h("p", { class: "level", text: `Level ${record.level} / ${MAX_LEVEL}` }) : h("p", { class: "gift", text: "Not summoned yet." }),
-    owned ? h("p", { class: "pips", "aria-label": `Awaken ${record.awaken} of ${MAX_AWAKEN}`, text: "◆".repeat(record.awaken) + "◇".repeat(MAX_AWAKEN - record.awaken) }) : null,
+    owned ? h("p", { class: "pips", text: `Awaken ${record.awaken} / ${MAX_AWAKEN}` }) : null,
     owned ? h("p", { class: "fine", text: nextAwaken ? `Shards ${record.shards} / ${nextAwaken}` : "Awaken maxed. Extra shards are kept." }) : null,
     h("div", { class: "stats" }, ...["hp", "atk", "def", "spd", "mag"].map((key) => statRow(key, stats[key]))),
     h("div", { class: "skills" }, ...def.skills.map((skill) => h("article", { class: "skill" },
@@ -826,11 +845,9 @@ export function boot(root) {
     draw();
   });
   setInterval(() => {
-    state.frame = (state.frame + 1) % 4;
-    document.querySelectorAll("canvas[data-sprite]").forEach((canvas) => {
-      paintUnit(canvas, canvas.dataset.sprite, state.frame, Number(canvas.dataset.scale));
-    });
-  }, 360);
+    state.frame = (state.frame + 1) % FRAME_COUNT;
+    paintSprites();
+  }, 140);
   if (!location.hash) location.hash = "#/title";
   draw({ scroll: true });
 }

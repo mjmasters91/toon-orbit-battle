@@ -27,7 +27,7 @@ test("every veinwalker has a unique original sprite", () => {
     masks.add(mask);
     colors.add(color);
     bottoms.push(bottomRow(grid));
-    for (const frame of [1, 2, 3]) renderUnit(unit.id, frame);
+    for (const frame of [1, 2, 3, 4, 5]) renderUnit(unit.id, frame);
   }
   const low = Math.min(...bottoms);
   const high = Math.max(...bottoms);
