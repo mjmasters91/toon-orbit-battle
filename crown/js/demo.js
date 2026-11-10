@@ -1,0 +1,42 @@
+import { createKingdom, kingdomFromRow } from "./engine.js";
+import { NPC_TABLE } from "./rules.js";
+
+const KEY = "crown_conquest_demo_v1";
+
+export function loadDemo() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(KEY) || "null");
+    if (!raw || raw.version !== 1 || !raw.kingdom?.name) return null;
+    return raw;
+  } catch {
+    return null;
+  }
+}
+
+export function saveDemo(save) {
+  localStorage.setItem(KEY, JSON.stringify({ ...save, version: 1 }));
+}
+
+export function clearDemo() {
+  localStorage.removeItem(KEY);
+}
+
+export function freshDemo({ name, landType, now }) {
+  const realm = { name: "The Amber March", seat: "Western vales" };
+  const kingdom = createKingdom({
+    name,
+    landType,
+    now,
+    realmName: realm.name,
+    realmSeat: realm.seat,
+  });
+  const npcs = NPC_TABLE.map((row) => kingdomFromRow(row, now, realm));
+  return {
+    version: 1,
+    kingdom,
+    npcs,
+    adminLog: [],
+    banned: false,
+    banReason: "",
+  };
+}

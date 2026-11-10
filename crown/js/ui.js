@@ -1,0 +1,799 @@
+import { castleArt, icon, shield } from "./icons.js";
+import {
+  BUILDINGS,
+  BUILDING_ORDER,
+  LANDS,
+  LAND_ORDER,
+  TICK_SECONDS,
+  TRACKS,
+  TRACK_ORDER,
+  UNITS,
+  UNIT_ORDER,
+  researchCost,
+} from "./rules.js";
+import { describe, landTraits, quoteExplore, quoteTrain, roster, unitUnlocked } from "./engine.js";
+
+let lastKey = "";
+
+export function render(root, model, act) {
+  const key = `${model.screen}:${model.tab}:${model.mode}`;
+  const y = key === lastKey ? window.scrollY : 0;
+  lastKey = key;
+  root.replaceChildren(view(model, act));
+  window.scrollTo(0, y);
+}
+
+function el(tag, props, ...kids) {
+  const node = document.createElement(tag);
+  if (props) {
+    for (const [key, value] of Object.entries(props)) {
+      if (value == null || value === false) continue;
+      if (key === "class") node.className = value;
+      else if (key === "text") node.textContent = value;
+      else if (key === "html") node.innerHTML = value;
+      else if (key === "value") node.value = String(value);
+      else if (key.startsWith("on") && typeof value === "function") node.addEventListener(key.slice(2).toLowerCase(), value);
+      else node.setAttribute(key, value === true ? "" : String(value));
+    }
+  }
+  for (const kid of kids.flat()) {
+    if (kid == null || kid === false) continue;
+    node.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+  }
+  return node;
+}
+
+function ico(name) {
+  return el("span", { class: "ico", html: icon(name) });
+}
+
+function num(value) {
+  return Math.floor(Number(value) || 0).toLocaleString("en-US");
+}
+
+function countLabel(value, singular, plural) {
+  const n = Math.floor(Number(value) || 0);
+  return `${n} ${n === 1 ? singular : plural}`;
+}
+
+function signed(value) {
+  const n = Math.floor(Number(value) || 0);
+  if (n > 0) return `+${num(n)}`;
+  return num(n);
+}
+
+function duration(seconds) {
+  const s = Math.max(0, Math.ceil(seconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const r = s % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${String(r).padStart(2, "0")}s`;
+  return `${r}s`;
+}
+
+function when(at) {
+  const t = typeof at === "number" ? at : Date.parse(at);
+  if (!Number.isFinite(t)) return "";
+  return new Date(t).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+function view(model, act) {
+  if (model.screen === "boot") return boot();
+  if (model.screen === "gate") return gate(model, act);
+  if (model.screen === "found") return found(model, act);
+  return play(model, act);
+}
+
+function boot() {
+  return el("main", { class: "gate" }, el("p", { class: "eyebrow", text: "Unrolling the map…" }));
+}
+
+function gate(model, act) {
+  return el(
+    "main",
+    { class: "gate" },
+    mast("Rule one castle inside a shared realm. Networth is the crown."),
+    model.notice ? banner(model) : null,
+    el(
+      "div",
+      { class: "gate-grid" },
+      el(
+        "form",
+        {
+          class: "panel auth-card",
+          onsubmit: (event) => {
+            event.preventDefault();
+            const data = new FormData(event.currentTarget);
+            act.auth(event.submitter?.value || "login", data.get("username"), data.get("password"));
+          },
+        },
+        el("h2", { text: "Enter the realm" }),
+        el("p", { class: "lede", text: "The same username and password as Toon Orbit Battle. A new name here is a new account there." }),
+        el("label", { text: "Username" }),
+        el("input", { name: "username", autocomplete: "username", maxlength: "16", required: true }),
+        el("label", { text: "Password" }),
+        el("input", { name: "password", type: "password", autocomplete: "current-password", required: true }),
+        el(
+          "div",
+          { class: "row" },
+          el("button", { class: "btn primary", name: "mode", value: "login", type: "submit", text: "Sign in" }),
+          el("button", { class: "btn wood", name: "mode", value: "signup", type: "submit", text: "Create account" }),
+        ),
+      ),
+      el(
+        "section",
+        { class: "panel" },
+        el("h2", { text: "Walk a demo realm" }),
+        el("p", { class: "lede", text: "The kingdom is kept on this device. Build, explore, train, and study while the server ledger is still being reviewed. Nothing is sent." }),
+        model.mode === "online" && model.kingdom
+          ? el("button", { class: "btn wood", type: "button", text: "Return to your kingdom", onclick: () => act.resume() })
+          : null,
+        el("button", {
+          class: "btn primary",
+          type: "button",
+          text: model.hasDemo ? "Return to your local kingdom" : "Raise a local banner",
+          onclick: () => act.demo(),
+        }),
+        model.hasDemo
+          ? el("button", { class: "btn ghost", type: "button", text: "Abandon the local kingdom", onclick: () => act.abandon() })
+          : null,
+      ),
+    ),
+  );
+}
+
+function found(model, act) {
+  return el(
+    "main",
+    { class: "gate" },
+    mast(model.mode === "online" ? `Signed in as ${model.player?.username || "a ruler"}.` : "This banner stays on this device."),
+    model.notice ? banner(model) : null,
+    el(
+      "form",
+      {
+        class: "panel found-card",
+        onsubmit: (event) => {
+          event.preventDefault();
+          const data = new FormData(event.currentTarget);
+          act.found(String(data.get("name") || ""), model.drafts.landType);
+        },
+      },
+      el("h2", { text: "Choose your land" }),
+      el("label", { text: "Kingdom name" }),
+      el("input", {
+        name: "name",
+        maxlength: "24",
+        required: true,
+        placeholder: "Highcrest",
+        value: model.drafts.foundName || "",
+        oninput: (event) => {
+          model.drafts.foundName = event.target.value;
+        },
+      }),
+      el("div", { class: "land-grid" }, LAND_ORDER.map((id) => landCard(id, model, act))),
+      el(
+        "div",
+        { class: "row" },
+        el("button", { class: "btn primary", type: "submit", text: "Raise your banner" }),
+        el("button", { class: "btn ghost", type: "button", text: "Back", onclick: () => act.back() }),
+      ),
+    ),
+  );
+}
+
+function landCard(id, model, act) {
+  const land = LANDS[id];
+  const selected = model.drafts.landType === id;
+  return el(
+    "button",
+    {
+      type: "button",
+      class: `land-card${selected ? " selected" : ""}`,
+      "aria-pressed": selected ? "true" : "false",
+      onclick: () => act.pickLand(id),
+    },
+    el("span", { class: "shield", html: shield(id) }),
+    el("span", { class: "land-copy" },
+      el("strong", { text: land.name }),
+      el("span", { class: "lede", text: land.blurb }),
+      el("span", { class: "traits", text: landTraits(land).join(" · ") }),
+    ),
+  );
+}
+
+function play(model, act) {
+  const locked = model.mode === "demo" && model.banned && !["steward", "account", "more"].includes(model.tab);
+  return el(
+    "div",
+    { class: "shell" },
+    sidebar(model, act),
+    el(
+      "div",
+      { class: "stage" },
+      playHead(model),
+      model.notice ? banner(model) : null,
+      model.kingdom ? resources(model.kingdom) : null,
+      locked ? banLock(model) : page(model, act),
+      bottomNav(model, act),
+    ),
+  );
+}
+
+function playHead(model) {
+  const realm = model.kingdom?.realmName || "Realm";
+  const seat = model.kingdom?.realmSeat || "";
+  const count = model.mode === "demo" ? 1 + (model.npcs?.length || 0) : model.kingdom?.realmCount || 0;
+  return el(
+    "header",
+    { class: "play-head" },
+    el("div", {},
+      el("p", { class: "eyebrow", text: model.mode === "demo" ? "Demo realm on this device" : "Live realm" }),
+      el("h1", { text: model.kingdom?.name || "Crown & Conquest" }),
+      el("p", { class: "seat", text: `${realm}${seat ? ` · ${seat}` : ""}${count ? ` · ${count} of 20 crowns` : ""}` }),
+    ),
+    el("div", { class: "tickbox" },
+      el("span", { class: "tick-label", text: "Next tick" }),
+      el("strong", { id: "tick-clock", text: tickLabel(model.kingdom) }),
+    ),
+  );
+}
+
+function resources(state) {
+  const view = describe(state);
+  const items = [
+    ["gold", "Gold", num(state.gold), `${signed(view.goldPerHour)}/h`],
+    ["food", "Food", num(state.food), `${signed(view.food.net)}/h`],
+    ["peasants", "People", num(state.peasants), `cap ${num(view.popCap)}`],
+    ["land", "Land", num(state.land), `${num(view.freeLand)} open`],
+    ["mana", "Mana", num(state.mana), `${signed(view.mana.perHour)}/h`],
+    ["crown", "Networth", num(view.networth), "score"],
+  ];
+  return el(
+    "div",
+    { class: "resources" },
+    items.map(([name, label, value, sub]) => el(
+      "div",
+      { class: `resource ${name}` },
+      ico(name === "crown" ? "crown" : name),
+      el("span", {},
+        el("span", { class: "res-label", text: label }),
+        el("strong", { text: value }),
+        el("span", { class: "res-sub", text: sub }),
+      ),
+    )),
+  );
+}
+
+function page(model, act) {
+  if (model.tab === "build") return buildPage(model, act);
+  if (model.tab === "explore") return explorePage(model, act);
+  if (model.tab === "host") return hostPage(model, act);
+  if (model.tab === "scholars") return scholarPage(model, act);
+  if (model.tab === "realm") return realmPage(model, act);
+  if (model.tab === "steward") return stewardPage(model, act);
+  if (model.tab === "account") return accountPage(model, act);
+  if (model.tab === "more") return morePage(model, act);
+  return throne(model, act);
+}
+
+function throne(model, act) {
+  const state = model.kingdom;
+  const view = describe(state);
+  const land = LANDS[state.landType];
+  return el(
+    "section",
+    { class: "throne" },
+    view.starving
+      ? el(
+        "div",
+        { class: "starve", role: "status" },
+        el("strong", { text: "The granaries are empty." }),
+        el("p", { text: "The army fights hungry (attack 62%, defense 75%). Births have stopped, housing is cut to 72%, and people leave while the deficit lasts." }),
+      )
+      : null,
+    el(
+      "div",
+      { class: "throne-grid" },
+      el(
+        "article",
+        { class: "panel identity" },
+        el("span", { class: "shield lg", html: shield(state.landType) }),
+        el("div", {},
+          el("p", { class: "eyebrow", text: land.name }),
+          el("h2", { text: state.name }),
+          el("p", { class: "lede", text: land.blurb }),
+          el("p", { class: "traits", text: landTraits(land).join(" · ") }),
+        ),
+      ),
+      el("div", { class: "panel castle", html: castleArt() }),
+    ),
+    el(
+      "div",
+      { class: "stat-grid" },
+      stat("Attack", num(view.army.attack), view.starving ? "Hungry levy" : "Ready"),
+      stat("Defense", num(view.army.defense), `${countLabel(state.buildings.wall, "wall", "walls")} · ${countLabel(state.buildings.tower, "tower", "towers")}`),
+      stat("Scholars", num(view.scholars), `${signed(view.researchPerHour)} research/h`),
+      stat("Barracks", `${num(view.housingUsed)}/${num(view.housingCap)}`, "Soldiers housed"),
+      stat("Acres", `${num(view.built)} built`, `${num(view.freeLand)} open · ${num(view.pending)} raising`),
+      stat("Stores", view.starving ? "Empty" : "Fed", `${num(view.food.produced)} grown · ${num(view.food.consumed)} eaten`),
+    ),
+    el(
+      "div",
+      { class: "split" },
+      el("section", { class: "panel" },
+        el("h2", { text: "At work" }),
+        state.jobs.length ? state.jobs.map((job) => jobCard(job)) : el("p", { class: "muted", text: "No crews in the yard. The next tick will still tend the fields." }),
+        model.mode === "demo"
+          ? el("button", { class: "btn wood", type: "button", id: "hour-bell", text: "Sound the hour bell", onclick: () => act.bell() })
+          : el("p", { class: "muted", text: "Online kingdoms advance on the server clock, once a minute." }),
+      ),
+      el("section", { class: "panel" },
+        el("h2", { text: "Chronicle" }),
+        el("ol", { class: "chronicle" }, [...state.chronicle].reverse().map((line) => el(
+          "li",
+          {},
+          el("time", { text: when(line.at) }),
+          el("span", { text: line.text }),
+        ))),
+      ),
+    ),
+  );
+}
+
+function stat(label, value, sub) {
+  return el("article", { class: "stat" },
+    el("span", { text: label }),
+    el("strong", { text: value }),
+    el("em", { text: sub }),
+  );
+}
+
+function jobCard(job) {
+  const now = Date.now();
+  const span = Math.max(1, job.completesAt - job.startedAt);
+  const pct = Math.max(0, Math.min(100, Math.round(((now - job.startedAt) / span) * 100)));
+  const left = job.completesAt <= now ? "Finishes this tick" : duration((job.completesAt - now) / 1000);
+  return el(
+    "div",
+    { class: "job" },
+    el("div", { class: "job-top" },
+      el("strong", { text: jobTitle(job) }),
+      el("span", { text: left }),
+    ),
+    el("div", { class: "bar", role: "progressbar", "aria-valuenow": String(pct), "aria-valuemin": "0", "aria-valuemax": "100" },
+      el("span", { style: `width:${pct}%` }),
+    ),
+  );
+}
+
+function jobTitle(job) {
+  if (job.kind === "build") return `${BUILDINGS[job.building]?.name || "Building"} ×${job.count}`;
+  if (job.kind === "explore") return `Claiming ${job.count} acres`;
+  return `${UNITS[job.unit]?.name || "Company"} ×${job.count}`;
+}
+
+function buildPage(model, act) {
+  const state = model.kingdom;
+  const view = describe(state);
+  return el(
+    "section",
+    {},
+    el("div", { class: "page-intro" },
+      el("h2", { text: "Build" }),
+      el("p", { text: `One crew at a time. Each building takes an acre. ${num(view.freeLand)} acres are open, and the purse holds ${num(state.gold)} gold.` }),
+    ),
+    el("div", { class: "card-grid" }, BUILDING_ORDER.map((id) => {
+      const def = BUILDINGS[id];
+      const count = model.drafts.build[id] || 1;
+      const seconds = Math.floor(def.seconds * count * LANDS[state.landType].buildPct / 100);
+      const cost = def.cost * count;
+      return el(
+        "article",
+        { class: "card" },
+        el("header", {},
+          el("h3", { text: def.name }),
+          el("b", { text: `Owned ${state.buildings[id] || 0}` }),
+        ),
+        el("p", { text: def.effect }),
+        el("p", { class: "cost", text: `${num(cost)} gold · ${duration(seconds)} · ${count} acre${count === 1 ? "" : "s"}` }),
+        stepper(count, (next) => act.setBuild(id, next)),
+        el("button", {
+          class: "btn primary",
+          type: "button",
+          text: "Build",
+          disabled: model.busy,
+          onclick: () => act.build(id),
+        }),
+      );
+    })),
+  );
+}
+
+function stepper(count, onChange, max = 40) {
+  return el("div", { class: "stepper" },
+    el("button", { type: "button", text: "−", onclick: () => onChange(Math.max(1, count - 1)) }),
+    el("span", { text: String(count) }),
+    el("button", { type: "button", text: "+", onclick: () => onChange(Math.min(max, count + 1)) }),
+    el("button", { type: "button", text: "+5", onclick: () => onChange(Math.min(max, count + 5)) }),
+  );
+}
+
+function explorePage(model, act) {
+  const state = model.kingdom;
+  const acres = Math.max(0, Math.floor(Number(model.drafts.explore) || 0));
+  const quote = quoteExplore(state, acres || 0);
+  return el(
+    "section",
+    { class: "panel narrow" },
+    el("h2", { text: "Explore" }),
+    el("p", { text: "Scouts buy new acres. A charter allows 8% of your current land each day, and at least 8 acres. Settlers leave with the party and come home when the claim is marked." }),
+    el("p", { class: "cost", id: "explore-quote", text: exploreQuote(quote, acres) }),
+    el("label", { text: "Acres to claim" }),
+    el("input", {
+      id: "explore-acres",
+      type: "number",
+      min: "1",
+      max: "200",
+      value: String(model.drafts.explore),
+      oninput: (event) => {
+        model.drafts.explore = event.target.value;
+        const node = document.getElementById("explore-quote");
+        const next = Math.max(0, Math.floor(Number(event.target.value) || 0));
+        if (node) node.textContent = exploreQuote(quoteExplore(state, next), next);
+      },
+    }),
+    el("button", { class: "btn primary", type: "button", text: "Send scouts", disabled: model.busy, onclick: () => act.explore() }),
+  );
+}
+
+function exploreQuote(quote, acres) {
+  if (!acres) return `${quote.left} acres left on today's charter.`;
+  return `${num(quote.cost)} gold · ${duration(quote.seconds)} · ${quote.settlers} settlers · ${quote.left} acres left on the charter.`;
+}
+
+function hostPage(model, act) {
+  const state = model.kingdom;
+  const view = describe(state);
+  return el(
+    "section",
+    {},
+    el("div", { class: "page-intro" },
+      el("h2", { text: "Host" }),
+      el("p", { text: `Training spends gold, food, and peasants. Housing ${num(view.housingUsed)} of ${num(view.housingCap)}. One company trains at a time. Attacking comes later; these numbers are what a battle will read.` }),
+    ),
+    el("div", { class: "card-grid" }, UNIT_ORDER.map((id) => {
+      const def = UNITS[id];
+      const count = model.drafts.train[id] || 1;
+      const quote = quoteTrain(state, id, count);
+      const open = unitUnlocked(state, id);
+      return el(
+        "article",
+        { class: `card${open ? "" : " locked"}` },
+        el("header", {},
+          el("h3", { text: def.name }),
+          el("b", { text: `Have ${state.units[id] || 0}` }),
+        ),
+        el("p", { text: def.blurb }),
+        el("p", { class: "stats-line", text: `Attack ${def.attack} · Defense ${def.defense} · Housing ${def.housing}` }),
+        open
+          ? el("p", { class: "cost", text: `${num(quote.gold)} gold · ${num(quote.food)} food · ${quote.peasants} peasants · ${duration(quote.seconds)}` })
+          : el("p", { class: "lock-note", text: lockText(def) }),
+        stepper(count, (next) => act.setTrain(id, next), 200),
+        el("button", {
+          class: "btn primary",
+          type: "button",
+          text: open ? "Train" : "Locked",
+          disabled: model.busy || !open,
+          onclick: () => act.train(id),
+        }),
+      );
+    })),
+  );
+}
+
+function lockText(def) {
+  const bits = [];
+  if (def.req?.military) bits.push(`War College ${def.req.military}`);
+  if (def.req?.magic) bits.push(`Ley Studies ${def.req.magic}`);
+  return `Needs ${bits.join(" and ")}.`;
+}
+
+function scholarPage(model, act) {
+  const state = model.kingdom;
+  const view = describe(state);
+  return el(
+    "section",
+    {},
+    el("div", { class: "page-intro" },
+      el("h2", { text: "Scholars" }),
+      el("p", { text: `${num(view.scholars)} scholars are at the desks (${signed(view.researchPerHour)} points an hour). You hold ${num(state.researchPoints)} points. Each library employs up to 14 peasants.` }),
+    ),
+    el("div", { class: "track-list" }, TRACK_ORDER.map((id) => {
+      const track = TRACKS[id];
+      const level = state.research[id] || 0;
+      const cost = level >= 10 ? null : researchCost(level);
+      return el(
+        "article",
+        { class: "panel track" },
+        el("div", {},
+          el("h3", { text: track.name }),
+          el("p", { text: track.blurb }),
+          el("p", { class: "cost", text: track.effect }),
+        ),
+        el("div", { class: "pips" }, Array.from({ length: 10 }, (_, i) => el("i", { class: i < level ? "on" : "" }))),
+        el("button", {
+          class: "btn primary",
+          type: "button",
+          text: cost == null ? "Complete" : `Study · ${num(cost)}`,
+          disabled: model.busy || cost == null,
+          onclick: () => act.research(id),
+        }),
+      );
+    })),
+  );
+}
+
+function realmPage(model, act) {
+  const realmRows = model.realmRows || [];
+  const board = model.leaderboard || [];
+  return el(
+    "section",
+    {},
+    el("div", { class: "page-intro" },
+      el("h2", { text: "Realm" }),
+      el("p", { text: model.mode === "demo"
+        ? "The Amber March holds your banner and ten established houses. In a demo, this list is also the continent."
+        : "Kingdoms that share your realm, then the widest crowns on the continent." }),
+    ),
+    el("section", { class: "panel" },
+      el("h3", { text: model.kingdom?.realmName || "Your realm" }),
+      boardList(realmRows),
+    ),
+    model.mode === "online"
+      ? el("section", { class: "panel" },
+        el("h3", { text: "Continent" }),
+        boardList(board),
+      )
+      : null,
+    el("button", { class: "btn ghost", type: "button", text: "Refresh the board", onclick: () => act.refreshBoard() }),
+  );
+}
+
+function boardList(rows) {
+  if (!rows.length) return el("p", { class: "muted", text: "The board is empty." });
+  return el("ol", { class: "board" }, rows.map((row, index) => el(
+    "li",
+    { class: row.you || row.is_you ? "you" : "" },
+    el("span", { class: "rank", text: String(index + 1) }),
+    el("span", { class: "shield sm", html: shield(row.landType || row.land_type) }),
+    el("span", { class: "who" },
+      el("strong", { text: row.name }),
+      el("em", { text: `${LANDS[row.landType || row.land_type]?.name || ""} · ${num(row.land)} acres${row.npc || row.is_npc ? " · established house" : ""}` }),
+    ),
+    el("b", { text: num(row.networth) }),
+  )));
+}
+
+function stewardPage(model, act) {
+  const rows = model.adminResults || [];
+  return el(
+    "section",
+    { class: "steward" },
+    el("div", { class: "page-intro" },
+      el("h2", { text: "Steward's desk" }),
+      el("p", { text: model.mode === "demo"
+        ? "This desk only changes the kingdom on this device. Grants, bans, and the log are not sent anywhere."
+        : "Search kingdoms, grant gold, food, or land, and ban a login. Every action is written to the log." }),
+    ),
+    el("form", {
+      class: "panel row",
+      onsubmit: (event) => {
+        event.preventDefault();
+        act.adminSearch(new FormData(event.currentTarget).get("q"));
+      },
+    },
+      el("input", { name: "q", placeholder: "Kingdom or username", value: model.drafts.search || "" }),
+      el("button", { class: "btn wood", type: "submit", text: "Search" }),
+    ),
+    el("div", { class: "admin-list" }, rows.map((row) => adminCard(row, model, act))),
+    el("section", { class: "panel" },
+      el("h3", { text: "Action log" }),
+      (model.adminLog || []).length
+        ? el("ol", { class: "chronicle" }, model.adminLog.map((line) => el(
+          "li",
+          {},
+          el("time", { text: when(line.created_at || line.at) }),
+          el("span", { text: logLine(line) }),
+        )))
+        : el("p", { class: "muted", text: "No steward actions yet." }),
+    ),
+  );
+}
+
+function adminCard(row, model, act) {
+  const name = row.name;
+  const username = row.username;
+  return el(
+    "article",
+    { class: "panel admin-card" },
+    el("header", {},
+      el("h3", { text: name }),
+      el("span", { class: "chip", text: row.is_npc || row.isNpc ? "Established house" : (username || "Ruler") }),
+    ),
+    el("p", { class: "cost", text: `${LANDS[row.land_type || row.landType]?.name || ""} · networth ${num(row.networth)} · ${num(row.land)} acres · ${num(row.gold)} gold · ${num(row.food)} food` }),
+    (row.banned ? el("p", { class: "lock-note", text: `Banned. ${row.ban_reason || row.banReason || ""}` }) : null),
+    el("div", { class: "grant" },
+      numberField(fieldId("gold", name), "Gold", "0"),
+      numberField(fieldId("food", name), "Food", "0"),
+      numberField(fieldId("land", name), "Land", "0"),
+      el("button", {
+        class: "btn primary",
+        type: "button",
+        text: "Grant",
+        onclick: () => act.grant(name, readNum(fieldId("gold", name)), readNum(fieldId("food", name)), readNum(fieldId("land", name))),
+      }),
+    ),
+    username && !(row.is_npc || row.isNpc)
+      ? el("div", { class: "row" },
+        el("input", { id: fieldId("why", username), placeholder: "Reason for a ban", maxlength: "200" }),
+        row.banned
+          ? el("button", { class: "btn wood", type: "button", text: "Unban", onclick: () => act.unban(username) })
+          : el("button", { class: "btn ghost", type: "button", text: "Ban", onclick: () => act.ban(username, document.getElementById(fieldId("why", username))?.value || "") }),
+      )
+      : null,
+  );
+}
+
+function numberField(id, label, value) {
+  return el("label", { class: "mini" },
+    el("span", { text: label }),
+    el("input", { id, type: "number", min: "0", value }),
+  );
+}
+
+function fieldId(prefix, name) {
+  return `${prefix}-${String(name).toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+}
+
+function readNum(id) {
+  return Math.floor(Number(document.getElementById(id)?.value || 0));
+}
+
+function logLine(line) {
+  const action = line.action || "note";
+  const label = line.label || line.target || "";
+  if (action === "grant") return `Grant to ${label}: ${num(line.gold)} gold, ${num(line.food)} food, ${num(line.land)} land. ${line.note || ""}`.trim();
+  if (action === "ban") return `Banned ${label}. ${line.note || ""}`.trim();
+  if (action === "unban") return `Lifted the ban on ${label}.`;
+  return `${action} ${label}`;
+}
+
+function accountPage(model, act) {
+  return el(
+    "section",
+    { class: "panel narrow" },
+    el("h2", { text: "Account" }),
+    model.mode === "online"
+      ? el("p", { text: `Signed in as ${model.player?.username}. Logging out leaves the kingdom on the server.` })
+      : el("p", { text: "This is a local realm. Abandoning it removes the banner from this device." }),
+    model.mode === "online"
+      ? el("button", { class: "btn wood", type: "button", text: "Log out", onclick: () => act.logout() })
+      : el("button", { class: "btn wood", type: "button", text: "Abandon local kingdom", onclick: () => act.abandon() }),
+    el("button", { class: "btn ghost", type: "button", text: "Back to the gate", onclick: () => act.back() }),
+  );
+}
+
+function morePage(model, act) {
+  const links = [
+    ["explore", "Explore", "Claim acres under the daily charter."],
+    ["scholars", "Scholars", "Spend research on the five colleges."],
+    ["account", "Account", model.mode === "online" ? "Log out of this login." : "Leave or abandon the demo."],
+  ];
+  if (model.mode === "demo" || model.player?.admin) links.splice(2, 0, ["steward", "Steward", "Grants, bans, and the action log."]);
+  return el(
+    "section",
+    { class: "more-list" },
+    links.map(([id, title, text]) => el(
+      "button",
+      { class: "panel more-link", type: "button", onclick: () => act.tab(id) },
+      el("strong", { text: title }),
+      el("span", { text }),
+    )),
+  );
+}
+
+function banLock(model) {
+  return el(
+    "section",
+    { class: "panel starve" },
+    el("h2", { text: "This banner is banished" }),
+    el("p", { text: model.banReason || "No reason was recorded." }),
+    el("p", { text: "The steward's desk can lift it. Other orders are closed." }),
+  );
+}
+
+function banner(model) {
+  return el("div", { class: `notice ${model.tone || "info"}`, role: "status", text: model.notice });
+}
+
+function mast(line) {
+  return el("header", { class: "mast" },
+    el("p", { class: "eyebrow", text: "Crown & Conquest" }),
+    el("h1", { text: "Crown & Conquest" }),
+    el("p", { text: line }),
+  );
+}
+
+function sidebar(model, act) {
+  const items = navItems(model);
+  return el(
+    "aside",
+    { class: "sidebar" },
+    el("div", { class: "brand" }, ico("crown"), el("span", { text: "Crown & Conquest" })),
+    el("nav", {}, items.map(([id, label, iconName]) => navButton(id, label, iconName, model, act))),
+    el("p", { class: "side-foot", text: model.mode === "demo" ? "Saved on this device" : (model.player?.username || "") }),
+  );
+}
+
+function bottomNav(model, act) {
+  const items = [
+    ["throne", "Throne", "throne"],
+    ["build", "Build", "build"],
+    ["host", "Host", "army"],
+    ["realm", "Realm", "realm"],
+    ["more", "More", "more"],
+  ];
+  return el("nav", { class: "bottom-nav" }, items.map(([id, label, iconName]) => {
+    const moreOn = id === "more" && ["explore", "scholars", "steward", "account", "more"].includes(model.tab);
+    const on = model.tab === id || moreOn;
+    return el(
+      "button",
+      { type: "button", class: on ? "on" : "", onclick: () => act.tab(id) },
+      ico(iconName),
+      el("span", { text: label }),
+    );
+  }));
+}
+
+function navItems(model) {
+  const items = [
+    ["throne", "Throne room", "throne"],
+    ["build", "Build", "build"],
+    ["explore", "Explore", "explore"],
+    ["host", "Host", "army"],
+    ["scholars", "Scholars", "book"],
+    ["realm", "Realm", "realm"],
+  ];
+  if (model.mode === "demo" || model.player?.admin) items.push(["steward", "Steward", "shield"]);
+  items.push(["account", "Account", "crown"]);
+  return items;
+}
+
+function navButton(id, label, iconName, model, act) {
+  return el(
+    "button",
+    { type: "button", class: model.tab === id ? "on" : "", onclick: () => act.tab(id) },
+    ico(iconName),
+    el("span", { text: label }),
+  );
+}
+
+export function tickLabel(kingdom) {
+  if (!kingdom) return "–";
+  const remain = kingdom.lastTickAt + TICK_SECONDS * 1000 - Date.now();
+  if (remain <= 0) return "now";
+  const s = Math.ceil(remain / 1000);
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}:${String(r).padStart(2, "0")}`;
+}
+
+export function realmRowsFrom(kingdom, npcs) {
+  return roster(kingdom, npcs).map((row) => ({
+    ...row,
+    is_you: row.you,
+    is_npc: row.npc,
+    land_type: row.landType,
+  }));
+}
