@@ -1,35 +1,40 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { filledCount, maskOf } from "../js/pixel.js";
-import { SPRITE_H, lookIds, renderUnit } from "../js/sprites.js";
+import { buildMonster, buildUnit, poseFigure } from "../js/figures.js";
+import { lookIds, lookSignature } from "../js/looks.js";
 import { UNITS } from "../js/units.js";
 
-function bottomRow(grid) {
-  for (let y = grid.length - 1; y >= 0; y--) {
-    if (grid[y].some(Boolean)) return y;
-  }
-  return -1;
-}
-
-test("every veinwalker has a unique original sprite", () => {
+test("every veinwalker has a unique original 3D figure", () => {
   assert.deepEqual(lookIds().sort(), UNITS.map((unit) => unit.id).sort());
-  const masks = new Set();
-  const colors = new Set();
-  const bottoms = [];
+  const signatures = new Set();
   for (const unit of UNITS) {
-    const grid = renderUnit(unit.id, 0);
-    assert.equal(grid.length, SPRITE_H);
-    assert.ok(filledCount(grid) > 140, unit.id);
-    const mask = maskOf(grid);
-    const color = grid.flat().filter(Boolean).join(",");
-    assert.equal(masks.has(mask), false, `${unit.id} shares a silhouette`);
-    assert.equal(colors.has(color), false, `${unit.id} shares a palette`);
-    masks.add(mask);
-    colors.add(color);
-    bottoms.push(bottomRow(grid));
-    for (const frame of [1, 2, 3, 4, 5]) renderUnit(unit.id, frame);
+    const figure = buildUnit(unit.id);
+    assert.equal(signatures.has(figure.userData.signature), false, unit.id);
+    signatures.add(figure.userData.signature);
+    assert.equal(figure.userData.signature, lookSignature(unit.id));
+    let meshes = 0;
+    figure.traverse((node) => {
+      if (node.isMesh) meshes += 1;
+    });
+    assert.ok(meshes >= 10, `${unit.id} is too simple (${meshes})`);
+    for (const clip of ["idle", "attack", "hit", "skill", "death"]) {
+      figure.userData.phase = 0.4;
+      poseFigure(figure, clip, 1.2);
+    }
   }
-  const low = Math.min(...bottoms);
-  const high = Math.max(...bottoms);
-  assert.ok(high - low <= 2, `feet drifted ${low}..${high}`);
+});
+
+test("story monsters are original meshes and bosses are larger", () => {
+  const kinds = ["slime", "beast", "plant", "crab", "bird", "moth", "golem", "scorpion", "drake", "wraith", "seraph"];
+  const signatures = new Set();
+  for (const kind of kinds) {
+    const figure = buildMonster(kind, "fire", false);
+    assert.equal(figure.userData.monster, kind);
+    assert.equal(signatures.has(figure.userData.signature), false, kind);
+    signatures.add(figure.userData.signature);
+    poseFigure(figure, "attack", 0.4);
+  }
+  const boss = buildMonster("drake", "fire", true);
+  const mob = buildMonster("drake", "fire", false);
+  assert.ok(boss.scale.x > mob.scale.x);
 });

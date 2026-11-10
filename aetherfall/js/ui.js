@@ -1,14 +1,13 @@
 import { adminBan, adminGrant, adminLog, adminSearch, adminUnban, clearStageOnline, currentSession, getProgressOnline, levelOnline, logInAccount, logOutAccount, openSession, partyOnline, signUpAccount, summonOnline } from "./account.js";
-import { renderBattleScreen } from "./battle-ui.js";
-import { renderField } from "./monsters.js";
+import { renderBattleScreen, stopBattle } from "./battle-ui.js";
 import { blip, powerup, rarityFanfare, resume, setMuted, summonCharge } from "./audio.js";
 import { AWAKEN_COST, COST_1, COST_10, MAX_AWAKEN, MAX_LEVEL, PITY_AT } from "./balance.js";
-import { playSummon } from "./fx.js";
+import { icon } from "./icons.js";
+import { presentView, releaseView, thumbURL } from "./present.js";
+import { playSummon } from "./summon-scene.js";
 import { againOffer, payForPull, pull, rateTable, resolvePull } from "./gacha.js";
 import { leaderBonus, levelCost, partyPower, sortRoster, tryLevelUp, unitPower, unitStats } from "./progress.js";
-import { paint } from "./pixel.js";
 import { loadSave, resetSave, writeSave } from "./save.js";
-import { FRAME_COUNT, SPRITE_W, paintIcon, paintPortrait, paintUnit, renderBanner, renderLogo } from "./sprites.js";
 import { DIFFICULTIES, MAPS, STAGES_PER_MAP, buildEncounter, clearGold, enemyElement, firstClearGems, isBoss, isStageUnlocked, loadProgress, mapStars, progressFromRows, recommendedPower, recordClear, saveProgress, stageTitle, starsFromResult } from "./stages.js";
 import { BANNERS, ELEMENT_NAME, ELEMENTS, ROLE_NAME, ROLES, UNITS, unitById } from "./units.js";
 
@@ -55,7 +54,7 @@ function num(value) {
 
 function starRow(rarity) {
   return h("p", { class: `stars r${rarity}`, "aria-label": `${rarity} star` },
-    ...Array.from({ length: rarity }, () => icon("star", 1)),
+    ...Array.from({ length: rarity }, () => icon("star")),
   );
 }
 
@@ -106,33 +105,10 @@ function toast(text) {
   toastTimer = setTimeout(() => el.classList.remove("show"), 2400);
 }
 
-function icon(name, scale = 2) {
-  return h("canvas", { class: "pixel icon", "data-icon": name, "data-scale": String(scale), "aria-hidden": "true" });
-}
-
-function sprite(id, scale, label) {
-  return h("canvas", {
-    class: "pixel sprite",
-    "data-sprite": id,
-    "data-scale": String(scale),
-    role: "img",
-    "aria-label": label,
-  });
-}
-
-function portrait(id, scale, label) {
-  return h("canvas", {
-    class: "pixel portrait",
-    "data-portrait": id,
-    "data-scale": String(scale),
-    role: "img",
-    "aria-label": label,
-  });
-}
-
-function partyScale() {
-  const avail = Math.min(window.innerWidth, 1040) - 28;
-  return Math.max(1, Math.min(3, Math.floor(avail / 4 / SPRITE_W)));
+function thumb(id, label) {
+  const img = h("img", { class: "thumb", alt: label || "", src: thumbURL(id) || "" });
+  img.draggable = false;
+  return img;
 }
 
 function memberById(id) {
@@ -152,41 +128,11 @@ function rosterRows() {
   });
 }
 
-function paintSprites() {
-  document.querySelectorAll("canvas[data-sprite]").forEach((canvas) => {
-    paintUnit(canvas, canvas.dataset.sprite, state.frame, Number(canvas.dataset.scale));
-  });
-  document.querySelectorAll("canvas[data-portrait]").forEach((canvas) => {
-    paintPortrait(canvas, canvas.dataset.portrait, state.frame, Number(canvas.dataset.scale));
-  });
-}
-
-function paintAll() {
-  paintSprites();
-  document.querySelectorAll("canvas[data-icon]").forEach((canvas) => {
-    paintIcon(canvas, canvas.dataset.icon, Number(canvas.dataset.scale || 2));
-  });
-  document.querySelectorAll("canvas[data-field]").forEach((canvas) => {
-    paint(canvas, renderField(canvas.dataset.field), Number(canvas.dataset.scale || 1));
-    canvas.style.width = "100%";
-    canvas.style.height = "auto";
-  });
-  document.querySelectorAll("canvas[data-banner]").forEach((canvas) => {
-    paint(canvas, renderBanner(canvas.dataset.banner), 1);
-    canvas.style.width = "100%";
-    canvas.style.height = "auto";
-  });
-  const logo = document.querySelector("canvas[data-logo]");
-  if (logo) {
-    paint(logo, renderLogo(), 1);
-    logo.style.width = `min(92vw, ${logo.width}px)`;
-    logo.style.height = "auto";
-  }
-}
+function paintAll() {}
 
 function pill(kind, value) {
   const label = kind === "gem" ? "Aether gems" : kind === "ticket" ? "Tenfold tickets" : "Gold";
-  return h("span", { class: `pill ${kind}`, "aria-label": `${label} ${value}` }, icon(kind, 2), h("b", { text: num(value) }));
+  return h("span", { class: `pill ${kind}`, "aria-label": `${label} ${value}` }, icon(kind), h("b", { text: num(value) }));
 }
 
 function chrome() {
@@ -206,7 +152,7 @@ function chrome() {
     )
     : h("span", { class: "offline-tag", text: "Offline" });
   el.replaceChildren(h("header", { class: "topbar" },
-    h("button", { class: "icon-btn", type: "button", "aria-label": "Home", onclick: () => go("home") }, icon("home", 2)),
+    h("button", { class: "icon-btn", type: "button", "aria-label": "Home", onclick: () => go("home") }, icon("home")),
     h("div", { class: "pills" }, pill("gem", state.save.gems), pill("ticket", state.save.tickets), pill("gold", state.save.gold)),
     who,
     h("button", {
@@ -215,7 +161,7 @@ function chrome() {
       id: "open-settings",
       "aria-label": "Settings",
       onclick: openSettings,
-    }, icon(state.save.muted ? "mute" : "sound", 2)),
+    }, icon(state.save.muted ? "mute" : "sound")),
   ));
 }
 
@@ -233,14 +179,14 @@ function nav() {
     "data-go": id,
     class: route.name === id || (id === "units" && route.name === "detail") || (id === "story" && (route.name === "stages" || route.name === "battle")) ? "active" : "",
     onclick: () => go(id),
-  }, icon(glyph, 2), h("span", { text: label }))));
+  }, icon(glyph), h("span", { text: label }))));
 }
 
 function viewTitle() {
   const online = state.mode === "online" && state.username;
   return h("section", { class: "title-screen" },
-    h("canvas", { class: "pixel logo", "data-logo": "1", role: "img", "aria-label": "Aetherfall" }),
-    h("h1", { class: "sr-only", text: "Aetherfall" }),
+    h("div", { class: "stage title-stage", "data-stage": "title" }),
+    h("h1", { class: "wordmark", text: "Aetherfall" }),
     h("p", { class: "tag", text: "Veinwalkers of the shattered sky" }),
     online ? h("button", {
       class: "btn xl",
@@ -258,15 +204,14 @@ function viewTitle() {
   );
 }
 
-function partyActor(id, index, scale) {
+function partyActor(id, index) {
   if (!id || !unitById(id)) {
-    return h("div", { class: "actor" }, h("div", { class: "empty-slot", text: "Empty" }), h("p", { class: "actor-name", text: "Vacant" }));
+    return h("div", { class: "actor" }, h("p", { class: "actor-name", text: "Vacant" }));
   }
   const unit = unitById(id);
   const leader = state.save.leader === index;
   return h("figure", { class: "actor" },
     h("span", { class: leader ? "crown" : "crown ghost", text: leader ? "Leader" : "" }),
-    sprite(id, scale, unit.name),
     h("figcaption", {},
       h("p", { class: "actor-name", text: unit.name }),
       starRow(unit.rarity),
@@ -287,7 +232,7 @@ function powerBanner(members) {
 
 function viewHome() {
   const members = state.save.party.map(memberById);
-  const scale = partyScale();
+  const leaderId = state.save.party[state.save.leader] || state.save.party.find(Boolean) || "pip";
   return h("section", { class: "screen" },
     previewNote(),
     state.mode === "offline" && !state.preview ? h("p", { class: "account-note", text: "Offline on this device. Log in to keep gems and tickets on the server." }) : null,
@@ -295,8 +240,9 @@ function viewHome() {
     h("h2", { text: "The cracked terrace" }),
     h("p", { class: "lede", text: "Four places in the wind. The gate hums behind the stones." }),
     state.save.tickets > 0 ? h("p", { class: "gift", text: "A Tenfold Ticket is waiting at the gate." }) : null,
+    h("div", { class: "stage pedestal-stage", "data-stage": "leader", "data-unit": leaderId }),
     powerBanner(members),
-    h("div", { class: "party-line" }, ...state.save.party.map((id, index) => partyActor(id, index, scale))),
+    h("div", { class: "party-line" }, ...state.save.party.map((id, index) => partyActor(id, index))),
     h("div", { class: "dais", "aria-hidden": "true" }),
     h("div", { class: "home-actions" },
       h("button", { class: "btn", id: "open-story", type: "button", onclick: () => go("story"), text: "Story" }),
@@ -316,7 +262,7 @@ function pullTag(row) {
 function resultCard(row) {
   const unit = unitById(row.unitId);
   return h("article", { class: `result-card rarity-${row.rarity}` },
-    sprite(row.unitId, 2, row.name),
+    thumb(row.unitId, row.name),
     starRow(row.rarity),
     h("h3", { text: row.name }),
     h("p", { class: "meta", text: `${ELEMENT_NAME[unit.element]} · ${ROLE_NAME[unit.role]}` }),
@@ -333,7 +279,7 @@ function viewResults(pack) {
     h("p", { class: "eyebrow", text: pack.banner.name }),
     h("h2", { text: "The gate answers" }),
     h("article", { class: `hero-card rarity-${best.rarity}` },
-      best.rarity >= 5 ? portrait(best.unitId, 2, best.name) : sprite(best.unitId, 3, best.name),
+      h("div", { class: "stage hero-stage", "data-stage": "hero", "data-unit": best.unitId, role: "img", "aria-label": best.name }),
       h("div", {},
         starRow(best.rarity),
         h("h3", { text: best.name }),
@@ -485,7 +431,7 @@ function finishFx() {
 function playFx(presentation) {
   summonCharge();
   const root = document.getElementById("modal-root");
-  const canvas = h("canvas", { class: "pixel", id: "fx-canvas", "aria-hidden": "true" });
+  const stage = h("div", { class: "fx-stage", id: "fx-stage" });
   const best = presentation.reduce((max, row) => Math.max(max, row.rarity), 3);
   root.replaceChildren(h("div", {
     class: "fx-layer",
@@ -501,11 +447,11 @@ function playFx(presentation) {
       }
     },
   },
-    canvas,
+    stage,
     h("p", { class: "fx-caption", text: best >= 5 ? "The Vein breaks open. Tap to skip." : "Light gathers in the crystal. Tap to skip." }),
     h("button", { class: "btn ghost", id: "skip-summon", type: "button", text: "Skip", onclick: (event) => { event.stopPropagation(); finishFx(); } }),
   ));
-  state.fxStop = playSummon(canvas, presentation, {
+  state.fxStop = playSummon(stage, presentation, {
     onBurst: (rarity) => {
       rarityFanfare(rarity);
       if (rarity >= 5 && navigator.vibrate) {
@@ -525,6 +471,7 @@ function viewSummon() {
   return h("section", { class: "screen" },
     h("p", { class: "eyebrow", text: "Summon" }),
     h("h2", { text: "Choose a gate" }),
+    h("div", { class: "stage altar-stage", "data-stage": "altar" }),
     h("div", { class: "banners" }, ...BANNERS.map((row) => h("button", {
       type: "button",
       class: `banner ${row.id === banner.id ? "selected" : ""}`,
@@ -534,7 +481,7 @@ function viewSummon() {
         draw();
       },
     },
-      h("canvas", { class: "pixel banner-art", "data-banner": row.art, "aria-hidden": "true" }),
+      h("div", { class: `banner-plate ${row.id}`, "aria-hidden": "true" }),
       h("h3", { text: row.name }),
       h("p", { text: row.blurb }),
       row.id === banner.id ? h("p", { class: "tag-new", text: "Selected" }) : null,
@@ -607,10 +554,10 @@ function viewUnits() {
       "data-element": row.def.element,
       onclick: () => go("unit", row.def.id),
     },
-      sprite(row.def.id, 2, row.record ? row.def.name : `${row.def.name}, not summoned`),
+      thumb(row.def.id, row.record ? row.def.name : `${row.def.name}, not summoned`),
       starRow(row.def.rarity),
       h("h3", { text: row.def.name }),
-      h("p", { class: "meta" }, icon(row.def.element, 1), ` ${ROLE_NAME[row.def.role]}`),
+      h("p", { class: "meta" }, icon(row.def.element), ` ${ROLE_NAME[row.def.role]}`),
       h("p", { class: "fine", text: row.record ? `Lv ${row.record.level}` : "Not summoned" }),
     ))),
   );
@@ -641,13 +588,12 @@ function viewDetail(id) {
   const nextAwaken = owned && record.awaken < MAX_AWAKEN ? AWAKEN_COST[record.awaken] : null;
   return h("section", { class: "screen detail" },
     h("button", { class: "btn ghost back", type: "button", text: "Roster", onclick: () => go("units") }),
-    h("div", { class: `splash rarity-${def.rarity}` },
-      portrait(def.id, 2, def.name),
-    ),
+    h("div", { class: `splash stage detail-stage rarity-${def.rarity}`, "data-stage": "detail", "data-unit": def.id, role: "img", "aria-label": def.name }),
+    h("p", { class: "fine", text: "Drag the figure to turn it." }),
     starRow(def.rarity),
     h("h2", { text: def.name }),
     h("p", { class: "meta badges" },
-      h("span", { class: `badge ${def.element}` }, icon(def.element, 1), ELEMENT_NAME[def.element]),
+      h("span", { class: `badge ${def.element}` }, icon(def.element), ELEMENT_NAME[def.element]),
       h("span", { class: "badge", text: ROLE_NAME[def.role] }),
     ),
     h("p", { class: "flavor", text: def.flavor }),
@@ -760,9 +706,8 @@ function hideGhost() {
 function showGhost(id, x, y) {
   let ghost = document.getElementById("drag-ghost");
   if (!ghost) {
-    ghost = h("div", { id: "drag-ghost", class: "drag-ghost" }, sprite(id, 2, ""));
+    ghost = h("div", { id: "drag-ghost", class: "drag-ghost" }, thumb(id, ""));
     document.body.append(ghost);
-    paintUnit(ghost.querySelector("canvas"), id, state.frame, 2);
   }
   ghost.style.transform = `translate(${Math.round(x - 36)}px, ${Math.round(y - 70)}px)`;
 }
@@ -810,10 +755,11 @@ function endDrag(event) {
 function viewParty() {
   const members = state.save.party.map(memberById);
   const owned = UNITS.filter((def) => state.save.units[def.id]?.owned);
-  const scale = Math.max(2, partyScale());
   return h("section", { class: "screen" },
     h("p", { class: "eyebrow", text: "Formation" }),
     h("h2", { text: "Party" }),
+    h("div", { class: "stage party-stage", "data-stage": "party", "data-units": state.save.party.filter(Boolean).join(",") }),
+    h("p", { class: "fine", text: "Drag the formation to turn it." }),
     powerBanner(members),
     h("p", { class: "fine", text: "Tap a veinwalker, then a slot. Drag onto a slot if you like. The crown is the leader." }),
     h("div", { class: "slots" }, ...[0, 1, 2, 3].map((index) => {
@@ -838,8 +784,7 @@ function viewParty() {
             },
           }),
         ),
-        id ? sprite(id, scale, unitById(id).name) : h("div", { class: "empty-slot", text: "Empty" }),
-        id ? h("p", { class: "actor-name", text: unitById(id).name }) : null,
+        id ? h("p", { class: "actor-name", text: unitById(id).name }) : h("div", { class: "empty-slot", text: "Empty" }),
         id ? h("button", {
           type: "button",
           class: "mini",
@@ -878,7 +823,7 @@ function viewParty() {
           draw();
         },
       },
-        sprite(def.id, 2, def.name),
+        thumb(def.id, def.name),
         h("span", { text: def.name }),
         inParty ? h("em", { text: "In party" }) : null,
       );
@@ -1180,7 +1125,7 @@ function viewStory(route) {
         disabled: !open,
         onclick: () => { if (open) goHash(`#/story/${difficulty}/${index}`); },
       },
-        h("canvas", { class: "pixel map-thumb", "data-field": map.id, "data-scale": "2" }),
+        h("div", { class: `land ${map.id}`, "aria-hidden": "true" }),
         h("div", {},
           h("p", { class: "eyebrow", text: `${DIFF_LABEL[difficulty]} · ${ELEMENT_NAME[map.element]}` }),
           h("h3", { text: map.name }),
@@ -1254,7 +1199,6 @@ function startMountedBattle(mount, route) {
     allies,
     encounter,
     title: stageTitle(route.map, route.stage),
-    paintUnit,
     rewardLine: (battle) => {
       const stars = starsFromResult({ won: true, deaths: battle.deaths, turns: battle.turns, stage: route.stage });
       const key = `${route.difficulty}:${route.map}:${route.stage}`;
@@ -1268,7 +1212,6 @@ function startMountedBattle(mount, route) {
     },
     onVictory: (result) => { void claimStage(route, result); },
   });
-  paintSprites();
 }
 
 async function claimStage(route, result) {
@@ -1334,7 +1277,9 @@ function viewFor(route) {
 function draw(options = {}) {
   const route = current();
   if (route.name === "battle" && document.getElementById("battle-app") && !options.scroll) return;
+  stopBattle();
   if (route.name !== "summon") state.results = null;
+  if (route.name !== "battle") releaseView();
   const app = document.getElementById("app");
   app.classList.toggle("on-title", route.name === "title");
   const view = document.getElementById("view");
@@ -1342,7 +1287,7 @@ function draw(options = {}) {
   chrome();
   nav();
   view.replaceChildren(viewFor(route));
-  paintAll();
+  if (route.name !== "battle") presentView(route, state);
   if (options.scroll) window.scrollTo(0, 0);
   if (route.name === "admin" && state.mode === "online" && state.admin && !state.preview) void loadAdmin(state.adminQuery || "");
 }
@@ -1469,12 +1414,9 @@ export async function boot(root) {
   });
   window.addEventListener("resize", () => {
     if (state.fxStop) return;
+    if (document.getElementById("battle-app") || document.querySelector("[data-stage]")) return;
     draw();
   });
-  setInterval(() => {
-    state.frame = (state.frame + 1) % FRAME_COUNT;
-    paintSprites();
-  }, 140);
   if (!location.hash) location.hash = state.banReason ? "#/banned" : "#/title";
   draw({ scroll: true });
   if (current().name === "admin" && state.mode === "online" && state.admin) void loadAdmin("");
