@@ -49,7 +49,7 @@ import {
 import { BUILDING_ORDER, NPC_TABLE, TICK_SECONDS, UNIT_ORDER } from "./rules.js";
 import { buySpies, createPact, disbandPact, inviteKingdom, kickMember, leavePact, previewOdds, requestJoin, answerRequest, sendArmy, sendSpy, setOfficer, settleMarches, transferPact, warView } from "./war.js";
 import { armMusic, musicState, setMuted } from "./music.js";
-import { realmRowsFrom, render, tickLabel } from "./ui.js";
+import { paintJobClocks, realmRowsFrom, render, tickLabel } from "./ui.js";
 
 const root = document.querySelector("#app");
 
@@ -871,8 +871,13 @@ async function boot() {
 setInterval(() => {
   const clock = document.getElementById("tick-clock");
   if (clock && model.kingdom) clock.textContent = tickLabel(model.kingdom);
+  paintJobClocks();
   if (model.busy || model.screen !== "play" || !model.kingdom) return;
-  if (Date.now() < model.kingdom.lastTickAt + TICK_SECONDS * 1000) return;
+  const dueJob = (model.kingdom.jobs || []).some((job) => job.completesAt <= Date.now());
+  const dueTick = Date.now() >= model.kingdom.lastTickAt + TICK_SECONDS * 1000;
+  if (!dueJob && !dueTick) return;
+  if (dueJob && !dueTick && model.jobHold && Date.now() < model.jobHold) return;
+  if (dueJob) model.jobHold = Date.now() + 4000;
   if (model.mode === "demo") {
     const result = settle(model.kingdom, Date.now(), { maxTicks: 5000 });
     const marched = settleMarches(worldFrom(model, result.state), Date.now());

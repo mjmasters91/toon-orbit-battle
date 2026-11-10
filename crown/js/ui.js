@@ -78,6 +78,32 @@ function duration(seconds) {
   return `${r}s`;
 }
 
+function countdown(ms) {
+  if (ms <= 0) return "Finishing…";
+  const s = Math.ceil(ms / 1000);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const r = s % 60;
+  if (h > 0) return `${h}h ${String(m).padStart(2, "0")}m`;
+  if (m > 0) return `${m}m ${String(r).padStart(2, "0")}s`;
+  return `${r}s`;
+}
+
+export function paintJobClocks(now = Date.now()) {
+  document.querySelectorAll("[data-job-end]").forEach((node) => {
+    const end = Number(node.dataset.jobEnd);
+    const start = Number(node.dataset.jobStart);
+    const clock = node.querySelector("[data-job-clock]");
+    const bar = node.querySelector("[data-job-bar]");
+    if (clock) clock.textContent = countdown(end - now);
+    if (bar && end > start) {
+      const pct = Math.max(0, Math.min(100, ((now - start) / (end - start)) * 100));
+      bar.style.width = `${pct}%`;
+      bar.parentElement?.setAttribute("aria-valuenow", String(Math.round(pct)));
+    }
+  });
+}
+
 function when(at) {
   const t = typeof at === "number" ? at : Date.parse(at);
   if (!Number.isFinite(t)) return "";
@@ -368,9 +394,9 @@ function throne(model, act) {
     el(
       "div",
       { class: "split" },
-      el("section", { class: "panel" },
-        el("h2", { text: "At work" }),
-        state.jobs.length ? state.jobs.map((job) => jobCard(job)) : el("p", { class: "muted", text: "No crews in the yard. The next tick will still tend the fields." }),
+      el("section", { class: "panel works" },
+        el("h2", { text: "Works in progress" }),
+        worksBody(state),
         model.mode === "demo"
           ? el("button", { class: "btn wood", type: "button", id: "hour-bell", text: "Sound the hour bell", onclick: () => act.bell() })
           : el("p", { class: "muted", text: "Online kingdoms advance on the server clock, once a minute." }),
@@ -396,28 +422,79 @@ function stat(label, value, sub) {
   );
 }
 
+function worksPanel(state) {
+  return el("section", { class: "panel works" },
+    el("h2", { text: "Works in progress" }),
+    worksBody(state),
+  );
+}
+
+function worksBody(state) {
+  const jobs = state.jobs || [];
+  if (!jobs.length) return el("p", { class: "muted", text: "Nothing is under way." });
+  return el("div", { class: "work-list" }, jobs.map((job) => jobCard(job)));
+}
+
 function jobCard(job) {
   const now = Date.now();
   const span = Math.max(1, job.completesAt - job.startedAt);
-  const pct = Math.max(0, Math.min(100, Math.round(((now - job.startedAt) / span) * 100)));
-  const left = job.completesAt <= now ? "Finishes this tick" : duration((job.completesAt - now) / 1000);
+  const pct = Math.max(0, Math.min(100, ((now - job.startedAt) / span) * 100));
   return el(
     "div",
-    { class: "job" },
+    {
+      class: "job",
+      "data-job-start": String(job.startedAt),
+      "data-job-end": String(job.completesAt),
+    },
     el("div", { class: "job-top" },
       el("strong", { text: jobTitle(job) }),
-      el("span", { text: left }),
+      el("span", { "data-job-clock": "1", text: countdown(job.completesAt - now) }),
     ),
-    el("div", { class: "bar", role: "progressbar", "aria-valuenow": String(pct), "aria-valuemin": "0", "aria-valuemax": "100" },
-      el("span", { style: `width:${pct}%` }),
+    el("p", { class: "job-kind", text: jobKindLabel(job) }),
+    el("div", { class: "bar", role: "progressbar", "aria-valuenow": String(Math.round(pct)), "aria-valuemin": "0", "aria-valuemax": "100" },
+      el("span", { "data-job-bar": "1", style: `width:${pct}%` }),
     ),
   );
 }
 
+function jobKindLabel(job) {
+  if (job.kind === "build") return `Building ×${job.count}`;
+  if (job.kind === "explore") return `Exploration ×${job.count} acres`;
+  if (job.kind === "train") return `Training ×${job.count}`;
+  if (job.kind === "research") return "Research";
+  return "Work";
+}
+
 function jobTitle(job) {
   if (job.kind === "build") return `${BUILDINGS[job.building]?.name || "Building"} ×${job.count}`;
-  if (job.kind === "explore") return `Claiming ${job.count} acres`;
-  return `${UNITS[job.unit]?.name || "Company"} ×${job.count}`;
+  if (job.kind === "explore") return `Scouts ×${job.count} acres`;
+  if (job.kind === "train") return `${UNITS[job.unit]?.name || "Company"} ×${job.count}`;
+  if (job.kind === "research") return `${TRACKS[job.track]?.name || "Study"}`;
+  return "Work";
+}
+
+function jobFor(state, kind, id) {
+  return (state.jobs || []).find((job) => {
+    if (job.kind !== kind) return false;
+    if (kind === "build") return job.building === id;
+    if (kind === "train") return job.unit === id;
+    if (kind === "research") return job.track === id;
+    return true;
+  }) || null;
+}
+
+function rowCountdown(job, phrase) {
+  return el(
+    "p",
+    {
+      class: "job-inline",
+      "data-job-start": String(job.startedAt),
+      "data-job-end": String(job.completesAt),
+    },
+    el("span", { text: `${phrase}, ` }),
+    el("span", { "data-job-clock": "1", text: countdown(job.completesAt - Date.now()) }),
+    el("span", { text: " left" }),
+  );
 }
 
 function buildPage(model, act) {
@@ -430,11 +507,13 @@ function buildPage(model, act) {
       el("h2", { text: "Build" }),
       el("p", { text: `One crew at a time. Each building takes an acre. ${num(view.freeLand)} acres are open, and the purse holds ${num(state.gold)} gold.` }),
     ),
+    worksPanel(state),
     el("div", { class: "card-grid" }, BUILDING_ORDER.map((id) => {
       const def = BUILDINGS[id];
       const count = model.drafts.build[id] || 1;
       const seconds = Math.floor(def.seconds * count * LANDS[state.landType].buildPct / 100);
       const cost = def.cost * count;
+      const underway = jobFor(state, "build", id);
       return el(
         "article",
         { class: "card" },
@@ -444,6 +523,7 @@ function buildPage(model, act) {
         ),
         el("p", { text: def.effect }),
         el("p", { class: "cost", text: `${num(cost)} gold · ${duration(seconds)} · ${count} acre${count === 1 ? "" : "s"}` }),
+        underway ? rowCountdown(underway, `${def.name} +${underway.count} building`) : null,
         stepper(count, (next) => act.setBuild(id, next)),
         el("button", {
           class: "btn primary",
@@ -556,6 +636,7 @@ function scholarPage(model, act) {
       el("h2", { text: "Scholars" }),
       el("p", { text: `${num(view.scholars)} scholars are at the desks (${signed(view.researchPerHour)} points an hour). You hold ${num(state.researchPoints)} points. Each library employs up to 14 peasants.` }),
     ),
+    worksPanel(state),
     el("div", { class: "track-list" }, TRACK_ORDER.map((id) => {
       const track = TRACKS[id];
       const level = state.research[id] || 0;
@@ -567,6 +648,9 @@ function scholarPage(model, act) {
           el("h3", { text: track.name }),
           el("p", { text: track.blurb }),
           el("p", { class: "cost", text: track.effect }),
+          jobFor(state, "research", id)
+            ? rowCountdown(jobFor(state, "research", id), `${track.name} study`)
+            : null,
         ),
         el("div", { class: "pips" }, Array.from({ length: 10 }, (_, i) => el("i", { class: i < level ? "on" : "" }))),
         el("button", {
